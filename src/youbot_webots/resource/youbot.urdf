@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<!--
+  webots_ros2 robot description for the YouBot.
+
+  This is NOT a physics URDF (Webots owns the physics from the .wbt). It
+  tells webots_ros2 which Webots devices to expose as ROS 2 topics and which
+  driver plugin to load. The <device> reference names must match the device
+  `name` fields in smart_agriculture.wbt (lidar, camera, gps, compass).
+-->
+<robot name="youbot">
+  <webots>
+    <!-- Mecanum base control + GPS/Compass -> /odom (our plugin). -->
+    <plugin type="youbot_webots.youbot_driver.YoubotDriver"/>
+
+    <!-- Auto-published sensors. -->
+    <device reference="lidar" type="Lidar">
+      <ros>
+        <topicName>/scan</topicName>
+        <enabled>true</enabled>
+      </ros>
+    </device>
+
+    <device reference="camera" type="Camera">
+      <ros>
+        <topicName>/camera/image_raw</topicName>
+        <enabled>true</enabled>
+      </ros>
+    </device>
+  </webots>
+</robot>

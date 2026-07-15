@@ -1,0 +1,21 @@
+# Parameters for the YouBot control stack. Each top-level key is a node
+# name; ROS 2 delivers the nested values to that node's declared parameters.
+# Tuned values are carried over from the validated Webots controller.
+
+mapping_node:
+  ros__parameters:
+    resolution: 0.10       # metres per cell
+    arena_size: 10.0       # square world side (m)
+    inflation: 0.32        # obstacle padding ~ robot half-diagonal (m)
+    publish_period: 0.5    # seconds between /map publications
+
+planning_node:
+  ros__parameters:
+    resolution: 0.10
+    arena_size: 10.0
+
+navigation_node:
+  ros__parameters:
+    lookahead: 0.4         # pure-pursuit lookahead (m); shorter hugs the plan
+    cruise_speed: 0.5      # m/s along the lookahead vector
+    control_period: 0.05   # 20 Hz control loop
