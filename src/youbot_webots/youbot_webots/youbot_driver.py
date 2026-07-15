@@ -43,7 +43,10 @@ class YoubotDriver:
         if self.__compass:
             self.__compass.enable(timestep)
 
-        # ROS 2 interface. webots_ros2 has already called rclpy.init().
+        # ROS 2 interface. The webots_controller process does not init rclpy
+        # for us, so do it here (guarded in case a future version does).
+        if not rclpy.ok():
+            rclpy.init(args=None)
         self.__node = rclpy.create_node("youbot_driver")
         self.__target = Twist()
         self.__node.create_subscription(Twist, "cmd_vel", self.__on_cmd_vel, 1)
