@@ -12,6 +12,8 @@ Algorithm ported from the validated Webots `planning.py` (lib/astar.py).
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -107,7 +109,8 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
