@@ -1,0 +1,170 @@
+"""sim_node -- headless stand-in for Webots, so the whole stack runs on ROS alone.
+
+Integrates /cmd_vel through the mecanum body kinematics to publish /odom, and
+ray-casts a synthetic /scan against a known obstacle layout (the smart-
+agriculture bassins + arena walls). It also broadcasts TF (map -> base_link ->
+lidar) so RViz can render the robot and its scan.
+
+No physics, no collision: the robot is a point that moves exactly as commanded
+-- ideal for developing and debugging the control nodes without a simulator.
+
+    ros2 launch youbot_bringup sim.launch.py
+"""
+
+from __future__ import annotations
+
+import math
+
+import rclpy
+from rclpy.node import Node
+
+from geometry_msgs.msg import Twist, TransformStamped
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
+from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
+
+# Obstacles the lidar can see: (centre_x, centre_y, size_x, size_y).
+# The smart_agriculture bassins plus the depot box.
+OBSTACLES = [
+    (-2.0, 3.0, 4.0, 2.0), (2.5, 3.0, 3.0, 2.0), (-3.0, 0.0, 2.0, 2.0),
+    (1.5, 0.0, 5.0, 2.0), (-2.0, -3.0, 4.0, 2.0), (2.5, -3.0, 3.0, 2.0),
+    (4.5, -4.5, 0.8, 0.8),
+]
+ARENA_HALF = 5.0  # walls at +/- 5 m
+
+
+def _yaw_to_quat(yaw):
+    return math.sin(yaw / 2.0), math.cos(yaw / 2.0)
+
+
+class SimNode(Node):
+    def __init__(self) -> None:
+        super().__init__("sim_node")
+        self.declare_parameter("x", -4.5)
+        self.declare_parameter("y", 4.5)
+        self.declare_parameter("theta", -2.88)
+        self.declare_parameter("n_beams", 360)
+        self.declare_parameter("max_range", 12.0)
+
+        self.x = float(self.get_parameter("x").value)
+        self.y = float(self.get_parameter("y").value)
+        self.th = float(self.get_parameter("theta").value)
+        self.n = int(self.get_parameter("n_beams").value)
+        self.max_range = float(self.get_parameter("max_range").value)
+        self.vx = self.vy = self.wz = 0.0
+
+        self.create_subscription(Twist, "cmd_vel", self._on_cmd, 10)
+        self.odom_pub = self.create_publisher(Odometry, "odom", 10)
+        self.scan_pub = self.create_publisher(LaserScan, "scan", 10)
+        self.tf = TransformBroadcaster(self)
+        self._static_tf()
+
+        self.dt = 0.05
+        self.create_timer(self.dt, self._tick)       # 20 Hz motion + odom
+        self.create_timer(0.1, self._publish_scan)   # 10 Hz lidar
+        self.get_logger().info(
+            "sim_node up: fake robot (no Webots). /cmd_vel -> /odom + /scan + TF")
+
+    def _static_tf(self) -> None:
+        st = StaticTransformBroadcaster(self)
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = "base_link"
+        t.child_frame_id = "lidar"
+        t.transform.rotation.w = 1.0
+        st.sendTransform(t)
+
+    def _on_cmd(self, msg: Twist) -> None:
+        self.vx, self.vy, self.wz = msg.linear.x, msg.linear.y, msg.angular.z
+
+    def _tick(self) -> None:
+        c, s = math.cos(self.th), math.sin(self.th)
+        self.x += (c * self.vx - s * self.vy) * self.dt
+        self.y += (s * self.vx + c * self.vy) * self.dt
+        self.th = math.atan2(math.sin(self.th + self.wz * self.dt),
+                             math.cos(self.th + self.wz * self.dt))
+        qz, qw = _yaw_to_quat(self.th)
+
+        now = self.get_clock().now().to_msg()
+        o = Odometry()
+        o.header.stamp = now
+        o.header.frame_id = "map"
+        o.child_frame_id = "base_link"
+        o.pose.pose.position.x = self.x
+        o.pose.pose.position.y = self.y
+        o.pose.pose.orientation.z = qz
+        o.pose.pose.orientation.w = qw
+        self.odom_pub.publish(o)
+
+        tf = TransformStamped()
+        tf.header.stamp = now
+        tf.header.frame_id = "map"
+        tf.child_frame_id = "base_link"
+        tf.transform.translation.x = self.x
+        tf.transform.translation.y = self.y
+        tf.transform.rotation.z = qz
+        tf.transform.rotation.w = qw
+        self.tf.sendTransform(tf)
+
+    def _publish_scan(self) -> None:
+        scan = LaserScan()
+        scan.header.stamp = self.get_clock().now().to_msg()
+        scan.header.frame_id = "lidar"
+        scan.angle_min = -math.pi
+        scan.angle_max = math.pi
+        scan.angle_increment = 2.0 * math.pi / self.n
+        scan.range_min = 0.05
+        scan.range_max = self.max_range
+        ranges = []
+        for i in range(self.n):
+            a = self.th + scan.angle_min + i * scan.angle_increment
+            ranges.append(self._raycast(a))
+        scan.ranges = ranges
+        self.scan_pub.publish(scan)
+
+    def _raycast(self, ang: float) -> float:
+        dx, dy = math.cos(ang), math.sin(ang)
+        # Distance to the arena boundary in this direction.
+        tx = ((ARENA_HALF if dx > 0 else -ARENA_HALF) - self.x) / dx if abs(dx) > 1e-9 else math.inf
+        ty = ((ARENA_HALF if dy > 0 else -ARENA_HALF) - self.y) / dy if abs(dy) > 1e-9 else math.inf
+        best = min(tx, ty)
+        for cx, cy, sx, sy in OBSTACLES:
+            t = self._ray_box(self.x, self.y, dx, dy, cx, cy, sx, sy)
+            if t is not None and 0.0 < t < best:
+                best = t
+        return best if best < self.max_range else float("inf")
+
+    @staticmethod
+    def _ray_box(px, py, dx, dy, cx, cy, sx, sy):
+        x0, x1 = cx - sx / 2.0, cx + sx / 2.0
+        y0, y1 = cy - sy / 2.0, cy + sy / 2.0
+        tmin, tmax = -math.inf, math.inf
+        for p, d, lo, hi in ((px, dx, x0, x1), (py, dy, y0, y1)):
+            if abs(d) < 1e-9:
+                if p < lo or p > hi:
+                    return None
+            else:
+                ta, tb = (lo - p) / d, (hi - p) / d
+                if ta > tb:
+                    ta, tb = tb, ta
+                tmin = max(tmin, ta)
+                tmax = min(tmax, tb)
+        if tmax < max(tmin, 0.0):
+            return None
+        return tmin if tmin > 0.0 else None
+
+
+def main(args=None) -> None:
+    rclpy.init(args=args)
+    node = SimNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

@@ -24,6 +24,7 @@ setup(
             "planning_node = youbot_control.planning_node:main",
             "navigation_node = youbot_control.navigation_node:main",
             "mission_node = youbot_control.mission_node:main",
+            "sim_node = youbot_control.sim_node:main",
         ],
     },
 )
