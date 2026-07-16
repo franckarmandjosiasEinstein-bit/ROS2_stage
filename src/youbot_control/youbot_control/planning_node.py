@@ -48,14 +48,16 @@ class PlanningNode(Node):
         arr = np.array(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
         self._grid = (arr[::-1, :] > 50).astype(np.uint8)
         self.resolution = msg.info.resolution
-        # A goal may have arrived before the first map (startup race), so try
-        # again on every map update until we have a plan for the current goal.
-        if self._goal is not None and self._planned_for != self._goal:
+        # Replan on EVERY map update while a goal is active. The first map is
+        # nearly empty, so the initial plan is a straight line through walls
+        # not yet seen; as the lidar fills the map, replanning from the robot's
+        # current pose routes the path around the obstacles (receding horizon).
+        if self._goal is not None:
             self._try_plan()
 
     def _on_goal(self, msg: PoseStamped) -> None:
         self._goal = (msg.pose.position.x, msg.pose.position.y)
-        self._planned_for = None
+        self._last_n = None
         self._try_plan()
 
     def _try_plan(self) -> None:
@@ -64,11 +66,12 @@ class PlanningNode(Node):
         waypoints = astar.plan(self._grid, self.resolution, self.arena_size,
                                self._start, self._goal)
         if not waypoints:
-            self.get_logger().warn(f"No path from {self._start} to {self._goal} yet.")
             return
         self.plan_pub.publish(self._to_path(waypoints))
-        self._planned_for = self._goal
-        self.get_logger().info(f"Plan: {len(waypoints)} waypoints to {self._goal}.")
+        # Log only when the plan length changes, to avoid spamming at map rate.
+        if getattr(self, "_last_n", None) != len(waypoints):
+            self._last_n = len(waypoints)
+            self.get_logger().info(f"Plan: {len(waypoints)} waypoints to {self._goal}.")
 
     def _to_path(self, waypoints) -> Path:
         path = Path()
