@@ -58,9 +58,9 @@ class MappingNode(Node):
         self._pose = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
 
     def _on_scan(self, msg: LaserScan) -> None:
-        fov = msg.angle_max - msg.angle_min
         x, y, yaw = self._pose
-        self.grid.integrate_scan(list(msg.ranges), x, y, yaw, fov, msg.range_max)
+        self.grid.integrate_scan(list(msg.ranges), x, y, yaw,
+                                 msg.angle_min, msg.angle_increment, msg.range_max)
 
     def _publish_map(self) -> None:
         self.grid.update_binary()

@@ -49,9 +49,17 @@ class OccupancyGrid:
     def shape(self) -> tuple[int, int]:
         return self.grid.shape
 
-    def integrate_scan(self, ranges, robot_x, robot_y, robot_yaw, fov,
+    def integrate_scan(self, ranges, robot_x, robot_y, robot_yaw,
+                       angle_min, angle_increment,
                        max_range, min_range: float = 0.25) -> None:
-        """Fuse one 2D lidar scan (left-to-right over `fov`) into the belief."""
+        """Fuse one 2D LaserScan into the belief.
+
+        Beam i points at `angle_min + i*angle_increment` in the robot frame
+        (the ROS sensor_msgs/LaserScan convention), which works whatever the
+        scan direction -- Webots' lidar sweeps clockwise (angle_min = +pi,
+        negative increment), so deriving a single `fov` and assuming a fixed
+        sweep direction would mirror the map.
+        """
         n = len(ranges)
         if n == 0:
             return
@@ -59,9 +67,8 @@ class OccupancyGrid:
         r0c, r0r = world_to_map(robot_x, robot_y, self.resolution, self.arena_size)
         if not (0 <= r0c < cols and 0 <= r0r < rows):
             return
-        step = fov / (n - 1) if n > 1 else 0.0
         for i, dist in enumerate(ranges):
-            angle = robot_yaw + fov / 2.0 - i * step
+            angle = robot_yaw + angle_min + i * angle_increment
             hit = math.isfinite(dist) and dist < max_range
             reach = dist if hit else max_range
             if reach < min_range:
