@@ -32,6 +32,8 @@ class PlanningNode(Node):
 
         self._grid = None
         self._start = (0.0, 0.0)
+        self._goal = None          # current goal (x, y), if any
+        self._planned_for = None   # goal we have already published a plan for
         self.create_subscription(OccupancyGrid, "map", self._on_map, 1)
         self.create_subscription(PoseStamped, "goal_pose", self._on_goal, 10)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
@@ -46,19 +48,27 @@ class PlanningNode(Node):
         arr = np.array(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
         self._grid = (arr[::-1, :] > 50).astype(np.uint8)
         self.resolution = msg.info.resolution
+        # A goal may have arrived before the first map (startup race), so try
+        # again on every map update until we have a plan for the current goal.
+        if self._goal is not None and self._planned_for != self._goal:
+            self._try_plan()
 
     def _on_goal(self, msg: PoseStamped) -> None:
-        if self._grid is None:
-            self.get_logger().warn("No /map yet; cannot plan.")
+        self._goal = (msg.pose.position.x, msg.pose.position.y)
+        self._planned_for = None
+        self._try_plan()
+
+    def _try_plan(self) -> None:
+        if self._grid is None or self._goal is None:
             return
-        goal = (msg.pose.position.x, msg.pose.position.y)
         waypoints = astar.plan(self._grid, self.resolution, self.arena_size,
-                               self._start, goal)
+                               self._start, self._goal)
         if not waypoints:
-            self.get_logger().warn(f"No path from {self._start} to {goal}.")
+            self.get_logger().warn(f"No path from {self._start} to {self._goal} yet.")
             return
         self.plan_pub.publish(self._to_path(waypoints))
-        self.get_logger().info(f"Plan: {len(waypoints)} waypoints to {goal}.")
+        self._planned_for = self._goal
+        self.get_logger().info(f"Plan: {len(waypoints)} waypoints to {self._goal}.")
 
     def _to_path(self, waypoints) -> Path:
         path = Path()
