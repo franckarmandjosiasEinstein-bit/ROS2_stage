@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!--
+  Visual-only URDF for RViz: a recognizable YouBot body (base + 4 mecanum
+  wheels + a folded 5-DOF arm) made of primitive shapes. All joints are FIXED,
+  so robot_state_publisher emits the full TF tree without needing joint states.
+  The robot follows the map->base_link transform published by sim_node (or the
+  Webots driver). Replace these primitives with your CAD meshes (sw2urdf) later.
+  Frame convention: +X forward (toward the arm), +Y left, +Z up.
+-->
+<robot name="youbot">
+  <material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material>
+  <material name="dark"><color rgba="0.14 0.14 0.16 1"/></material>
+  <material name="grey"><color rgba="0.42 0.42 0.45 1"/></material>
+  <material name="plate"><color rgba="0.30 0.30 0.33 1"/></material>
+
+  <!-- Base chassis + flat rear carrying plate -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.11"/>
+      <geometry><box size="0.57 0.36 0.10"/></geometry>
+      <material name="kuka_orange"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.12 0 0.17"/>
+      <geometry><box size="0.28 0.34 0.03"/></geometry>
+      <material name="plate"/>
+    </visual>
+  </link>
+
+  <!-- Four mecanum wheels (cylinders laid along Y) -->
+  <link name="wheel_fl">
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_fl" type="fixed"><parent link="base_link"/><child link="wheel_fl"/><origin xyz="0.228 0.178 0.05"/></joint>
+
+  <link name="wheel_fr">
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_fr" type="fixed"><parent link="base_link"/><child link="wheel_fr"/><origin xyz="0.228 -0.178 0.05"/></joint>
+
+  <link name="wheel_rl">
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_rl" type="fixed"><parent link="base_link"/><child link="wheel_rl"/><origin xyz="-0.228 0.178 0.05"/></joint>
+
+  <link name="wheel_rr">
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.228 -0.178 0.05"/></joint>
+
+  <!-- Simplified folded arm at the front -->
+  <link name="arm_base">
+    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.035" length="0.10"/></geometry><material name="kuka_orange"/></visual>
+  </link>
+  <joint name="j_arm" type="fixed"><parent link="base_link"/><child link="arm_base"/><origin xyz="0.17 0 0.16"/></joint>
+
+  <link name="arm_seg">
+    <visual><origin xyz="0.07 0 0" rpy="0 1.5708 0"/><geometry><cylinder radius="0.026" length="0.16"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="j_arm2" type="fixed"><parent link="arm_base"/><child link="arm_seg"/><origin xyz="0 0 0.10"/></joint>
+</robot>

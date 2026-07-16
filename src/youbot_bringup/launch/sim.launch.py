@@ -20,6 +20,7 @@ def generate_launch_description() -> LaunchDescription:
     share = Path(get_package_share_directory("youbot_bringup"))
     params = str(share / "config" / "youbot_params.yaml")
     rviz_cfg = str(share / "config" / "youbot.rviz")
+    robot_desc = (share / "urdf" / "youbot_visual.urdf").read_text()
     use_rviz = LaunchConfiguration("rviz")
 
     def node(executable):
@@ -29,6 +30,10 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument("rviz", default_value="true",
                               description="Launch RViz to visualise the stack."),
+        # Publishes the robot's TF tree + /robot_description so RViz draws the 3D body.
+        Node(package="robot_state_publisher", executable="robot_state_publisher",
+             name="robot_state_publisher", output="screen",
+             parameters=[{"robot_description": robot_desc}]),
         node("sim_node"),          # fake robot: /cmd_vel -> /odom + /scan + TF
         node("mapping_node"),
         node("planning_node"),
