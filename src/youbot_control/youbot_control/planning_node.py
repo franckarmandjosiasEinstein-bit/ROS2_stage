@@ -32,8 +32,10 @@ class PlanningNode(Node):
 
         self._grid = None
         self._start = (0.0, 0.0)
-        self._goal = None          # current goal (x, y), if any
-        self._planned_for = None   # goal we have already published a plan for
+        self._goal = None            # current goal (x, y), if any
+        self._planned_for = None     # goal we have already published a plan for
+        self._last_plan_start = None  # robot pose at the last publish (throttle)
+        self._last_n = None
         self.create_subscription(OccupancyGrid, "map", self._on_map, 1)
         self.create_subscription(PoseStamped, "goal_pose", self._on_goal, 10)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
@@ -48,15 +50,22 @@ class PlanningNode(Node):
         arr = np.array(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
         self._grid = (arr[::-1, :] > 50).astype(np.uint8)
         self.resolution = msg.info.resolution
-        # Replan on EVERY map update while a goal is active. The first map is
-        # nearly empty, so the initial plan is a straight line through walls
-        # not yet seen; as the lidar fills the map, replanning from the robot's
-        # current pose routes the path around the obstacles (receding horizon).
-        if self._goal is not None:
+        # Replan as the map fills in so the path routes around walls the lidar
+        # only just saw (receding horizon). But throttle it: only replan if the
+        # goal changed, we have no plan yet, or the robot has moved enough --
+        # otherwise, sitting on a goal would republish a trivial plan every map
+        # tick and spam navigation.
+        if self._goal is None:
+            return
+        moved = math.hypot(self._start[0] - self._last_plan_start[0],
+                           self._start[1] - self._last_plan_start[1]) \
+            if self._last_plan_start else 1e9
+        if self._planned_for != self._goal or moved > 0.20:
             self._try_plan()
 
     def _on_goal(self, msg: PoseStamped) -> None:
         self._goal = (msg.pose.position.x, msg.pose.position.y)
+        self._planned_for = None
         self._last_n = None
         self._try_plan()
 
@@ -68,6 +77,8 @@ class PlanningNode(Node):
         if not waypoints:
             return
         self.plan_pub.publish(self._to_path(waypoints))
+        self._planned_for = self._goal
+        self._last_plan_start = self._start
         # Log only when the plan length changes, to avoid spamming at map rate.
         if getattr(self, "_last_n", None) != len(waypoints):
             self._last_n = len(waypoints)

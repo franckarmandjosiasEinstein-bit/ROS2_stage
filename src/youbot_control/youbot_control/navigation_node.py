@@ -42,6 +42,8 @@ class NavigationNode(Node):
             cruise_speed=self.get_parameter("cruise_speed").value,
         )
         self._pose = None
+        self._last_wp = None
+        self._reached_logged = False
         self.create_subscription(Path, "plan", self._on_plan, 1)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
@@ -54,6 +56,10 @@ class NavigationNode(Node):
 
     def _on_plan(self, msg: Path) -> None:
         waypoints = [(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses]
+        if waypoints == self._last_wp:
+            return  # identical replan -> don't reset the cursor or re-log
+        self._last_wp = waypoints
+        self._reached_logged = False
         self.controller.set_path(waypoints)
         self.get_logger().info(f"New plan: {len(waypoints)} waypoints.")
 
@@ -64,7 +70,9 @@ class NavigationNode(Node):
         status, vx, vy, wz = self.controller.step(*self._pose)
         if status == "success":
             self._publish(0.0, 0.0, 0.0)
-            self.get_logger().info("Goal reached.")
+            if not self._reached_logged:
+                self._reached_logged = True
+                self.get_logger().info("Goal reached.")
         elif status == "running":
             self._publish(vx, vy, wz)
 
