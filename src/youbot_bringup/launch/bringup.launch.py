@@ -32,4 +32,5 @@ def generate_launch_description() -> LaunchDescription:
         node("planning_node"),
         node("navigation_node"),
         node("mission_node"),
+        node("vision_node"),   # real camera detection (Webots). Headless, sim_node emits detections.
     ])

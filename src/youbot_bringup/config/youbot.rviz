@@ -55,6 +55,12 @@ Visualization Manager:
       Topic:
         Value: /plan
         Reliability Policy: Reliable
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Crates
+      Enabled: true
+      Topic:
+        Value: /crate_markers
+        Reliability Policy: Reliable
     - Class: rviz_default_plugins/Odometry
       Name: Odometry
       Enabled: true

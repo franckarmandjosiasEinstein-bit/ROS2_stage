@@ -18,9 +18,10 @@ import math
 import rclpy
 from rclpy.node import Node
 
-from geometry_msgs.msg import Twist, TransformStamped
+from geometry_msgs.msg import Twist, TransformStamped, PoseArray, Pose
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
+from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 
 # Obstacles the lidar can see: (centre_x, centre_y, size_x, size_y).
@@ -31,6 +32,12 @@ OBSTACLES = [
     (4.5, -4.5, 0.8, 0.8),
 ]
 ARENA_HALF = 5.0  # walls at +/- 5 m
+
+# Ground-truth crate positions (smart_agriculture CAISSE_1/2/3). The crates
+# are too short for the lidar; they stand in for what the camera would see.
+CRATES = [(0.5, 2.5), (-1.5, 0.0), (3.6, -1.57)]
+CAM_FOV = 2.0      # rad: wide cone so the patrol reliably spots crates in sim
+CAM_RANGE = 4.0    # m: only "detect" a crate within this range
 
 
 def _yaw_to_quat(yaw):
@@ -56,14 +63,19 @@ class SimNode(Node):
         self.create_subscription(Twist, "cmd_vel", self._on_cmd, 10)
         self.odom_pub = self.create_publisher(Odometry, "odom", 10)
         self.scan_pub = self.create_publisher(LaserScan, "scan", 10)
+        self.crate_pub = self.create_publisher(MarkerArray, "crate_markers", 1)
+        self.detect_pub = self.create_publisher(PoseArray, "detected_crates", 5)
         self.tf = TransformBroadcaster(self)
         self._static_tf()
 
         self.dt = 0.05
-        self.create_timer(self.dt, self._tick)       # 20 Hz motion + odom
-        self.create_timer(0.1, self._publish_scan)   # 10 Hz lidar
+        self.create_timer(self.dt, self._tick)             # 20 Hz motion + odom
+        self.create_timer(0.1, self._publish_scan)         # 10 Hz lidar
+        self.create_timer(1.0, self._publish_crate_markers)  # crates in RViz
+        self.create_timer(0.2, self._publish_detections)   # camera-cone "vision"
         self.get_logger().info(
-            "sim_node up: fake robot (no Webots). /cmd_vel -> /odom + /scan + TF")
+            "sim_node up: fake robot (no Webots). /cmd_vel -> /odom + /scan + TF; "
+            "crates -> /crate_markers + /detected_crates (FOV cone)")
 
     def _static_tf(self) -> None:
         st = StaticTransformBroadcaster(self)
@@ -121,6 +133,49 @@ class SimNode(Node):
             ranges.append(self._raycast(a))
         scan.ranges = ranges
         self.scan_pub.publish(scan)
+
+    def _publish_crate_markers(self) -> None:
+        arr = MarkerArray()
+        for i, (cx, cy) in enumerate(CRATES):
+            m = Marker()
+            m.header.frame_id = "map"
+            m.header.stamp = self.get_clock().now().to_msg()
+            m.ns = "crates"
+            m.id = i
+            m.type = Marker.CUBE
+            m.action = Marker.ADD
+            m.pose.position.x = cx
+            m.pose.position.y = cy
+            m.pose.position.z = 0.05
+            m.pose.orientation.w = 1.0
+            m.scale.x = m.scale.y = m.scale.z = 0.15
+            m.color.r = 0.9
+            m.color.g = 0.1
+            m.color.b = 0.1
+            m.color.a = 1.0
+            arr.markers.append(m)
+        self.crate_pub.publish(arr)
+
+    def _publish_detections(self) -> None:
+        """Emulate the camera: report crates inside the front FOV cone/range."""
+        pa = PoseArray()
+        pa.header.frame_id = "map"
+        pa.header.stamp = self.get_clock().now().to_msg()
+        for cx, cy in CRATES:
+            dx, dy = cx - self.x, cy - self.y
+            dist = math.hypot(dx, dy)
+            if dist > CAM_RANGE:
+                continue
+            bearing = math.atan2(math.sin(math.atan2(dy, dx) - self.th),
+                                 math.cos(math.atan2(dy, dx) - self.th))
+            if abs(bearing) > CAM_FOV / 2.0:
+                continue
+            p = Pose()
+            p.position.x = cx
+            p.position.y = cy
+            p.orientation.w = 1.0
+            pa.poses.append(p)
+        self.detect_pub.publish(pa)
 
     def _raycast(self, ang: float) -> float:
         dx, dy = math.cos(ang), math.sin(ang)
