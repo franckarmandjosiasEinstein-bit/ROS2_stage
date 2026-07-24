@@ -64,16 +64,26 @@
   <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.228 -0.178 0.05"/></joint>
 
   <!-- ===== 5-DOF arm + 2-finger gripper (real YouBot dimensions) =====
-       Zero pose = arm pointing straight up (+Z). Segment lengths: shoulder 75,
-       upper 155, fore 135, wrist-fore 135, wrist 130 mm; total reach ~0.63 m,
-       which from the 0.16 m base top reaches ~0.9 m (the fruit height). -->
+       Mounted on a raised column (like real strawberry-picking manipulators):
+       the shoulder sits at ~0.55 m so the arm reaches the fruit at ~0.9 m, and
+       the base is rotated so the arm faces the plant row on its +Y side rather
+       than down the empty aisle. Segment lengths: shoulder 75, upper 155,
+       fore 135, wrist-fore 135, wrist 130 mm. -->
+  <link name="pedestal">
+    <inertial><mass value="1.5"/><inertia ixx="3e-3" ixy="0" ixz="0" iyy="3e-3" iyz="0" izz="2e-3"/></inertial>
+    <visual><origin xyz="0 0 0.195"/><geometry><cylinder radius="0.05" length="0.39"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_pedestal" type="fixed">
+    <parent link="base_link"/><child link="pedestal"/><origin xyz="0.12 0 0.16"/>
+  </joint>
+
   <link name="arm_link_1">
     <inertial><mass value="1.0"/><inertia ixx="2e-3" ixy="0" ixz="0" iyy="2e-3" iyz="0" izz="2e-3"/></inertial>
     <visual><origin xyz="0 0 0.0375"/><geometry><cylinder radius="0.045" length="0.075"/></geometry><material name="kuka_orange"/></visual>
   </link>
   <joint name="arm_joint_1" type="revolute">
     <parent link="base_link"/><child link="arm_link_1"/>
-    <origin xyz="0.12 0 0.16"/><axis xyz="0 0 1"/>
+    <origin xyz="0.12 0 0.55" rpy="0 0 1.5708"/><axis xyz="0 0 1"/>
     <limit lower="-2.95" upper="2.95" effort="30" velocity="1.5"/>
   </joint>
 
