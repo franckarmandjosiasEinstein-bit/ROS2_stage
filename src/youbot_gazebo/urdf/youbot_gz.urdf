@@ -1,0 +1,137 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo (Harmonic) URDF for the YouBot digital twin. Same body as the RViz
+  visual URDF, plus what Gazebo needs: inertials, a base collision, a gpu_lidar
+  sensor, and two model plugins:
+    * VelocityControl   : applies /cmd_vel (body-frame vx, vy, wz) to the base,
+                          so the mecanum strafes without simulating rollers.
+    * OdometryPublisher : ground-truth /odom in the map frame (matches the
+                          perfect-localisation assumption of the control stack).
+  Frame convention: +X forward (toward the arm), +Y left, +Z up.
+-->
+<robot name="youbot">
+  <material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material>
+  <material name="dark"><color rgba="0.14 0.14 0.16 1"/></material>
+  <material name="grey"><color rgba="0.42 0.42 0.45 1"/></material>
+  <material name="plate"><color rgba="0.30 0.30 0.33 1"/></material>
+
+  <!-- Base chassis + rear carrying plate -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.11"/>
+      <mass value="20.0"/>
+      <inertia ixx="0.5" ixy="0" ixz="0" iyy="0.9" iyz="0" izz="1.2"/>
+    </inertial>
+    <collision>
+      <origin xyz="0 0 0.11"/>
+      <geometry><box size="0.57 0.36 0.10"/></geometry>
+    </collision>
+    <visual>
+      <origin xyz="0 0 0.11"/>
+      <geometry><box size="0.57 0.36 0.10"/></geometry>
+      <material name="kuka_orange"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.12 0 0.17"/>
+      <geometry><box size="0.28 0.34 0.03"/></geometry>
+      <material name="plate"/>
+    </visual>
+  </link>
+
+  <!-- Four mecanum wheels (fixed: the base is driven kinematically) -->
+  <link name="wheel_fl">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_fl" type="fixed"><parent link="base_link"/><child link="wheel_fl"/><origin xyz="0.228 0.178 0.05"/></joint>
+
+  <link name="wheel_fr">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_fr" type="fixed"><parent link="base_link"/><child link="wheel_fr"/><origin xyz="0.228 -0.178 0.05"/></joint>
+
+  <link name="wheel_rl">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_rl" type="fixed"><parent link="base_link"/><child link="wheel_rl"/><origin xyz="-0.228 0.178 0.05"/></joint>
+
+  <link name="wheel_rr">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.228 -0.178 0.05"/></joint>
+
+  <!-- Simplified folded arm at the front -->
+  <link name="arm_base">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.035" length="0.10"/></geometry><material name="kuka_orange"/></visual>
+  </link>
+  <joint name="j_arm" type="fixed"><parent link="base_link"/><child link="arm_base"/><origin xyz="0.17 0 0.16"/></joint>
+
+  <link name="arm_seg">
+    <inertial><mass value="0.3"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0.07 0 0" rpy="0 1.5708 0"/><geometry><cylinder radius="0.026" length="0.16"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="j_arm2" type="fixed"><parent link="arm_base"/><child link="arm_seg"/><origin xyz="0 0 0.10"/></joint>
+
+  <!-- Lidar sensor mount, centred on the base, 0.20 m up -->
+  <link name="lidar">
+    <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
+    <visual><geometry><cylinder radius="0.035" length="0.05"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_lidar" type="fixed"><parent link="base_link"/><child link="lidar"/><origin xyz="0 0 0.20"/></joint>
+
+  <!-- ==================== Gazebo-specific ==================== -->
+
+  <!-- 360-beam 2D lidar, matches sim_node: -pi..pi, 12 m, 10 Hz -->
+  <gazebo reference="lidar">
+    <sensor name="lidar" type="gpu_lidar">
+      <topic>scan</topic>
+      <update_rate>10</update_rate>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159265</min_angle>
+            <max_angle>3.14159265</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>1</samples>
+            <min_angle>0</min_angle>
+            <max_angle>0</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>0.05</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </lidar>
+      <gz_frame_id>lidar</gz_frame_id>
+    </sensor>
+  </gazebo>
+
+  <!-- Drive the base directly from /cmd_vel (body frame): true mecanum strafe -->
+  <gazebo>
+    <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl">
+      <topic>cmd_vel</topic>
+    </plugin>
+  </gazebo>
+
+  <!-- Ground-truth odometry in the map frame -> /odom + map->base_link TF -->
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+      <odom_frame>map</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf_gz</tf_topic>
+      <odom_publish_frequency>30</odom_publish_frequency>
+    </plugin>
+  </gazebo>
+</robot>

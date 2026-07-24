@@ -1,0 +1,38 @@
+# ros_gz_bridge topic map between Gazebo Harmonic and ROS 2.
+# Each entry pairs a gz transport topic with its ROS 2 equivalent.
+
+# Simulation clock -> ROS (drives use_sim_time across the stack).
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# Velocity command: ROS control stack -> Gazebo VelocityControl.
+- ros_topic_name: "/cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ
+
+# Ground-truth odometry: Gazebo OdometryPublisher -> ROS.
+- ros_topic_name: "/odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# Lidar scan: Gazebo gpu_lidar -> ROS.
+- ros_topic_name: "/scan"
+  gz_topic_name: "/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+# map -> base_link transform from OdometryPublisher -> ROS /tf.
+# (robot_state_publisher supplies base_link -> wheels/arm/lidar separately.)
+- ros_topic_name: "/tf"
+  gz_topic_name: "/tf_gz"
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "gz.msgs.Pose_V"
+  direction: GZ_TO_ROS
