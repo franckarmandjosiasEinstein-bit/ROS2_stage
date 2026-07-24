@@ -137,9 +137,14 @@
     </sensor>
   </gazebo>
 
-  <!-- RGB camera for ripe-strawberry detection -> /camera/image + camera_info -->
-  <gazebo reference="camera">
+  <!-- RGB camera for ripe-strawberry detection -> /camera/image + camera_info.
+       Attached to base_link with an explicit pose (NOT to the 'camera' link):
+       sdformat drops sensors on fixed-joint links that carry a rotation during
+       lumping, so we mount it here directly, like the working lidar. The pose
+       matches j_camera + j_mast (0.24 forward, 0.55 up, tipped 0.15 rad down). -->
+  <gazebo reference="base_link">
     <sensor name="camera" type="camera">
+      <pose>0.24 0 0.55 0 0.15 0</pose>
       <topic>camera</topic>
       <update_rate>15</update_rate>
       <always_on>true</always_on>
