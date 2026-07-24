@@ -22,10 +22,10 @@
       <mass value="20.0"/>
       <inertia ixx="0.5" ixy="0" ixz="0" iyy="0.9" iyz="0" izz="1.2"/>
     </inertial>
-    <collision>
-      <origin xyz="0 0 0.11"/>
-      <geometry><box size="0.57 0.36 0.10"/></geometry>
-    </collision>
+    <!-- No collision: the base is driven kinematically (VelocityControl) and
+         localisation is ground-truth, so the robot is a "ghost" that A* + the
+         reactive lidar brake keep off the gutters. This prevents any physics
+         contact from wedging or tipping it (as happened with crates in aisles). -->
     <visual>
       <origin xyz="0 0 0.11"/>
       <geometry><box size="0.57 0.36 0.10"/></geometry>
@@ -84,6 +84,13 @@
   <joint name="j_lidar" type="fixed"><parent link="base_link"/><child link="lidar"/><origin xyz="0 0 0.20"/></joint>
 
   <!-- ==================== Gazebo-specific ==================== -->
+
+  <!-- Gravity off: with no collision the base would otherwise fall through the
+       floor before the first /cmd_vel arrives. VelocityControl then holds it in
+       the plane (vz = roll = pitch = 0), so it glides level and never tips. -->
+  <gazebo reference="base_link">
+    <gravity>false</gravity>
+  </gazebo>
 
   <!-- 360-beam 2D lidar, matches sim_node: -pi..pi, 12 m, 10 Hz -->
   <gazebo reference="lidar">

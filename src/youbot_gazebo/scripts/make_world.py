@@ -8,8 +8,9 @@ render with colour, lighting and textures:
     Footprint  10 m (X) x 5 m (Y), origin at centre, walls 2.5 m high.
     Gutters    3 x (8.5 x 0.4 x 0.8) at Y = -1.2, 0, +1.2, spanning X[-4.25,4.25].
     Aisles     0.8 m between gutters (Y = +/-0.6); open cross-corridors at X ends.
-    Crates     3 red boxes to collect, in the aisles.
-    Plants     rows of strawberry plants on top of each gutter (green + red berries).
+    Plants     dense rows of strawberry plants on each gutter top: brown pot,
+               bushy green foliage and ripe red strawberries (the harvest
+               targets). Nothing is placed in the driving aisles.
 
 Run:  python3 scripts/make_world.py   (writes worlds/greenhouse.sdf)
 """
@@ -28,10 +29,9 @@ GUTTER_LEN = 8.5
 GUTTER_W = 0.4
 GUTTER_H = 0.8
 
-CRATES = ((-2.0, 0.6), (2.5, -0.6), (0.5, 0.6))
-
-# Strawberry plants: a few per gutter, sitting on the gutter top (z = GUTTER_H).
-PLANT_SPACING = 1.2  # m between plants along a gutter
+# Strawberry plants: rows along each gutter top (z = GUTTER_H). No crates on the
+# driving path -- the fruited plants themselves are the harvest targets.
+PLANT_SPACING = 0.9  # m between plants along a gutter
 
 
 def wall(name, x, y, sx, sy, sz, r, g, b):
@@ -72,44 +72,47 @@ def gutter(name, y):
 
 
 def plant(name, x, y):
-    """One strawberry plant: green foliage sphere + 3 small red berries, sitting
-    on the gutter top. Not a collision object (lidar sees the gutter box)."""
+    """A realistic-looking strawberry plant sitting on the gutter top: a brown
+    pot, a bushy cluster of green leaves, and several ripe red strawberries.
+    Purely visual (well above the 0.20 m lidar plane, so it never clutters the
+    map) -- these fruited plants are the harvest targets, not crates on the path."""
     z0 = GUTTER_H
-    berries = ""
-    for i, (bx, by, bz) in enumerate(((0.10, 0.05, 0.10), (-0.08, 0.07, 0.08),
-                                      (0.04, -0.09, 0.09))):
-        berries += f"""
+    parts = []
+    # Brown pot / root ball on the gutter.
+    parts.append(f"""
+        <visual name="pot">
+          <pose>0 0 {z0 + 0.045:.3f} 0 0 0</pose>
+          <geometry><cylinder><radius>0.085</radius><length>0.09</length></cylinder></geometry>
+          <material><ambient>0.30 0.18 0.09 1</ambient><diffuse>0.42 0.24 0.12 1</diffuse></material>
+        </visual>""")
+    # Bushy foliage: several overlapping green spheres.
+    for i, (fx, fy, fz, fr) in enumerate(((0.0, 0.0, 0.17, 0.13),
+                                          (0.09, 0.05, 0.13, 0.09),
+                                          (-0.08, -0.06, 0.14, 0.09),
+                                          (0.03, -0.09, 0.12, 0.08),
+                                          (-0.05, 0.08, 0.12, 0.08))):
+        parts.append(f"""
+        <visual name="leaf{i}">
+          <pose>{fx} {fy} {z0 + fz:.3f} 0 0 0</pose>
+          <geometry><sphere><radius>{fr}</radius></sphere></geometry>
+          <material><ambient>0.07 0.32 0.09 1</ambient><diffuse>0.12 0.55 0.15 1</diffuse></material>
+        </visual>""")
+    # Ripe strawberries hanging around the bush.
+    for i, (bx, by, bz) in enumerate(((0.13, 0.02, 0.09), (-0.11, 0.07, 0.08),
+                                      (0.05, -0.12, 0.07), (-0.06, -0.10, 0.10),
+                                      (0.11, -0.06, 0.11), (-0.12, -0.02, 0.12))):
+        parts.append(f"""
         <visual name="berry{i}">
           <pose>{bx} {by} {z0 + bz:.3f} 0 0 0</pose>
-          <geometry><sphere><radius>0.025</radius></sphere></geometry>
-          <material><ambient>0.8 0.05 0.05 1</ambient><diffuse>0.9 0.1 0.1 1</diffuse></material>
-        </visual>"""
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material><ambient>0.6 0.02 0.02 1</ambient><diffuse>0.95 0.10 0.10 1</diffuse></material>
+        </visual>""")
+    visuals = "".join(parts)
     return f"""
     <model name="{name}">
       <static>true</static>
       <pose>{x} {y} 0 0 0 0</pose>
-      <link name="link">
-        <visual name="foliage">
-          <pose>0 0 {z0 + 0.12:.3f} 0 0 0</pose>
-          <geometry><sphere><radius>0.14</radius></sphere></geometry>
-          <material><ambient>0.10 0.45 0.12 1</ambient><diffuse>0.15 0.60 0.16 1</diffuse></material>
-        </visual>{berries}
-      </link>
-    </model>"""
-
-
-def crate(name, x, y):
-    s = 0.30
-    return f"""
-    <model name="{name}">
-      <static>true</static>
-      <pose>{x} {y} {s/2:.3f} 0 0 0</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>{s} {s} {s}</size></box></geometry></collision>
-        <visual name="v">
-          <geometry><box><size>{s} {s} {s}</size></box></geometry>
-          <material><ambient>0.8 0.08 0.08 1</ambient><diffuse>0.95 0.12 0.12 1</diffuse></material>
-        </visual>
+      <link name="link">{visuals}
       </link>
     </model>"""
 
@@ -130,10 +133,6 @@ def build() -> str:
         x0 = -(n_plants - 1) * PLANT_SPACING / 2.0
         for pi in range(n_plants):
             parts.append(plant(f"plant_{gi}_{pi}", x0 + pi * PLANT_SPACING, gy))
-
-    # Crates.
-    for ci, (cx, cy) in enumerate(CRATES):
-        parts.append(crate(f"crate_{ci}", cx, cy))
 
     models = "".join(parts)
     return f"""<?xml version="1.0" ?>
