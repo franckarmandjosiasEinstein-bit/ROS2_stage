@@ -29,7 +29,8 @@ PATROL = [
 DEPOT = (4.6, 0.0)         # right cross-corridor
 ARRIVAL_TOLERANCE = 0.30   # m
 DEDUP_DIST = 0.6           # m: merge detections into one crate
-GOAL_TIMEOUT = 45.0        # s: abandon a goal we can't reach, advance to next
+GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
+                           # (long enough for the far depot diagonal)
 
 
 class MissionNode(Node):

@@ -29,6 +29,20 @@
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
+# RGB camera image: Gazebo camera sensor -> ROS. The sensor's <topic> is
+# "camera", so gz publishes the image on /camera and info on /camera/camera_info.
+- ros_topic_name: "/camera/image"
+  gz_topic_name: "/camera"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/camera/camera_info"
+  gz_topic_name: "/camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
 # map -> base_link transform from OdometryPublisher -> ROS /tf.
 # (robot_state_publisher supplies base_link -> wheels/arm/lidar separately.)
 - ros_topic_name: "/tf"

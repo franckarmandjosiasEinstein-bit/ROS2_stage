@@ -83,6 +83,20 @@
   </link>
   <joint name="j_lidar" type="fixed"><parent link="base_link"/><child link="lidar"/><origin xyz="0 0 0.20"/></joint>
 
+  <!-- Camera on a short mast, forward-facing, to inspect the plant rows -->
+  <link name="mast">
+    <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
+    <visual><origin xyz="0 0 0.19"/><geometry><cylinder radius="0.015" length="0.38"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="j_mast" type="fixed"><parent link="base_link"/><child link="mast"/><origin xyz="0.22 0 0.16"/></joint>
+
+  <link name="camera">
+    <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <visual><geometry><box size="0.03 0.09 0.03"/></geometry><material name="dark"/></visual>
+  </link>
+  <!-- 0.55 m up, tipped 0.15 rad down so the ripe fruit on the gutters fills the frame -->
+  <joint name="j_camera" type="fixed"><parent link="base_link"/><child link="camera"/><origin xyz="0.24 0 0.55" rpy="0 0.15 0"/></joint>
+
   <!-- ==================== Gazebo-specific ==================== -->
 
   <!-- Gravity off: with no collision the base would otherwise fall through the
@@ -120,6 +134,29 @@
         </range>
       </lidar>
       <gz_frame_id>lidar</gz_frame_id>
+    </sensor>
+  </gazebo>
+
+  <!-- RGB camera for ripe-strawberry detection -> /camera/image + camera_info -->
+  <gazebo reference="camera">
+    <sensor name="camera" type="camera">
+      <topic>camera</topic>
+      <update_rate>15</update_rate>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <camera>
+        <horizontal_fov>1.2</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.05</near>
+          <far>15.0</far>
+        </clip>
+      </camera>
+      <gz_frame_id>camera</gz_frame_id>
     </sensor>
   </gazebo>
 

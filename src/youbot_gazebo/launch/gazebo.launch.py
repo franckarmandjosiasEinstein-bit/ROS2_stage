@@ -85,6 +85,7 @@ def generate_launch_description() -> LaunchDescription:
         control("planning_node"),
         control("navigation_node"),
         control("mission_node"),
+        control("strawberry_detector"),   # camera -> /camera/detections + /ripe_count
 
         Node(package="rviz2", executable="rviz2", name="rviz2", output="screen",
              arguments=["-d", rviz_cfg], parameters=[sim_time],
