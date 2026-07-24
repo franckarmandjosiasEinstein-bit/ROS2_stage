@@ -26,6 +26,7 @@ setup(
             "mission_node = youbot_control.mission_node:main",
             "vision_node = youbot_control.vision_node:main",
             "strawberry_detector = youbot_control.strawberry_detector:main",
+            "odom_tf = youbot_control.odom_tf:main",
             "sim_node = youbot_control.sim_node:main",
         ],
     },

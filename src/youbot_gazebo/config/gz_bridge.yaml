@@ -43,10 +43,7 @@
   gz_type_name: "gz.msgs.CameraInfo"
   direction: GZ_TO_ROS
 
-# map -> base_link transform from OdometryPublisher -> ROS /tf.
-# (robot_state_publisher supplies base_link -> wheels/arm/lidar separately.)
-- ros_topic_name: "/tf"
-  gz_topic_name: "/tf_gz"
-  ros_type_name: "tf2_msgs/msg/TFMessage"
-  gz_type_name: "gz.msgs.Pose_V"
-  direction: GZ_TO_ROS
+# NOTE: map -> base_link TF is NOT bridged from gz here. The gz Pose_V->TF
+# bridge could deliver it on wall time and make RViz thrash. Instead the
+# odom_tf node rebroadcasts it from /odom on sim time. robot_state_publisher
+# supplies base_link -> wheels/arm/lidar/camera.

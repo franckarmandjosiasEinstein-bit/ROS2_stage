@@ -81,6 +81,7 @@ def generate_launch_description() -> LaunchDescription:
              parameters=[{"config_file": bridge_cfg}, sim_time]),
 
         # The validated control stack (no sim_node -- Gazebo IS the robot now).
+        control("odom_tf"),               # /odom -> TF map->base_link (sim time)
         control("mapping_node"),
         control("planning_node"),
         control("navigation_node"),
