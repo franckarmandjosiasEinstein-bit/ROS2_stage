@@ -21,6 +21,7 @@ navigation_node:
     cruise_speed: 0.45     # m/s along the lookahead vector
     control_period: 0.05   # 20 Hz control loop
     # Reactive safety brake off the lidar (anti wall-crash in tight aisles):
-    safety_stop: 0.22      # m: full stop if an obstacle is this close ahead
-    safety_slow: 0.55      # m: start slowing from here
-    safety_halfcone: 0.35  # rad: half-angle of the forward danger cone (~20 deg)
+    safety_stop: 0.15      # m: hardest braking if an obstacle is this close ahead
+    safety_slow: 0.45      # m: start slowing from here
+    safety_halfcone: 0.30  # rad: half-angle of the forward danger cone (~17 deg)
+    safety_min: 0.35       # never brake below this -> slows but never freezes

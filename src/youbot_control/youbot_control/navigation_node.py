@@ -37,9 +37,10 @@ class NavigationNode(Node):
         self.declare_parameter("lookahead", 0.4)
         self.declare_parameter("cruise_speed", 0.5)
         self.declare_parameter("control_period", 0.05)  # 20 Hz
-        self.declare_parameter("safety_stop", 0.22)      # m: full stop this close
-        self.declare_parameter("safety_slow", 0.55)      # m: begin slowing
-        self.declare_parameter("safety_halfcone", 0.35)  # rad: forward danger cone
+        self.declare_parameter("safety_stop", 0.15)      # m: hardest braking this close
+        self.declare_parameter("safety_slow", 0.45)      # m: begin slowing
+        self.declare_parameter("safety_halfcone", 0.30)  # rad: forward danger cone
+        self.declare_parameter("safety_min", 0.35)       # never brake below this (no freeze)
 
         self.controller = PurePursuit(
             lookahead=self.get_parameter("lookahead").value,
@@ -48,6 +49,7 @@ class NavigationNode(Node):
         self._stop = float(self.get_parameter("safety_stop").value)
         self._slow = float(self.get_parameter("safety_slow").value)
         self._halfcone = float(self.get_parameter("safety_halfcone").value)
+        self._minfactor = float(self.get_parameter("safety_min").value)
         self._pose = None
         self._scan = None
         self._last_wp = None
@@ -82,9 +84,11 @@ class NavigationNode(Node):
             a += scan.angle_increment
         if nearest >= self._slow:
             return 1.0
-        if nearest <= self._stop:
-            return 0.0
-        return (nearest - self._stop) / (self._slow - self._stop)
+        # Scale down as the obstacle nears, but NEVER to a full stop: a floor of
+        # safety_min keeps the base creeping so it clears the point (a gutter
+        # end, a wall on a tight turn) instead of freezing there forever.
+        scaled = (nearest - self._stop) / (self._slow - self._stop)
+        return max(self._minfactor, scaled)
 
     def _on_plan(self, msg: Path) -> None:
         waypoints = [(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses]

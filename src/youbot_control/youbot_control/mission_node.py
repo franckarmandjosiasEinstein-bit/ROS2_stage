@@ -29,6 +29,7 @@ PATROL = [
 DEPOT = (4.6, 0.0)         # right cross-corridor
 ARRIVAL_TOLERANCE = 0.30   # m
 DEDUP_DIST = 0.6           # m: merge detections into one crate
+GOAL_TIMEOUT = 45.0        # s: abandon a goal we can't reach, advance to next
 
 
 class MissionNode(Node):
@@ -42,6 +43,7 @@ class MissionNode(Node):
         self._goal = None        # (x, y) current goal
         self._goal_kind = None   # "explore" | "pick" | "depot"
         self._goal_sent = False
+        self._goal_time = None   # wall-clock secs when the goal was sent
 
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
@@ -74,6 +76,13 @@ class MissionNode(Node):
             return
         if math.hypot(self._goal[0] - self._pose[0], self._goal[1] - self._pose[1]) < ARRIVAL_TOLERANCE:
             self._on_arrival()
+        elif self._goal_time is not None and \
+                (self.get_clock().now().nanoseconds * 1e-9 - self._goal_time) > GOAL_TIMEOUT:
+            self.get_logger().warn(
+                f"[{self._phase}] goal {self._goal_kind} "
+                f"({self._goal[0]:+.2f}, {self._goal[1]:+.2f}) timed out "
+                f"after {GOAL_TIMEOUT:.0f}s -- abandoning, advancing.")
+            self._abandon_goal()
 
     def _choose_goal(self) -> None:
         if self._phase == "explore":
@@ -107,6 +116,20 @@ class MissionNode(Node):
             self._phase = "done"
         self._goal = None
         self._goal_sent = False
+        self._goal_time = None
+
+    def _abandon_goal(self) -> None:
+        """Give up on an unreachable goal and move the mission forward."""
+        kind = self._goal_kind
+        if kind == "explore":
+            self._patrol_i += 1
+        elif kind == "pick":
+            # Mark it "handled" so collect doesn't loop on it forever.
+            self._collected.append(self._goal)
+        # depot: just fall through and let deliver re-issue the goal.
+        self._goal = None
+        self._goal_sent = False
+        self._goal_time = None
 
     def _set_goal(self, xy, kind) -> None:
         self._goal = xy
@@ -122,6 +145,7 @@ class MissionNode(Node):
         msg.pose.orientation.w = 1.0
         self.goal_pub.publish(msg)
         self._goal_sent = True
+        self._goal_time = self.get_clock().now().nanoseconds * 1e-9
         self.get_logger().info(
             f"[{self._phase}] goal {self._goal_kind} -> "
             f"({self._goal[0]:+.2f}, {self._goal[1]:+.2f}).")
