@@ -19,6 +19,7 @@ from rclpy.node import Node
 
 from geometry_msgs.msg import PoseArray, PoseStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Empty, Int32
 
 # Greenhouse coverage patrol: sweep the two 0.8 m aisles (Y = +/-0.6) and the
 # side margins (Y = +/-1.9) so every gutter comes into the camera's view.
@@ -31,6 +32,8 @@ ARRIVAL_TOLERANCE = 0.30   # m
 DEDUP_DIST = 0.6           # m: merge detections into one crate
 GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
+PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
+RIPE_MIN = 1               # ripe clusters in view to trigger a pick at a rang
 
 
 class MissionNode(Node):
@@ -45,12 +48,19 @@ class MissionNode(Node):
         self._goal_kind = None   # "explore" | "pick" | "depot"
         self._goal_sent = False
         self._goal_time = None   # wall-clock secs when the goal was sent
+        self._ripe = 0           # ripe fruit clusters currently in view
+        self._picking = False    # arm is running a pick cycle
+        self._pick_done = False
+        self._pick_start = None
 
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
+        self.create_subscription(Int32, "ripe_count", self._on_ripe, 10)
+        self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
+        self.pick_pub = self.create_publisher(Empty, "do_pick", 5)
         self.create_timer(0.5, self._tick)
-        self.get_logger().info("mission_node up: patrol -> discover -> collect.")
+        self.get_logger().info("mission_node up: patrol -> see fruit -> pick -> resume.")
 
     # --- perception -------------------------------------------------
     def _on_odom(self, msg: Odometry) -> None:
@@ -65,9 +75,18 @@ class MissionNode(Node):
                     f"Vision: new crate at ({c[0]:+.2f}, {c[1]:+.2f}) "
                     f"[{len(self._known)} known].")
 
+    def _on_ripe(self, msg: Int32) -> None:
+        self._ripe = int(msg.data)
+
+    def _on_pick_done(self, _msg: Empty) -> None:
+        self._pick_done = True
+
     # --- mission loop -----------------------------------------------
     def _tick(self) -> None:
         if self._pose is None or self._phase == "done":
+            return
+        if self._picking:
+            self._update_pick()
             return
         if self._goal is None:
             self._choose_goal()
@@ -105,6 +124,10 @@ class MissionNode(Node):
     def _on_arrival(self) -> None:
         kind = self._goal_kind
         if kind == "explore":
+            # Stop and pick if ripe fruit is visible at this rang, then resume.
+            if self._ripe >= RIPE_MIN:
+                self._begin_pick()
+                return
             self._patrol_i += 1
         elif kind == "pick":
             self._collected.append(self._goal)
@@ -131,6 +154,27 @@ class MissionNode(Node):
         self._goal = None
         self._goal_sent = False
         self._goal_time = None
+
+    # --- picking ----------------------------------------------------
+    def _begin_pick(self) -> None:
+        self._picking = True
+        self._pick_done = False
+        self._pick_start = self.get_clock().now().nanoseconds * 1e-9
+        self.pick_pub.publish(Empty())
+        self.get_logger().info(
+            f"Ripe fruit in view ({self._ripe} cluster(s)) at "
+            f"({self._pose[0]:+.2f}, {self._pose[1]:+.2f}) -> picking.")
+
+    def _update_pick(self) -> None:
+        elapsed = self.get_clock().now().nanoseconds * 1e-9 - self._pick_start
+        if self._pick_done or elapsed > PICK_TIMEOUT:
+            done = "done" if self._pick_done else f"timed out ({PICK_TIMEOUT:.0f}s)"
+            self.get_logger().info(f"Pick {done}, resuming patrol.")
+            self._picking = False
+            self._patrol_i += 1          # move past this waypoint
+            self._goal = None
+            self._goal_sent = False
+            self._goal_time = None
 
     def _set_goal(self, xy, kind) -> None:
         self._goal = xy

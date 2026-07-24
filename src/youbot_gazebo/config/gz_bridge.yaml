@@ -43,6 +43,44 @@
   gz_type_name: "gz.msgs.CameraInfo"
   direction: GZ_TO_ROS
 
+# Arm + gripper joint position commands: ROS Float64 -> gz Double, one per
+# JointPositionController. arm_node publishes the pick-sequence targets here.
+- ros_topic_name: "/arm_joint_1_cmd"
+  gz_topic_name: "/arm_joint_1_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+- ros_topic_name: "/arm_joint_2_cmd"
+  gz_topic_name: "/arm_joint_2_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+- ros_topic_name: "/arm_joint_3_cmd"
+  gz_topic_name: "/arm_joint_3_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+- ros_topic_name: "/arm_joint_4_cmd"
+  gz_topic_name: "/arm_joint_4_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+- ros_topic_name: "/arm_joint_5_cmd"
+  gz_topic_name: "/arm_joint_5_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+- ros_topic_name: "/gripper_left_cmd"
+  gz_topic_name: "/gripper_left_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+- ros_topic_name: "/gripper_right_cmd"
+  gz_topic_name: "/gripper_right_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
 # NOTE: map -> base_link TF is NOT bridged from gz here. The gz Pose_V->TF
 # bridge could deliver it on wall time and make RViz thrash. Instead the
 # odom_tf node rebroadcasts it from /odom on sim time. robot_state_publisher

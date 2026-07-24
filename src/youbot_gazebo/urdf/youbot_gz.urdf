@@ -63,18 +63,88 @@
   </link>
   <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.228 -0.178 0.05"/></joint>
 
-  <!-- Simplified folded arm at the front -->
-  <link name="arm_base">
-    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.035" length="0.10"/></geometry><material name="kuka_orange"/></visual>
+  <!-- ===== 5-DOF arm + 2-finger gripper (real YouBot dimensions) =====
+       Zero pose = arm pointing straight up (+Z). Segment lengths: shoulder 75,
+       upper 155, fore 135, wrist-fore 135, wrist 130 mm; total reach ~0.63 m,
+       which from the 0.16 m base top reaches ~0.9 m (the fruit height). -->
+  <link name="arm_link_1">
+    <inertial><mass value="1.0"/><inertia ixx="2e-3" ixy="0" ixz="0" iyy="2e-3" iyz="0" izz="2e-3"/></inertial>
+    <visual><origin xyz="0 0 0.0375"/><geometry><cylinder radius="0.045" length="0.075"/></geometry><material name="kuka_orange"/></visual>
   </link>
-  <joint name="j_arm" type="fixed"><parent link="base_link"/><child link="arm_base"/><origin xyz="0.17 0 0.16"/></joint>
+  <joint name="arm_joint_1" type="revolute">
+    <parent link="base_link"/><child link="arm_link_1"/>
+    <origin xyz="0.12 0 0.16"/><axis xyz="0 0 1"/>
+    <limit lower="-2.95" upper="2.95" effort="30" velocity="1.5"/>
+  </joint>
 
-  <link name="arm_seg">
-    <inertial><mass value="0.3"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0.07 0 0" rpy="0 1.5708 0"/><geometry><cylinder radius="0.026" length="0.16"/></geometry><material name="grey"/></visual>
+  <link name="arm_link_2">
+    <inertial><mass value="0.8"/><inertia ixx="2e-3" ixy="0" ixz="0" iyy="2e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0 0.0775"/><geometry><cylinder radius="0.035" length="0.155"/></geometry><material name="grey"/></visual>
   </link>
-  <joint name="j_arm2" type="fixed"><parent link="arm_base"/><child link="arm_seg"/><origin xyz="0 0 0.10"/></joint>
+  <joint name="arm_joint_2" type="revolute">
+    <parent link="arm_link_1"/><child link="arm_link_2"/>
+    <origin xyz="0 0 0.075"/><axis xyz="0 1 0"/>
+    <limit lower="-1.13" upper="1.57" effort="30" velocity="1.5"/>
+  </joint>
+
+  <link name="arm_link_3">
+    <inertial><mass value="0.6"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="8e-4"/></inertial>
+    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.030" length="0.135"/></geometry><material name="kuka_orange"/></visual>
+  </link>
+  <joint name="arm_joint_3" type="revolute">
+    <parent link="arm_link_2"/><child link="arm_link_3"/>
+    <origin xyz="0 0 0.155"/><axis xyz="0 1 0"/>
+    <limit lower="-2.64" upper="2.55" effort="20" velocity="1.5"/>
+  </joint>
+
+  <link name="arm_link_4">
+    <inertial><mass value="0.4"/><inertia ixx="8e-4" ixy="0" ixz="0" iyy="8e-4" iyz="0" izz="6e-4"/></inertial>
+    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.028" length="0.135"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="arm_joint_4" type="revolute">
+    <parent link="arm_link_3"/><child link="arm_link_4"/>
+    <origin xyz="0 0 0.135"/><axis xyz="0 1 0"/>
+    <limit lower="-1.79" upper="1.79" effort="15" velocity="1.5"/>
+  </joint>
+
+  <link name="arm_link_5">
+    <inertial><mass value="0.3"/><inertia ixx="5e-4" ixy="0" ixz="0" iyy="5e-4" iyz="0" izz="4e-4"/></inertial>
+    <visual><origin xyz="0 0 0.065"/><geometry><cylinder radius="0.025" length="0.130"/></geometry><material name="kuka_orange"/></visual>
+  </link>
+  <joint name="arm_joint_5" type="revolute">
+    <parent link="arm_link_4"/><child link="arm_link_5"/>
+    <origin xyz="0 0 0.135"/><axis xyz="0 0 1"/>
+    <limit lower="-2.92" upper="2.92" effort="10" velocity="1.5"/>
+  </joint>
+
+  <!-- Gripper: a wrist plate + two parallel fingers (prismatic, symmetric) -->
+  <link name="gripper_base">
+    <inertial><mass value="0.15"/><inertia ixx="2e-4" ixy="0" ixz="0" iyy="2e-4" iyz="0" izz="2e-4"/></inertial>
+    <visual><geometry><box size="0.05 0.08 0.03"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="gripper_mount" type="fixed">
+    <parent link="arm_link_5"/><child link="gripper_base"/><origin xyz="0 0 0.130"/>
+  </joint>
+
+  <link name="finger_left">
+    <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="gripper_left" type="prismatic">
+    <parent link="gripper_base"/><child link="finger_left"/>
+    <origin xyz="0 0.015 0.015"/><axis xyz="0 1 0"/>
+    <limit lower="0.0" upper="0.035" effort="20" velocity="0.2"/>
+  </joint>
+
+  <link name="finger_right">
+    <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="gripper_right" type="prismatic">
+    <parent link="gripper_base"/><child link="finger_right"/>
+    <origin xyz="0 -0.015 0.015"/><axis xyz="0 -1 0"/>
+    <limit lower="0.0" upper="0.035" effort="20" velocity="0.2"/>
+  </joint>
 
   <!-- Lidar sensor mount, centred on the base, 0.20 m up -->
   <link name="lidar">
@@ -105,6 +175,50 @@
        the plane (vz = roll = pitch = 0), so it glides level and never tips. -->
   <gazebo reference="base_link">
     <gravity>false</gravity>
+  </gazebo>
+
+  <!-- Gravity off on the arm too, so the JointPositionControllers hold each
+       pose cleanly (no droop to fight), consistent with the kinematic robot. -->
+  <gazebo reference="arm_link_1"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_2"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_3"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_4"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_5"><gravity>false</gravity></gazebo>
+  <gazebo reference="gripper_base"><gravity>false</gravity></gazebo>
+  <gazebo reference="finger_left"><gravity>false</gravity></gazebo>
+  <gazebo reference="finger_right"><gravity>false</gravity></gazebo>
+
+  <!-- One position controller per joint. Each subscribes to a gz Double on
+       <joint>_cmd (bridged from a ROS Float64); arm_node drives the sequence. -->
+  <gazebo>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_1</joint_name><topic>arm_joint_1_cmd</topic>
+      <p_gain>18</p_gain><i_gain>0.0</i_gain><d_gain>2.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_2</joint_name><topic>arm_joint_2_cmd</topic>
+      <p_gain>18</p_gain><i_gain>0.0</i_gain><d_gain>2.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_3</joint_name><topic>arm_joint_3_cmd</topic>
+      <p_gain>15</p_gain><i_gain>0.0</i_gain><d_gain>1.5</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_4</joint_name><topic>arm_joint_4_cmd</topic>
+      <p_gain>12</p_gain><i_gain>0.0</i_gain><d_gain>1.2</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_5</joint_name><topic>arm_joint_5_cmd</topic>
+      <p_gain>8</p_gain><i_gain>0.0</i_gain><d_gain>1.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gripper_left</joint_name><topic>gripper_left_cmd</topic>
+      <p_gain>60</p_gain><i_gain>0.0</i_gain><d_gain>3.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gripper_right</joint_name><topic>gripper_right_cmd</topic>
+      <p_gain>60</p_gain><i_gain>0.0</i_gain><d_gain>3.0</d_gain>
+    </plugin>
   </gazebo>
 
   <!-- 360-beam 2D lidar, matches sim_node: -pi..pi, 12 m, 10 Hz -->
