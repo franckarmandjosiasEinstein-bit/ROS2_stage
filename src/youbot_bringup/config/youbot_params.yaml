@@ -5,8 +5,9 @@
 mapping_node:
   ros__parameters:
     resolution: 0.10       # metres per cell
-    arena_size: 10.0       # square world side (m)
-    inflation: 0.32        # obstacle padding ~ robot half-diagonal (m)
+    arena_size: 10.0       # grid side (m); the 10x5 greenhouse fits inside
+    inflation: 0.18        # padding for the 0.8 m aisles: keeps A* on the aisle
+                           # centre (robot ~0.38 m wide) without blocking it
     publish_period: 0.5    # seconds between /map publications
 
 planning_node:
@@ -16,6 +17,10 @@ planning_node:
 
 navigation_node:
   ros__parameters:
-    lookahead: 0.4         # pure-pursuit lookahead (m); shorter hugs the plan
-    cruise_speed: 0.5      # m/s along the lookahead vector
+    lookahead: 0.25        # short -> hugs the plan, less corner-cutting in aisles
+    cruise_speed: 0.45     # m/s along the lookahead vector
     control_period: 0.05   # 20 Hz control loop
+    # Reactive safety brake off the lidar (anti wall-crash in tight aisles):
+    safety_stop: 0.22      # m: full stop if an obstacle is this close ahead
+    safety_slow: 0.55      # m: start slowing from here
+    safety_halfcone: 0.35  # rad: half-angle of the forward danger cone (~20 deg)

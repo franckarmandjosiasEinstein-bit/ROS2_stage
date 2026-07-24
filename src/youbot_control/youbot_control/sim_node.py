@@ -24,18 +24,23 @@ from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 
-# Obstacles the lidar can see: (centre_x, centre_y, size_x, size_y).
-# The smart_agriculture bassins plus the depot box.
-OBSTACLES = [
-    (-2.0, 3.0, 4.0, 2.0), (2.5, 3.0, 3.0, 2.0), (-3.0, 0.0, 2.0, 2.0),
-    (1.5, 0.0, 5.0, 2.0), (-2.0, -3.0, 4.0, 2.0), (2.5, -3.0, 3.0, 2.0),
-    (4.5, -4.5, 0.8, 0.8),
-]
-ARENA_HALF = 5.0  # walls at +/- 5 m
+# --- Strawberry greenhouse (from the real plan) -----------------------------
+# Footprint 10 m (X, length) x 5 m (Y, width); origin at centre. Three culture
+# gutters run along the length (8.5 m x 0.4 m) at Y = -1.2, 0, +1.2, leaving
+# 0.8 m driving aisles between them and ~1.1 m margins to the side walls. Open
+# cross-corridors at both X ends (gutters span X in [-4.25, 4.25]).
+ARENA_X_HALF = 5.0   # walls at X = +/- 5 m  (10 m long)
+ARENA_Y_HALF = 2.5   # walls at Y = +/- 2.5 m (5 m wide)
 
-# Ground-truth crate positions (smart_agriculture CAISSE_1/2/3). The crates
-# are too short for the lidar; they stand in for what the camera would see.
-CRATES = [(0.5, 2.5), (-1.5, 0.0), (3.6, -1.57)]
+# Obstacles the lidar sees: (centre_x, centre_y, size_x, size_y) -- the gutters.
+OBSTACLES = [
+    (0.0, 1.2, 8.5, 0.4),
+    (0.0, 0.0, 8.5, 0.4),
+    (0.0, -1.2, 8.5, 0.4),
+]
+
+# Crates to collect, placed in the 0.8 m aisles (Y = +/- 0.6) next to a gutter.
+CRATES = [(-2.0, 0.6), (2.5, -0.6), (0.5, 0.6)]
 CAM_FOV = 2.0      # rad: wide cone so the patrol reliably spots crates in sim
 CAM_RANGE = 4.0    # m: only "detect" a crate within this range
 
@@ -47,9 +52,9 @@ def _yaw_to_quat(yaw):
 class SimNode(Node):
     def __init__(self) -> None:
         super().__init__("sim_node")
-        self.declare_parameter("x", -4.5)
-        self.declare_parameter("y", 4.5)
-        self.declare_parameter("theta", -2.88)
+        self.declare_parameter("x", -4.6)   # left corridor, top margin, facing +X
+        self.declare_parameter("y", 1.9)
+        self.declare_parameter("theta", 0.0)
         self.declare_parameter("n_beams", 360)
         self.declare_parameter("max_range", 12.0)
 
@@ -179,9 +184,9 @@ class SimNode(Node):
 
     def _raycast(self, ang: float) -> float:
         dx, dy = math.cos(ang), math.sin(ang)
-        # Distance to the arena boundary in this direction.
-        tx = ((ARENA_HALF if dx > 0 else -ARENA_HALF) - self.x) / dx if abs(dx) > 1e-9 else math.inf
-        ty = ((ARENA_HALF if dy > 0 else -ARENA_HALF) - self.y) / dy if abs(dy) > 1e-9 else math.inf
+        # Distance to the rectangular greenhouse walls in this direction.
+        tx = ((ARENA_X_HALF if dx > 0 else -ARENA_X_HALF) - self.x) / dx if abs(dx) > 1e-9 else math.inf
+        ty = ((ARENA_Y_HALF if dy > 0 else -ARENA_Y_HALF) - self.y) / dy if abs(dy) > 1e-9 else math.inf
         best = min(tx, ty)
         for cx, cy, sx, sy in OBSTACLES:
             t = self._ray_box(self.x, self.y, dx, dy, cx, cy, sx, sy)

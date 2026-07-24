@@ -20,9 +20,13 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseArray, PoseStamped
 from nav_msgs.msg import Odometry
 
-# Coverage patrol that brings every crate into the camera's field of view.
-PATROL = [(-2.0, 2.5), (2.5, 2.5), (2.5, 0.0), (-2.0, 0.0), (3.5, -1.5), (1.5, -3.0)]
-DEPOT = (3.7, -4.5)
+# Greenhouse coverage patrol: sweep the two 0.8 m aisles (Y = +/-0.6) and the
+# side margins (Y = +/-1.9) so every gutter comes into the camera's view.
+PATROL = [
+    (-3.8, 1.9), (3.8, 1.9), (3.8, 0.6), (-3.8, 0.6),
+    (-3.8, -0.6), (3.8, -0.6), (3.8, -1.9), (-3.8, -1.9),
+]
+DEPOT = (4.6, 0.0)         # right cross-corridor
 ARRIVAL_TOLERANCE = 0.30   # m
 DEDUP_DIST = 0.6           # m: merge detections into one crate
 

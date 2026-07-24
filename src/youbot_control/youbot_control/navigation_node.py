@@ -20,6 +20,7 @@ from rclpy.node import Node
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry, Path
+from sensor_msgs.msg import LaserScan
 
 from youbot_control.lib.pure_pursuit import PurePursuit
 
@@ -36,23 +37,54 @@ class NavigationNode(Node):
         self.declare_parameter("lookahead", 0.4)
         self.declare_parameter("cruise_speed", 0.5)
         self.declare_parameter("control_period", 0.05)  # 20 Hz
+        self.declare_parameter("safety_stop", 0.22)      # m: full stop this close
+        self.declare_parameter("safety_slow", 0.55)      # m: begin slowing
+        self.declare_parameter("safety_halfcone", 0.35)  # rad: forward danger cone
 
         self.controller = PurePursuit(
             lookahead=self.get_parameter("lookahead").value,
             cruise_speed=self.get_parameter("cruise_speed").value,
         )
+        self._stop = float(self.get_parameter("safety_stop").value)
+        self._slow = float(self.get_parameter("safety_slow").value)
+        self._halfcone = float(self.get_parameter("safety_halfcone").value)
         self._pose = None
+        self._scan = None
         self._last_wp = None
         self._reached_logged = False
         self.create_subscription(Path, "plan", self._on_plan, 1)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
+        self.create_subscription(LaserScan, "scan", self._on_scan, 5)
         self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.create_timer(self.get_parameter("control_period").value, self._control)
-        self.get_logger().info("navigation_node up: /plan + /odom -> /cmd_vel")
+        self.get_logger().info("navigation_node up: /plan + /odom (+lidar brake) -> /cmd_vel")
 
     def _on_odom(self, msg: Odometry) -> None:
         p = msg.pose.pose
         self._pose = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
+
+    def _on_scan(self, msg: LaserScan) -> None:
+        self._scan = msg
+
+    def _safety_factor(self, direction: float) -> float:
+        """Scale [0..1] from the nearest obstacle inside a forward cone around
+        `direction` (body frame). 0 = obstacle at safety_stop, 1 = clear."""
+        scan = self._scan
+        if scan is None or not scan.ranges:
+            return 1.0
+        nearest = math.inf
+        a = scan.angle_min
+        for r in scan.ranges:
+            if math.isfinite(r):
+                d = math.atan2(math.sin(a - direction), math.cos(a - direction))
+                if abs(d) <= self._halfcone and r < nearest:
+                    nearest = r
+            a += scan.angle_increment
+        if nearest >= self._slow:
+            return 1.0
+        if nearest <= self._stop:
+            return 0.0
+        return (nearest - self._stop) / (self._slow - self._stop)
 
     def _on_plan(self, msg: Path) -> None:
         waypoints = [(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses]
@@ -74,7 +106,11 @@ class NavigationNode(Node):
                 self._reached_logged = True
                 self.get_logger().info("Goal reached.")
         elif status == "running":
-            self._publish(vx, vy, wz)
+            # Brake off the lidar in the direction we're actually moving so the
+            # base slows/stops before hitting a gutter or wall, but keeps turning
+            # (wz) so it can rotate away and the planner reroutes.
+            factor = self._safety_factor(math.atan2(vy, vx))
+            self._publish(vx * factor, vy * factor, wz)
 
     def _publish(self, vx, vy, wz) -> None:
         t = Twist()
