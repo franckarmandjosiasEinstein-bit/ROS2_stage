@@ -14,6 +14,7 @@
   <material name="dark"><color rgba="0.14 0.14 0.16 1"/></material>
   <material name="grey"><color rgba="0.42 0.42 0.45 1"/></material>
   <material name="plate"><color rgba="0.30 0.30 0.33 1"/></material>
+  <material name="basket"><color rgba="0.62 0.44 0.24 1"/></material>
 
   <!-- Base chassis + rear carrying plate -->
   <link name="base_link">
@@ -37,6 +38,17 @@
       <material name="plate"/>
     </visual>
   </link>
+
+  <!-- Collection basket on the rear plate: harvested fruit is dropped here -->
+  <link name="basket">
+    <inertial><mass value="0.2"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0 0.005"/><geometry><box size="0.22 0.28 0.01"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="-0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0 0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0 -0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
+  </link>
+  <joint name="j_basket" type="fixed"><parent link="base_link"/><child link="basket"/><origin xyz="-0.13 0 0.19"/></joint>
 
   <!-- Four mecanum wheels (fixed: the base is driven kinematically) -->
   <link name="wheel_fl">
