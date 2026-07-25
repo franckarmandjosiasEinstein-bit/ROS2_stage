@@ -175,7 +175,8 @@
   </link>
   <joint name="j_lidar" type="fixed"><parent link="base_link"/><child link="lidar"/><origin xyz="0 0 0.20"/></joint>
 
-  <!-- Camera on a short mast, forward-facing, to inspect the plant rows -->
+  <!-- Camera on a short mast, facing the +Y plant row (same side the arm
+       harvests) so it watches the arm reach the fruit -->
   <link name="mast">
     <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
     <visual><origin xyz="0 0 0.19"/><geometry><cylinder radius="0.015" length="0.38"/></geometry><material name="grey"/></visual>
@@ -186,9 +187,10 @@
     <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
     <visual><geometry><box size="0.03 0.09 0.03"/></geometry><material name="dark"/></visual>
   </link>
-  <!-- 0.60 m up, level: the ripe fruit sits at ~0.85-0.95 m (above the camera),
-       so a level (not downward) view frames the plant rows instead of the floor -->
-  <joint name="j_camera" type="fixed"><parent link="base_link"/><child link="camera"/><origin xyz="0.24 0 0.60" rpy="0 0 0"/></joint>
+  <!-- 0.60 m up, yaw +90 deg: looks LEFT (+Y) at the row the arm harvests, so
+       the robot stops when a fruit is beside it and the camera sees the arm
+       approach it (not down the empty aisle) -->
+  <joint name="j_camera" type="fixed"><parent link="base_link"/><child link="camera"/><origin xyz="0.18 0.14 0.60" rpy="0 0 1.5708"/></joint>
 
   <!-- ==================== Gazebo-specific ==================== -->
 
@@ -281,7 +283,7 @@
        matches j_camera + j_mast (0.24 forward, 0.55 up, tipped 0.15 rad down). -->
   <gazebo reference="base_link">
     <sensor name="camera" type="camera">
-      <pose>0.24 0 0.60 0 0 0</pose>
+      <pose>0.18 0.14 0.60 0 0 1.5708</pose>
       <topic>camera</topic>
       <update_rate>15</update_rate>
       <always_on>true</always_on>
