@@ -21,11 +21,14 @@ from geometry_msgs.msg import PoseArray, PoseStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty, Int32
 
-# Greenhouse coverage patrol: sweep the two 0.8 m aisles (Y = +/-0.6) and the
-# side margins (Y = +/-1.9) so every gutter comes into the camera's view.
+# Coverage patrol: only the two central 0.8 m aisles (Y = +/-0.6). The robot
+# turns to face its heading, so its left (+Y, where the camera and arm are)
+# always points at a flanking plant row -- the camera never faces a wall, and
+# these two aisles still flank all three gutters. (Margins are skipped: there,
+# the left side can be the outer wall -> a blank view and picking in the void.)
 PATROL = [
-    (-3.8, 1.9), (3.8, 1.9), (3.8, 0.6), (-3.8, 0.6),
-    (-3.8, -0.6), (3.8, -0.6), (3.8, -1.9), (-3.8, -1.9),
+    (-3.8, 0.6), (3.8, 0.6),      # +X: left camera sees the Y=+1.2 row
+    (3.8, -0.6), (-3.8, -0.6),    # -X: left camera sees the Y=-1.2 row
 ]
 DEPOT = (4.6, 0.0)         # right cross-corridor
 ARRIVAL_TOLERANCE = 0.30   # m
