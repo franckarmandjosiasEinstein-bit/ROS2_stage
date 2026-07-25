@@ -17,9 +17,9 @@ import math
 import rclpy
 from rclpy.node import Node
 
-from geometry_msgs.msg import PoseArray, PoseStamped
+from geometry_msgs.msg import PoseArray, PoseStamped, Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Empty, Int32, Float32
+from std_msgs.msg import Empty, Int32, Float32, Bool
 
 # Coverage patrol: only the two central 0.8 m aisles (Y = +/-0.6). The robot
 # turns to face its heading, so its left (+Y, where the camera and arm are)
@@ -36,11 +36,12 @@ DEDUP_DIST = 0.6           # m: merge detections into one crate
 GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
 PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
-RIPE_MIN = 1               # ripe clusters in view to stop and pick
-CENTER_TOL = 0.20          # only pick when a fruit is this near the image centre
-                           # (i.e. directly beside the robot, aligned with the arm)
+RIPE_MIN = 1               # ripe clusters in view to stop and align
+CENTER_TOL = 0.12          # fruit this near the image centre = aligned -> pick
 PICK_SPACING = 1.0         # m: min travel between two picks (so one cluster in
                            # continuous view isn't picked every frame)
+ALIGN_SPEED = 0.07         # m/s: gentle creep while centring the fruit
+ALIGN_TIMEOUT = 10.0       # s: give up aligning if it can't centre the fruit
 
 
 class MissionNode(Node):
@@ -61,6 +62,10 @@ class MissionNode(Node):
         self._pick_done = False
         self._pick_start = None
         self._last_pick_xy = None  # where the last pick happened (spacing)
+        self._aligning = False   # creeping to centre a spotted fruit
+        self._align_start = None
+        self._align_sign = 1.0
+        self._align_last_abs = None
 
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
@@ -69,6 +74,8 @@ class MissionNode(Node):
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
         self.pick_pub = self.create_publisher(Empty, "do_pick", 5)
+        self.hold_pub = self.create_publisher(Bool, "pick_hold", 5)
+        self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.create_timer(0.5, self._tick)
         self.get_logger().info("mission_node up: patrol -> see fruit -> pick -> resume.")
 
@@ -99,8 +106,11 @@ class MissionNode(Node):
         if self._pose is None or self._phase == "done":
             return
         if self._picking:
-            self._publish_hold()      # freeze the base at the pick spot
+            self._publish_cmd(0.0, 0.0, 0.0)  # base held still while the arm works
             self._update_pick()
+            return
+        if self._aligning:
+            self._update_align()
             return
         if self._goal is None:
             self._choose_goal()
@@ -108,11 +118,11 @@ class MissionNode(Node):
         if not self._goal_sent:
             self._send_goal()
             return
-        # See a strawberry while driving a rang -> stop right here and pick it
-        # (spaced out so one cluster isn't picked every frame).
+        # See a strawberry while driving a rang -> STOP and align to it, then pick
+        # (spaced out so one cluster isn't picked repeatedly).
         if (self._phase == "explore" and self._ripe >= RIPE_MIN
-                and abs(self._ripe_offset) < CENTER_TOL and self._far_from_last_pick()):
-            self._begin_pick()
+                and self._far_from_last_pick()):
+            self._begin_align()
             return
         if math.hypot(self._goal[0] - self._pose[0], self._goal[1] - self._pose[1]) < ARRIVAL_TOLERANCE:
             self._on_arrival()
@@ -179,34 +189,67 @@ class MissionNode(Node):
         self._goal_sent = False
         self._goal_time = None
 
-    # --- picking ----------------------------------------------------
+    # --- align then pick --------------------------------------------
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _publish_cmd(self, vx, vy, wz) -> None:
+        t = Twist()
+        t.linear.x, t.linear.y, t.angular.z = float(vx), float(vy), float(wz)
+        self.cmd_pub.publish(t)
+
+    def _begin_align(self) -> None:
+        """Spotted a fruit: stop, take over the base, creep to centre it."""
+        self._aligning = True
+        self._align_start = self._now()
+        self._align_sign = 1.0
+        self._align_last_abs = abs(self._ripe_offset)
+        self._last_pick_xy = self._pose          # space the next detection from here
+        self.hold_pub.publish(Bool(data=True))   # navigation yields the base
+        self.get_logger().info(
+            f"Fruit spotted (offset {self._ripe_offset:+.2f}) -> stopping to align.")
+
+    def _update_align(self) -> None:
+        off = self._ripe_offset
+        # Lost the fruit or took too long -> give up and resume the patrol.
+        if self._ripe < RIPE_MIN or (self._now() - self._align_start) > ALIGN_TIMEOUT:
+            self._publish_cmd(0.0, 0.0, 0.0)
+            self.get_logger().info("Alignment lost/timed out, resuming patrol.")
+            self._release_base()
+            return
+        # Centred -> pick.
+        if abs(off) < CENTER_TOL:
+            self._publish_cmd(0.0, 0.0, 0.0)
+            self._aligning = False
+            self._begin_pick()
+            return
+        # Creep along the row; auto-flip the direction if the offset grows.
+        if self._align_last_abs is not None and abs(off) > self._align_last_abs + 0.02:
+            self._align_sign *= -1.0
+        self._align_last_abs = abs(off)
+        self._publish_cmd(self._align_sign * ALIGN_SPEED, 0.0, 0.0)
+
     def _begin_pick(self) -> None:
         self._picking = True
         self._pick_done = False
-        self._pick_start = self.get_clock().now().nanoseconds * 1e-9
-        self._last_pick_xy = self._pose
-        self.pick_pub.publish(Empty())
+        self._pick_start = self._now()
+        self.pick_pub.publish(Empty())        # base stays held (hold_pub already True)
         self.get_logger().info(
-            f"Ripe fruit in view ({self._ripe} cluster(s)) -> STOP & pick at "
-            f"({self._pose[0]:+.2f}, {self._pose[1]:+.2f}).")
-
-    def _publish_hold(self) -> None:
-        """Command the base to hold its current spot while the arm picks."""
-        msg = PoseStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = "map"
-        msg.pose.position.x = float(self._pose[0])
-        msg.pose.position.y = float(self._pose[1])
-        msg.pose.orientation.w = 1.0
-        self.goal_pub.publish(msg)
+            f"Aligned at ({self._pose[0]:+.2f}, {self._pose[1]:+.2f}) -> picking.")
 
     def _update_pick(self) -> None:
-        elapsed = self.get_clock().now().nanoseconds * 1e-9 - self._pick_start
-        if self._pick_done or elapsed > PICK_TIMEOUT:
+        if self._pick_done or (self._now() - self._pick_start) > PICK_TIMEOUT:
             done = "done" if self._pick_done else f"timed out ({PICK_TIMEOUT:.0f}s)"
             self.get_logger().info(f"Pick {done}, resuming patrol.")
             self._picking = False
-            self._goal_sent = False       # re-send the current patrol goal to resume
+            self._release_base()
+
+    def _release_base(self) -> None:
+        """Give the base back to navigation and resume the current patrol goal."""
+        self.hold_pub.publish(Bool(data=False))
+        self._aligning = False
+        self._picking = False
+        self._goal_sent = False               # re-send the patrol goal to resume
 
     def _set_goal(self, xy, kind) -> None:
         self._goal = xy

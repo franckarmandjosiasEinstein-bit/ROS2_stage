@@ -21,6 +21,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry, Path
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Bool
 
 from youbot_control.lib.pure_pursuit import PurePursuit
 
@@ -54,9 +55,11 @@ class NavigationNode(Node):
         self._scan = None
         self._last_wp = None
         self._reached_logged = False
+        self._held = False       # mission owns /cmd_vel during align + pick
         self.create_subscription(Path, "plan", self._on_plan, 1)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "scan", self._on_scan, 5)
+        self.create_subscription(Bool, "pick_hold", self._on_hold, 5)
         self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.create_timer(self.get_parameter("control_period").value, self._control)
         self.get_logger().info("navigation_node up: /plan + /odom (+lidar brake) -> /cmd_vel")
@@ -67,6 +70,9 @@ class NavigationNode(Node):
 
     def _on_scan(self, msg: LaserScan) -> None:
         self._scan = msg
+
+    def _on_hold(self, msg: Bool) -> None:
+        self._held = bool(msg.data)
 
     def _safety_factor(self, direction: float) -> float:
         """Scale [0..1] from the nearest obstacle inside a forward cone around
@@ -100,6 +106,8 @@ class NavigationNode(Node):
         self.get_logger().info(f"New plan: {len(waypoints)} waypoints.")
 
     def _control(self) -> None:
+        if self._held:
+            return  # mission drives the base directly (aligning / picking)
         if self._pose is None or self.controller.is_finished():
             self._publish(0.0, 0.0, 0.0)
             return
