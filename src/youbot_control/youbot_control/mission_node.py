@@ -34,6 +34,9 @@ GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
 PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
 RIPE_MIN = 1               # ripe clusters in view to trigger a pick at a rang
+RIPE_LATCH = 8.0           # s: pick at a waypoint if fruit was seen this recently
+                           # (the forward camera sees the row while driving, not
+                           # necessarily at the aisle-end stop)
 
 
 class MissionNode(Node):
@@ -49,6 +52,7 @@ class MissionNode(Node):
         self._goal_sent = False
         self._goal_time = None   # wall-clock secs when the goal was sent
         self._ripe = 0           # ripe fruit clusters currently in view
+        self._ripe_seen_t = -1e9  # last wall-clock secs fruit was in view
         self._picking = False    # arm is running a pick cycle
         self._pick_done = False
         self._pick_start = None
@@ -77,6 +81,8 @@ class MissionNode(Node):
 
     def _on_ripe(self, msg: Int32) -> None:
         self._ripe = int(msg.data)
+        if self._ripe >= RIPE_MIN:
+            self._ripe_seen_t = self.get_clock().now().nanoseconds * 1e-9
 
     def _on_pick_done(self, _msg: Empty) -> None:
         self._pick_done = True
@@ -124,8 +130,10 @@ class MissionNode(Node):
     def _on_arrival(self) -> None:
         kind = self._goal_kind
         if kind == "explore":
-            # Stop and pick if ripe fruit is visible at this rang, then resume.
-            if self._ripe >= RIPE_MIN:
+            # Pick if ripe fruit is in view now OR was seen while driving the
+            # rang in the last few seconds, then resume the patrol.
+            seen_ago = self.get_clock().now().nanoseconds * 1e-9 - self._ripe_seen_t
+            if self._ripe >= RIPE_MIN or seen_ago < RIPE_LATCH:
                 self._begin_pick()
                 return
             self._patrol_i += 1
