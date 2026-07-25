@@ -33,10 +33,9 @@ DEDUP_DIST = 0.6           # m: merge detections into one crate
 GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
 PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
-RIPE_MIN = 1               # ripe clusters in view to trigger a pick at a rang
-RIPE_LATCH = 8.0           # s: pick at a waypoint if fruit was seen this recently
-                           # (the forward camera sees the row while driving, not
-                           # necessarily at the aisle-end stop)
+RIPE_MIN = 1               # ripe clusters in view to stop and pick
+PICK_SPACING = 1.2         # m: min travel between two picks (so one cluster in
+                           # continuous view isn't picked every frame)
 
 
 class MissionNode(Node):
@@ -52,10 +51,10 @@ class MissionNode(Node):
         self._goal_sent = False
         self._goal_time = None   # wall-clock secs when the goal was sent
         self._ripe = 0           # ripe fruit clusters currently in view
-        self._ripe_seen_t = -1e9  # last wall-clock secs fruit was in view
         self._picking = False    # arm is running a pick cycle
         self._pick_done = False
         self._pick_start = None
+        self._last_pick_xy = None  # where the last pick happened (spacing)
 
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
@@ -81,8 +80,6 @@ class MissionNode(Node):
 
     def _on_ripe(self, msg: Int32) -> None:
         self._ripe = int(msg.data)
-        if self._ripe >= RIPE_MIN:
-            self._ripe_seen_t = self.get_clock().now().nanoseconds * 1e-9
 
     def _on_pick_done(self, _msg: Empty) -> None:
         self._pick_done = True
@@ -92,6 +89,7 @@ class MissionNode(Node):
         if self._pose is None or self._phase == "done":
             return
         if self._picking:
+            self._publish_hold()      # freeze the base at the pick spot
             self._update_pick()
             return
         if self._goal is None:
@@ -99,6 +97,11 @@ class MissionNode(Node):
             return
         if not self._goal_sent:
             self._send_goal()
+            return
+        # See a strawberry while driving a rang -> stop right here and pick it
+        # (spaced out so one cluster isn't picked every frame).
+        if self._phase == "explore" and self._ripe >= RIPE_MIN and self._far_from_last_pick():
+            self._begin_pick()
             return
         if math.hypot(self._goal[0] - self._pose[0], self._goal[1] - self._pose[1]) < ARRIVAL_TOLERANCE:
             self._on_arrival()
@@ -109,6 +112,12 @@ class MissionNode(Node):
                 f"({self._goal[0]:+.2f}, {self._goal[1]:+.2f}) timed out "
                 f"after {GOAL_TIMEOUT:.0f}s -- abandoning, advancing.")
             self._abandon_goal()
+
+    def _far_from_last_pick(self) -> bool:
+        if self._last_pick_xy is None:
+            return True
+        return math.hypot(self._pose[0] - self._last_pick_xy[0],
+                          self._pose[1] - self._last_pick_xy[1]) > PICK_SPACING
 
     def _choose_goal(self) -> None:
         if self._phase == "explore":
@@ -130,12 +139,8 @@ class MissionNode(Node):
     def _on_arrival(self) -> None:
         kind = self._goal_kind
         if kind == "explore":
-            # Pick if ripe fruit is in view now OR was seen while driving the
-            # rang in the last few seconds, then resume the patrol.
-            seen_ago = self.get_clock().now().nanoseconds * 1e-9 - self._ripe_seen_t
-            if self._ripe >= RIPE_MIN or seen_ago < RIPE_LATCH:
-                self._begin_pick()
-                return
+            # Picking happens on-the-fly while driving (see _tick); at the
+            # waypoint we simply move on to the next one.
             self._patrol_i += 1
         elif kind == "pick":
             self._collected.append(self._goal)
@@ -168,10 +173,21 @@ class MissionNode(Node):
         self._picking = True
         self._pick_done = False
         self._pick_start = self.get_clock().now().nanoseconds * 1e-9
+        self._last_pick_xy = self._pose
         self.pick_pub.publish(Empty())
         self.get_logger().info(
-            f"Ripe fruit in view ({self._ripe} cluster(s)) at "
-            f"({self._pose[0]:+.2f}, {self._pose[1]:+.2f}) -> picking.")
+            f"Ripe fruit in view ({self._ripe} cluster(s)) -> STOP & pick at "
+            f"({self._pose[0]:+.2f}, {self._pose[1]:+.2f}).")
+
+    def _publish_hold(self) -> None:
+        """Command the base to hold its current spot while the arm picks."""
+        msg = PoseStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+        msg.pose.position.x = float(self._pose[0])
+        msg.pose.position.y = float(self._pose[1])
+        msg.pose.orientation.w = 1.0
+        self.goal_pub.publish(msg)
 
     def _update_pick(self) -> None:
         elapsed = self.get_clock().now().nanoseconds * 1e-9 - self._pick_start
@@ -179,10 +195,7 @@ class MissionNode(Node):
             done = "done" if self._pick_done else f"timed out ({PICK_TIMEOUT:.0f}s)"
             self.get_logger().info(f"Pick {done}, resuming patrol.")
             self._picking = False
-            self._patrol_i += 1          # move past this waypoint
-            self._goal = None
-            self._goal_sent = False
-            self._goal_time = None
+            self._goal_sent = False       # re-send the current patrol goal to resume
 
     def _set_goal(self, xy, kind) -> None:
         self._goal = xy

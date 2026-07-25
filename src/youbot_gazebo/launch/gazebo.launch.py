@@ -17,8 +17,10 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
+                            IncludeLaunchDescription, RegisterEventHandler)
 from launch.conditions import IfCondition, UnlessCondition
+from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -92,4 +94,13 @@ def generate_launch_description() -> LaunchDescription:
         Node(package="rviz2", executable="rviz2", name="rviz2", output="screen",
              arguments=["-d", rviz_cfg], parameters=[sim_time],
              condition=IfCondition(use_rviz)),
+
+        # gz sim does not die on Ctrl-C -- kill any leftover on shutdown so the
+        # next run starts with a single /clock publisher (no zombie sims).
+        RegisterEventHandler(OnShutdown(on_shutdown=[
+            ExecuteProcess(
+                cmd=["bash", "-c", 'pkill -9 -f "gz sim"; pkill -9 -f "gz-sim"; '
+                     'pkill -9 -f "ruby.*gz sim"'],
+                output="screen"),
+        ])),
     ])
