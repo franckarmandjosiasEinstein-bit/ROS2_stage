@@ -20,7 +20,7 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import Image
-from std_msgs.msg import Int32
+from std_msgs.msg import Int32, Float32
 
 from youbot_control.lib.vision import red_mask, blob_centroids
 
@@ -38,8 +38,11 @@ class StrawberryDetector(Node):
         self.create_subscription(Image, topic, self._on_image, 5)
         self.det_pub = self.create_publisher(Image, "camera/detections", 5)
         self.count_pub = self.create_publisher(Int32, "ripe_count", 5)
+        # Horizontal offset of the fruit nearest the image centre, in [-1, 1]
+        # (0 = a strawberry is directly beside the robot). 2.0 = none in view.
+        self.offset_pub = self.create_publisher(Float32, "ripe_offset", 5)
         self.get_logger().info(
-            f"strawberry_detector up: {topic} -> /camera/detections + /ripe_count")
+            f"strawberry_detector up: {topic} -> /camera/detections + /ripe_count + /ripe_offset")
 
     def _on_image(self, msg: Image):
         rgb = self._to_rgb(msg)
@@ -49,14 +52,25 @@ class StrawberryDetector(Node):
         centroids = blob_centroids(mask, min_pixels=self._min)
 
         annotated = rgb.copy()
+        cx = msg.width / 2.0
+        best_off = 2.0
         for u, v in centroids:
             self._draw_box(annotated, int(round(u)), int(round(v)))
+            off = (u - cx) / cx
+            if abs(off) < abs(best_off):
+                best_off = off
+        # Mark the centred target with a filled dot so it is obvious in the view.
+        if centroids and abs(best_off) < 2.0:
+            uc = int(round(best_off * cx + cx))
+            self._draw_box(annotated, uc, int(round(
+                min(centroids, key=lambda c: abs((c[0]-cx)/cx))[1])), colour=(255, 220, 0))
 
         self.det_pub.publish(self._to_msg(annotated, msg.header))
         self.count_pub.publish(Int32(data=len(centroids)))
+        self.offset_pub.publish(Float32(data=float(best_off)))
         if centroids:
             self.get_logger().info(
-                f"{len(centroids)} ripe strawberry cluster(s) in view.",
+                f"{len(centroids)} cluster(s), nearest offset {best_off:+.2f}.",
                 throttle_duration_sec=2.0)
 
     # --- drawing --------------------------------------------------------

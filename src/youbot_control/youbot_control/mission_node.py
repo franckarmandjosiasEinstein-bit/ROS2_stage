@@ -19,7 +19,7 @@ from rclpy.node import Node
 
 from geometry_msgs.msg import PoseArray, PoseStamped
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Empty, Int32
+from std_msgs.msg import Empty, Int32, Float32
 
 # Coverage patrol: only the two central 0.8 m aisles (Y = +/-0.6). The robot
 # turns to face its heading, so its left (+Y, where the camera and arm are)
@@ -37,7 +37,9 @@ GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
 PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
 RIPE_MIN = 1               # ripe clusters in view to stop and pick
-PICK_SPACING = 1.2         # m: min travel between two picks (so one cluster in
+CENTER_TOL = 0.20          # only pick when a fruit is this near the image centre
+                           # (i.e. directly beside the robot, aligned with the arm)
+PICK_SPACING = 1.0         # m: min travel between two picks (so one cluster in
                            # continuous view isn't picked every frame)
 
 
@@ -54,6 +56,7 @@ class MissionNode(Node):
         self._goal_sent = False
         self._goal_time = None   # wall-clock secs when the goal was sent
         self._ripe = 0           # ripe fruit clusters currently in view
+        self._ripe_offset = 2.0  # horizontal offset of nearest fruit (0 = beside)
         self._picking = False    # arm is running a pick cycle
         self._pick_done = False
         self._pick_start = None
@@ -62,6 +65,7 @@ class MissionNode(Node):
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
         self.create_subscription(Int32, "ripe_count", self._on_ripe, 10)
+        self.create_subscription(Float32, "ripe_offset", self._on_ripe_offset, 10)
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
         self.pick_pub = self.create_publisher(Empty, "do_pick", 5)
@@ -84,6 +88,9 @@ class MissionNode(Node):
     def _on_ripe(self, msg: Int32) -> None:
         self._ripe = int(msg.data)
 
+    def _on_ripe_offset(self, msg) -> None:
+        self._ripe_offset = float(msg.data)
+
     def _on_pick_done(self, _msg: Empty) -> None:
         self._pick_done = True
 
@@ -103,7 +110,8 @@ class MissionNode(Node):
             return
         # See a strawberry while driving a rang -> stop right here and pick it
         # (spaced out so one cluster isn't picked every frame).
-        if self._phase == "explore" and self._ripe >= RIPE_MIN and self._far_from_last_pick():
+        if (self._phase == "explore" and self._ripe >= RIPE_MIN
+                and abs(self._ripe_offset) < CENTER_TOL and self._far_from_last_pick()):
             self._begin_pick()
             return
         if math.hypot(self._goal[0] - self._pose[0], self._goal[1] - self._pose[1]) < ARRIVAL_TOLERANCE:
