@@ -27,16 +27,16 @@ GRIP_JOINTS = ["gripper_left", "gripper_right"]
 OPEN = 0.030    # m: finger opening
 CLOSED = 0.006  # m
 
-# Keyframes: [j1, j2, j3, j4, j5, grip]. The arm is column-mounted and faces the
-# +Y plant row; j2/j3/j4 tip it out of vertical toward the row at ~0.9 m; j1
-# swings it back over the robot to drop. First-pass angles, tuned from Gazebo.
-STOW = [0.0, 0.3, -2.2, -1.0, 0.0, OPEN]    # folded compact over the column
-READY = [0.0, 1.0, -1.2, -0.4, 0.0, OPEN]   # swung out toward the row
-REACH = [0.0, 1.3, -0.9, -0.3, 0.0, OPEN]   # extended into the row at fruit height
-GRASP = [0.0, 1.3, -0.9, -0.3, 0.0, CLOSED]  # close on the fruit
-LIFT = [0.0, 0.9, -1.2, -0.4, 0.0, CLOSED]   # lift clear of the plant
-PLACE = [1.6, 0.7, -1.5, -0.4, 0.0, CLOSED]  # swing back over the robot to a bin
-RELEASE = [1.6, 0.7, -1.5, -0.4, 0.0, OPEN]  # drop
+# Keyframes: [j1, j2, j3, j4, j5, grip]. Angles solved by inverse kinematics so
+# the gripper tip actually lands on the fruit: REACH -> (0.55 m out, 0.86 m up)
+# = the top of the +Y gutter; PLACE -> over the rear basket. (See scripts.)
+STOW = [0.0, -0.50, -2.60, -1.70, 0.0, OPEN]   # folded compact over the column
+READY = [0.0, 1.47, -0.69, -0.20, 0.0, OPEN]   # approach, just above the fruit
+REACH = [0.0, 1.41, -0.39, 0.10, 0.0, OPEN]    # gripper AT the fruit
+GRASP = [0.0, 1.41, -0.39, 0.10, 0.0, CLOSED]  # close on the fruit
+LIFT = [0.0, 0.98, 0.35, -1.10, 0.0, CLOSED]   # lift clear of the plant
+PLACE = [-1.50, -0.25, -1.66, -1.00, 0.0, CLOSED]  # swing over the rear basket
+RELEASE = [-1.50, -0.25, -1.66, -1.00, 0.0, OPEN]  # drop into the basket
 
 # (pose, event): "grasp" starts holding a fruit, "release" drops it in the basket.
 PICK_SEQUENCE = [
