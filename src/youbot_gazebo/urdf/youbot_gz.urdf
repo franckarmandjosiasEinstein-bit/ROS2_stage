@@ -179,7 +179,7 @@
        harvests) so it watches the arm reach the fruit -->
   <link name="mast">
     <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
-    <visual><origin xyz="0 0 0.19"/><geometry><cylinder radius="0.015" length="0.38"/></geometry><material name="grey"/></visual>
+    <visual><origin xyz="0 0 0.31"/><geometry><cylinder radius="0.015" length="0.62"/></geometry><material name="grey"/></visual>
   </link>
   <joint name="j_mast" type="fixed"><parent link="base_link"/><child link="mast"/><origin xyz="0.22 0 0.16"/></joint>
 
@@ -191,7 +191,7 @@
        0.8 m gutter edge at the fruit on top (a level view only sees the brown
        gutter wall). The robot stops when a fruit is beside it and the camera
        watches the arm approach it. -->
-  <joint name="j_camera" type="fixed"><parent link="base_link"/><child link="camera"/><origin xyz="0.18 0.14 0.60" rpy="0 -0.5 1.5708"/></joint>
+  <joint name="j_camera" type="fixed"><parent link="base_link"/><child link="camera"/><origin xyz="0.18 0.14 0.78" rpy="0 -0.28 1.5708"/></joint>
 
   <!-- ==================== Gazebo-specific ==================== -->
 
@@ -284,7 +284,7 @@
        matches j_camera + j_mast (0.24 forward, 0.55 up, tipped 0.15 rad down). -->
   <gazebo reference="base_link">
     <sensor name="camera" type="camera">
-      <pose>0.18 0.14 0.60 0 -0.5 1.5708</pose>
+      <pose>0.18 0.14 0.78 0 -0.28 1.5708</pose>
       <topic>camera</topic>
       <update_rate>15</update_rate>
       <always_on>true</always_on>

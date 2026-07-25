@@ -37,11 +37,13 @@ GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
 PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
 RIPE_MIN = 1               # ripe clusters in view to stop and align
-CENTER_TOL = 0.12          # fruit this near the image centre = aligned -> pick
-PICK_SPACING = 1.0         # m: min travel between two picks (so one cluster in
-                           # continuous view isn't picked every frame)
-ALIGN_SPEED = 0.07         # m/s: gentle creep while centring the fruit
-ALIGN_TIMEOUT = 10.0       # s: give up aligning if it can't centre the fruit
+CENTER_TOL = 0.15          # fruit this near the image centre = aligned -> pick
+PICK_SPACING = 0.7         # m: min travel between two picks (plants are ~0.9 m
+                           # apart, so this lets it pick almost every plant)
+ALIGN_KP = 0.28            # m/s per unit offset (proportional centring)
+ALIGN_VMIN = 0.025         # m/s: floor so it keeps creeping near the target
+ALIGN_VMAX = 0.10          # m/s: cap
+ALIGN_TIMEOUT = 12.0       # s: give up aligning if it can't centre the fruit
 
 
 class MissionNode(Node):
@@ -66,6 +68,7 @@ class MissionNode(Node):
         self._align_start = None
         self._align_sign = 1.0
         self._align_last_abs = None
+        self._align_check_t = 0.0
 
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
@@ -203,6 +206,7 @@ class MissionNode(Node):
         self._aligning = True
         self._align_start = self._now()
         self._align_sign = 1.0
+        self._align_check_t = self._now()
         self._align_last_abs = abs(self._ripe_offset)
         self._last_pick_xy = self._pose          # space the next detection from here
         self.hold_pub.publish(Bool(data=True))   # navigation yields the base
@@ -211,8 +215,9 @@ class MissionNode(Node):
 
     def _update_align(self) -> None:
         off = self._ripe_offset
+        t = self._now()
         # Lost the fruit or took too long -> give up and resume the patrol.
-        if self._ripe < RIPE_MIN or (self._now() - self._align_start) > ALIGN_TIMEOUT:
+        if self._ripe < RIPE_MIN or (t - self._align_start) > ALIGN_TIMEOUT:
             self._publish_cmd(0.0, 0.0, 0.0)
             self.get_logger().info("Alignment lost/timed out, resuming patrol.")
             self._release_base()
@@ -223,11 +228,17 @@ class MissionNode(Node):
             self._aligning = False
             self._begin_pick()
             return
-        # Creep along the row; auto-flip the direction if the offset grows.
-        if self._align_last_abs is not None and abs(off) > self._align_last_abs + 0.02:
-            self._align_sign *= -1.0
-        self._align_last_abs = abs(off)
-        self._publish_cmd(self._align_sign * ALIGN_SPEED, 0.0, 0.0)
+        # Every ~1.2 s, if the offset isn't shrinking, the drive sense is wrong
+        # -> flip it (robust to the unknown camera->motion sign).
+        if t - self._align_check_t > 1.2:
+            if abs(off) > self._align_last_abs - 0.02:
+                self._align_sign *= -1.0
+            self._align_last_abs = abs(off)
+            self._align_check_t = t
+        # Proportional creep along the row (slows as it centres).
+        mag = max(ALIGN_VMIN, min(ALIGN_VMAX, ALIGN_KP * abs(off)))
+        direction = 1.0 if off >= 0.0 else -1.0
+        self._publish_cmd(self._align_sign * mag * direction, 0.0, 0.0)
 
     def _begin_pick(self) -> None:
         self._picking = True
