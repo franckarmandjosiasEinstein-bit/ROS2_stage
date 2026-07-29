@@ -13,12 +13,14 @@ Brings up:
     ros2 launch youbot_gazebo gazebo.launch.py rviz:=false gui:=false
 """
 
+import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription, RegisterEventHandler)
+                            IncludeLaunchDescription, RegisterEventHandler,
+                            SetEnvironmentVariable)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -36,6 +38,11 @@ def generate_launch_description() -> LaunchDescription:
     bridge_cfg = str(gz_share / "config" / "gz_bridge.yaml")
     params = str(bringup_share / "config" / "youbot_params.yaml")
     rviz_cfg = str(bringup_share / "config" / "youbot.rviz")
+
+    # Let gz resolve the robot's package:// mesh URIs: adding the share dir that
+    # contains youbot_gazebo/ makes "package://youbot_gazebo/meshes/x.stl" resolve.
+    res_path = os.pathsep.join(
+        [str(gz_share.parent), os.environ.get("GZ_SIM_RESOURCE_PATH", "")]).strip(os.pathsep)
 
     use_rviz = LaunchConfiguration("rviz")
     use_gui = LaunchConfiguration("gui")
@@ -58,6 +65,7 @@ def generate_launch_description() -> LaunchDescription:
                     output="screen", parameters=[params, sim_time])
 
     return LaunchDescription([
+        SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
         DeclareLaunchArgument("rviz", default_value="true",
                               description="Launch RViz to visualise the stack."),
         DeclareLaunchArgument("gui", default_value="true",

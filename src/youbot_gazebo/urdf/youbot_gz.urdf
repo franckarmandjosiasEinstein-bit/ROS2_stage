@@ -27,15 +27,12 @@
          localisation is ground-truth, so the robot is a "ghost" that A* + the
          reactive lidar brake keep off the gutters. This prevents any physics
          contact from wedging or tipping it (as happened with crates in aisles). -->
+    <!-- Real CAD body (FreeCAD). Mesh is in mm (scale 0.001) with its length
+         (580) along Y, so yaw -90 deg aligns it to +X (forward). -->
     <visual>
-      <origin xyz="0 0 0.11"/>
-      <geometry><box size="0.57 0.36 0.10"/></geometry>
+      <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
+      <geometry><mesh filename="package://youbot_gazebo/meshes/base.stl" scale="0.001 0.001 0.001"/></geometry>
       <material name="kuka_orange"/>
-    </visual>
-    <visual>
-      <origin xyz="-0.12 0 0.17"/>
-      <geometry><box size="0.28 0.34 0.03"/></geometry>
-      <material name="plate"/>
     </visual>
   </link>
 
@@ -50,30 +47,32 @@
   </link>
   <joint name="j_basket" type="fixed"><parent link="base_link"/><child link="basket"/><origin xyz="-0.13 0 0.19"/></joint>
 
-  <!-- Four mecanum wheels (fixed: the base is driven kinematically) -->
+  <!-- Four mecanum wheels (real CAD meshes, mm -> scale 0.001; axle Z -> Y via
+       roll 90 deg, then shift +0.025 to centre the 50 mm width on the hub).
+       Handedness: A on the FL/RR diagonal, B (mirror) on FR/RL. r = 0.054. -->
   <link name="wheel_fl">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
   </link>
-  <joint name="j_fl" type="fixed"><parent link="base_link"/><child link="wheel_fl"/><origin xyz="0.228 0.178 0.05"/></joint>
+  <joint name="j_fl" type="fixed"><parent link="base_link"/><child link="wheel_fl"/><origin xyz="0.225 0.19 0.054"/></joint>
 
   <link name="wheel_fr">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
   </link>
-  <joint name="j_fr" type="fixed"><parent link="base_link"/><child link="wheel_fr"/><origin xyz="0.228 -0.178 0.05"/></joint>
+  <joint name="j_fr" type="fixed"><parent link="base_link"/><child link="wheel_fr"/><origin xyz="0.225 -0.19 0.054"/></joint>
 
   <link name="wheel_rl">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
   </link>
-  <joint name="j_rl" type="fixed"><parent link="base_link"/><child link="wheel_rl"/><origin xyz="-0.228 0.178 0.05"/></joint>
+  <joint name="j_rl" type="fixed"><parent link="base_link"/><child link="wheel_rl"/><origin xyz="-0.225 0.19 0.054"/></joint>
 
   <link name="wheel_rr">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin rpy="1.5708 0 0"/><geometry><cylinder radius="0.05" length="0.04"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
   </link>
-  <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.228 -0.178 0.05"/></joint>
+  <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.225 -0.19 0.054"/></joint>
 
   <!-- ===== 5-DOF arm + 2-finger gripper (real YouBot dimensions) =====
        Mounted on a raised column (like real strawberry-picking manipulators):

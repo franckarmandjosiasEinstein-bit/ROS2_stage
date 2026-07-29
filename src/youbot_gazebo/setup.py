@@ -16,6 +16,7 @@ setup(
         ("share/" + package_name + "/worlds", glob("worlds/*.sdf")),
         ("share/" + package_name + "/urdf", glob("urdf/*.urdf")),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
+        ("share/" + package_name + "/meshes", glob("meshes/*.stl")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
