@@ -20,8 +20,24 @@ navigation_node:
     lookahead: 0.25        # short -> hugs the plan, less corner-cutting in aisles
     cruise_speed: 0.45     # m/s along the lookahead vector
     control_period: 0.05   # 20 Hz control loop
-    # Reactive safety brake off the lidar (anti wall-crash in tight aisles):
-    safety_stop: 0.15      # m: hardest braking if an obstacle is this close ahead
-    safety_slow: 0.45      # m: start slowing from here
-    safety_halfcone: 0.30  # rad: half-angle of the forward danger cone (~17 deg)
-    safety_min: 0.35       # never brake below this -> slows but never freezes
+    # Obstacle braking and the arena fence moved to safety_node: one guard for
+    # every publisher, one boundary. Two of them disagreeing is what pinned the
+    # robot on x = -4.30 for a whole run. What stays here is the stuck detector.
+    stuck_speed: 0.03      # m/s: commanded above this but not moving = jammed
+    stuck_time: 4.0        # s of that before the escape manoeuvre fires
+    recover_time: 2.0      # s of reverse + turn
+
+safety_node:
+  ros__parameters:
+    # The single protective stop: every publisher writes /cmd_vel_raw, only
+    # this node writes /cmd_vel.
+    stop_distance: 0.28    # m ahead along the path -> translation cancelled
+    slow_distance: 0.60    # m: start scaling the translation down
+    half_width: 0.24       # m: half-width of the corridor the base sweeps
+    min_valid_range: 0.30  # m: below this the lidar is seeing our own body
+    side_min: 0.30         # m: flank clearance held while translating
+    side_push: 0.12        # m/s: max recentring correction
+    side_band: 0.35        # m: fore/aft extent of the flank measurement
+    fence_x: 4.60          # m: bound on the base centre (inner wall face 4.95)
+    fence_y: 2.15          # m: bound on the base centre (inner wall face 2.45)
+    cmd_timeout: 1.0       # s of silence -> stop, never coast

@@ -18,13 +18,24 @@ writes /cmd_vel, so there is one place where safety is enforced and no way to
 route around it.
 
 Three layers, each able to veto:
-  1. LIDAR   any beam inside the swept corridor closer than stop_distance
-             cancels the translation in that direction (rotation is kept, so
+  1. LIDAR   anything inside the RECTANGLE the robot will sweep along the
+             commanded direction cancels the translation (rotation is kept, so
              the robot can always turn away and the planner reroutes).
   2. FENCE   beyond the arena bounds, the only command allowed is the one
              driving back inside.
   3. TIMEOUT no command for cmd_timeout seconds -> stop. A silent publisher
              must never leave the base coasting.
+
+Why a swept rectangle and not a cone. The first version tested a +/-0.55 rad
+cone around the direction of travel and took the raw beam range. Two things go
+wrong with that, and together they pinned the robot in the top margin for a
+whole run. A cone widens with distance, so at 0.5 m it already reaches 0.28 m
+sideways: a beam grazing the gutter the robot is legitimately driving PAST
+comes back short and brakes it, in open corridor. And the range along an
+oblique beam is not the distance to the obstacle along the path -- it
+overstates how soon we arrive. The rectangle asks the only question that
+matters: projected on the direction of travel, how far ahead is the nearest
+point that lies within the robot's own width?
 
 Subscribes:  /cmd_vel_raw (geometry_msgs/Twist)  every publisher
              /scan        (sensor_msgs/LaserScan)
@@ -52,12 +63,19 @@ def yaw_from_quaternion(q) -> float:
 class SafetyNode(Node):
     def __init__(self) -> None:
         super().__init__("safety_node")
-        self.declare_parameter("stop_distance", 0.30)   # m: hard stop this close
-        self.declare_parameter("slow_distance", 0.55)   # m: start scaling down
-        self.declare_parameter("half_cone", 0.55)       # rad: swept corridor
+        self.declare_parameter("stop_distance", 0.28)   # m: hard stop this close
+        self.declare_parameter("slow_distance", 0.60)   # m: start scaling down
+        # Half-width of the swept corridor: the base is 0.38 m wide (0.19 half)
+        # and the wheels stand a little proud, so 0.24 covers the body with a
+        # small margin. Wider than that and the robot brakes for walls it is
+        # merely driving alongside.
+        self.declare_parameter("half_width", 0.24)
         self.declare_parameter("min_valid_range", 0.30)  # m: ignore self-hits
-        self.declare_parameter("fence_x", 4.55)
-        self.declare_parameter("fence_y", 2.10)
+        # Arena bounds for the base CENTRE: the greenhouse is 10 x 5 m with
+        # 0.10 m walls (inner faces at +/-4.95 and +/-2.45), and the base
+        # half-diagonal is ~0.34 m, so these keep the body off the glass.
+        self.declare_parameter("fence_x", 4.60)
+        self.declare_parameter("fence_y", 2.15)
         self.declare_parameter("fence_speed", 0.20)     # m/s pushing back in
         # Lateral containment. Braking only on the COMMANDED direction misses
         # the way the robot actually entered the gutters: during visual
@@ -65,25 +83,27 @@ class SafetyNode(Node):
         # turns that into sideways drift nobody was watching. Keeping a
         # minimum clearance on both flanks is what holds it in the aisle --
         # sensor-based, so it works in any corridor, not just this greenhouse.
-        self.declare_parameter("side_min", 0.28)        # m: closest flank allowed
-        self.declare_parameter("side_push", 0.10)       # m/s correction
+        self.declare_parameter("side_min", 0.30)        # m: closest flank allowed
+        self.declare_parameter("side_push", 0.12)       # m/s max correction
+        self.declare_parameter("side_band", 0.35)       # m: fore/aft extent measured
         self.declare_parameter("cmd_timeout", 1.0)      # s without a command
         self.declare_parameter("rate", 20.0)
 
         self._stop = float(self.get_parameter("stop_distance").value)
         self._slow = float(self.get_parameter("slow_distance").value)
-        self._cone = float(self.get_parameter("half_cone").value)
+        self._half_w = float(self.get_parameter("half_width").value)
         self._min_range = float(self.get_parameter("min_valid_range").value)
         self._fx = float(self.get_parameter("fence_x").value)
         self._fy = float(self.get_parameter("fence_y").value)
         self._fence_speed = float(self.get_parameter("fence_speed").value)
         self._side_min = float(self.get_parameter("side_min").value)
         self._side_push = float(self.get_parameter("side_push").value)
+        self._side_band = float(self.get_parameter("side_band").value)
         self._timeout = float(self.get_parameter("cmd_timeout").value)
 
         self._cmd = None
         self._cmd_t = 0.0
-        self._scan = None
+        self._pts = []           # body-frame (x, y) of every valid return
         self._pose = None
         self._blocked_since = None
 
@@ -93,7 +113,8 @@ class SafetyNode(Node):
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._tick)
         self.get_logger().info(
-            "safety_node up: /cmd_vel_raw -> [lidar stop + arena fence] -> /cmd_vel")
+            "safety_node up: /cmd_vel_raw -> [swept-corridor stop + flank "
+            "recentring + arena fence] -> /cmd_vel")
 
     # ------------------------------------------------------------- inputs
     def _now(self) -> float:
@@ -103,35 +124,42 @@ class SafetyNode(Node):
         self._cmd, self._cmd_t = msg, self._now()
 
     def _on_scan(self, msg: LaserScan) -> None:
-        self._scan = msg
+        """Cache the scan once as body-frame points. Every layer below is a
+        geometric test on those points, so the trigonometry is done once per
+        scan instead of once per query."""
+        pts = []
+        a = msg.angle_min
+        for r in msg.ranges:
+            if math.isfinite(r) and self._min_range < r < msg.range_max:
+                pts.append((r * math.cos(a), r * math.sin(a)))
+            a += msg.angle_increment
+        self._pts = pts
 
     def _on_odom(self, msg: Odometry) -> None:
         p = msg.pose.pose
         self._pose = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
 
     # ------------------------------------------------------------- layers
-    def _clearance(self, direction: float, cone: float = None) -> float:
-        """Nearest obstacle inside the corridor swept by moving along
-        `direction` (body frame). inf when nothing is in the way."""
-        if self._scan is None:
-            return float("inf")
+    def _corridor_clearance(self, direction: float) -> float:
+        """Distance ALONG `direction` (body frame) to the nearest return that
+        falls inside the rectangle the base will sweep going that way.
+        inf when the corridor is clear."""
+        ux, uy = math.cos(direction), math.sin(direction)
         best = float("inf")
-        n = len(self._scan.ranges)
-        for i, r in enumerate(self._scan.ranges):
-            if not math.isfinite(r) or r <= self._min_range or r >= self._scan.range_max:
+        for px, py in self._pts:
+            along = px * ux + py * uy
+            if along <= 0.0 or along >= best:
                 continue
-            a = self._scan.angle_min + i * self._scan.angle_increment
-            da = math.atan2(math.sin(a - direction), math.cos(a - direction))
-            if abs(da) <= (self._cone if cone is None else cone) and r < best:
-                best = r
+            if abs(-px * uy + py * ux) <= self._half_w:   # inside our width
+                best = along
         return best
 
     def _brake(self, vx, vy):
-        """Scale translation by proximity in the direction of travel."""
+        """Scale translation by how far the swept corridor is clear."""
         speed = math.hypot(vx, vy)
         if speed < 1e-4:
             return vx, vy, False
-        d = self._clearance(math.atan2(vy, vx))
+        d = self._corridor_clearance(math.atan2(vy, vx))
         if d >= self._slow:
             return vx, vy, False
         if d <= self._stop:
@@ -139,20 +167,45 @@ class SafetyNode(Node):
         f = (d - self._stop) / (self._slow - self._stop)
         return vx * f, vy * f, False
 
-    def _recentre(self) -> float:
-        """Body-frame vy that pushes off whichever flank is too close, 0 when
-        both are clear. Cones are narrow (+/-0.35 rad about +/-90 deg) so the
-        gutter beside the robot is measured, not the row ahead."""
-        left = self._clearance(math.pi / 2.0, cone=0.35)
-        right = self._clearance(-math.pi / 2.0, cone=0.35)
-        if left < self._side_min and left <= right:
-            return -self._side_push          # too close on the left -> go right
-        if right < self._side_min:
-            return self._side_push
+    def _flank(self, sign: float) -> float:
+        """Perpendicular clearance on one side (+1 left, -1 right), measured
+        over a band level with the base rather than a cone -- a cone at 90 deg
+        picks up whatever is diagonally ahead and calls it a wall."""
+        best = float("inf")
+        for px, py in self._pts:
+            side = sign * py
+            if 0.0 < side < best and abs(px) <= self._side_band:
+                best = side
+        return best
+
+    def _recentre(self, translating: bool) -> float:
+        """Body-frame vy that pushes off whichever flank is too close.
+
+        Two guards, both learned from the run where the robot spent a whole
+        lap trapped in the top margin. It only acts while the robot is
+        TRANSLATING -- injecting sideways velocity into a stationary or purely
+        rotating base fights the mission's own alignment. And it only pushes
+        toward a side that actually has room: in a passage narrower than
+        2*side_min every correction is a shove into the opposite wall, so it
+        holds still and lets the brake and the planner deal with it."""
+        if not translating:
+            return 0.0
+        left, right = self._flank(1.0), self._flank(-1.0)
+        room = self._side_min + 0.08
+        if left < self._side_min and right > room:
+            return -self._side_push * min(1.0, (self._side_min - left) / self._side_min)
+        if right < self._side_min and left > room:
+            return self._side_push * min(1.0, (self._side_min - right) / self._side_min)
         return 0.0
 
     def _fence(self):
-        """Body-frame command that drives back inside, or None when inside."""
+        """Body-frame command that drives back inside, or None when inside.
+
+        No soft margin on purpose. navigation_node used to run its own fence
+        with a 0.25 m margin while this one had none, and the two disagreed
+        about where the boundary was: the robot ping-ponged along x = -4.30
+        for an entire run. One fence, one boundary, and it only speaks when
+        the robot is genuinely out."""
         if self._pose is None:
             return None
         x, y, yaw = self._pose
@@ -183,10 +236,14 @@ class SafetyNode(Node):
                                    throttle_duration_sec=3.0)
             return
 
-        # 1. Lidar protective stop (rotation always survives, so the robot can
-        # turn away from whatever is blocking it), then flank recentring.
+        # 1. Swept-corridor protective stop (rotation always survives, so the
+        # robot can turn away from whatever is blocking it), then recentring.
+        # Deliberately low: the mission's visual alignment creeps at a few
+        # cm/s, and that slow creep is precisely how the base used to end up
+        # overlapping a gutter. Anything that moves gets flank protection.
+        translating = math.hypot(vx, vy) > 0.02
         vx, vy, blocked = self._brake(vx, vy)
-        vy += self._recentre()
+        vy += self._recentre(translating)
         out.linear.x, out.linear.y, out.angular.z = vx, vy, wz
         self.pub.publish(out)
 

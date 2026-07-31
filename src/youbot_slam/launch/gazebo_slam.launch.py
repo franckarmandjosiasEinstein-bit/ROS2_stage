@@ -117,10 +117,13 @@ def generate_launch_description() -> LaunchDescription:
              name="robot_state_publisher", output="screen",
              parameters=[{"robot_description": robot_desc}, sim_time]),
 
+        # Spawn INSIDE safety_node's fence (|x| < 4.60, |y| < 2.15). The old
+        # -4.6 sat exactly on it, so the guard opened every run by shoving the
+        # robot back in before the mission had said anything.
         Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
              output="screen",
              arguments=["-topic", "robot_description", "-name", "youbot",
-                        "-x", "-4.6", "-y", "1.9", "-z", "0.0"]),
+                        "-x", "-4.40", "-y", "1.85", "-z", "0.0"]),
 
         Node(package="ros_gz_bridge", executable="parameter_bridge", name="gz_bridge",
              output="screen",

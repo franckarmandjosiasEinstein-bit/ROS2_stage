@@ -90,9 +90,20 @@
        the base is rotated so the arm faces the plant row on its +Y side rather
        than down the empty aisle. Segment lengths: shoulder 75, upper 155,
        fore 135, wrist-fore 135, wrist 130 mm. -->
+  <!-- Necked at the lidar plane. gpu_lidar is a RENDERING sensor: it ray-casts
+       the VISUALS, so anything crossing z = 0.20 is an obstacle in our own
+       scan. A straight 0.05 m column at x = 0.12 subtends asin(0.05/0.12) =
+       25 deg, so it walled off +/-25 deg of the FORWARD view: the robot was
+       blind in exactly the direction it drives. Those returns come back at
+       0.07 m and are dropped by min_valid_range, which left the forward brake
+       reading only the oblique beams past 25 deg; those graze the gutter
+       alongside and read short, so it braked to a crawl in open corridor. A
+       thin 0.012 m collar through the sensor plane (the way a real mast is
+       cut away around a scanner) drops the blind sector to +/-6 deg. -->
   <link name="pedestal">
     <inertial><mass value="1.5"/><inertia ixx="3e-3" ixy="0" ixz="0" iyy="3e-3" iyz="0" izz="2e-3"/></inertial>
-    <visual><origin xyz="0 0 0.195"/><geometry><cylinder radius="0.05" length="0.39"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.012" length="0.10"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0 0.245"/><geometry><cylinder radius="0.05" length="0.29"/></geometry><material name="dark"/></visual>
   </link>
   <joint name="j_pedestal" type="fixed">
     <parent link="base_link"/><child link="pedestal"/><origin xyz="0.12 0 0.16"/>
