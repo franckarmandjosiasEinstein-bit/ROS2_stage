@@ -306,9 +306,9 @@
       <pose>0 -1.2 0 0 0 0</pose>
       <link name="link">
         <pose>0 0 0.400 0 0 0</pose>
-        <collision name="c"><geometry><box><size>8.5 0.4 0.8</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>8.0 0.4 0.8</size></box></geometry></collision>
         <visual name="body">
-          <geometry><box><size>8.5 0.4 0.8</size></box></geometry>
+          <geometry><box><size>8.0 0.4 0.8</size></box></geometry>
           <material>
             <ambient>0.80 0.81 0.83 1</ambient>
             <diffuse>0.92 0.93 0.95 1</diffuse>
@@ -317,14 +317,14 @@
         </visual>
         <visual name="soil">
           <pose>0 0 0.411 0 0 0</pose>
-          <geometry><box><size>8.44 0.32 0.025</size></box></geometry>
+          <geometry><box><size>7.94 0.32 0.025</size></box></geometry>
           <material><ambient>0.20 0.13 0.08 1</ambient><diffuse>0.28 0.19 0.11 1</diffuse></material>
         </visual>
       </link>
     </model>
     <model name="plant_0_0">
       <static>true</static>
-      <pose>-3.6 -1.2 0 0 0 0</pose>
+      <pose>-3.15 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.976 0 0 0</pose>
@@ -439,7 +439,7 @@
     </model>
     <model name="plant_0_1">
       <static>true</static>
-      <pose>-2.7 -1.2 0 0 0 0</pose>
+      <pose>-2.25 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.980 0 0 0</pose>
@@ -554,7 +554,7 @@
     </model>
     <model name="plant_0_2">
       <static>true</static>
-      <pose>-1.8 -1.2 0 0 0 0</pose>
+      <pose>-1.3499999999999999 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.992 0 0 0</pose>
@@ -679,7 +679,7 @@
     </model>
     <model name="plant_0_3">
       <static>true</static>
-      <pose>-0.8999999999999999 -1.2 0 0 0 0</pose>
+      <pose>-0.44999999999999973 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.981 0 0 0</pose>
@@ -799,7 +799,7 @@
     </model>
     <model name="plant_0_4">
       <static>true</static>
-      <pose>0.0 -1.2 0 0 0 0</pose>
+      <pose>0.4500000000000002 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.968 0 0 0</pose>
@@ -919,7 +919,7 @@
     </model>
     <model name="plant_0_5">
       <static>true</static>
-      <pose>0.8999999999999999 -1.2 0 0 0 0</pose>
+      <pose>1.35 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.975 0 0 0</pose>
@@ -1039,7 +1039,7 @@
     </model>
     <model name="plant_0_6">
       <static>true</static>
-      <pose>1.8000000000000003 -1.2 0 0 0 0</pose>
+      <pose>2.2500000000000004 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.946 0 0 0</pose>
@@ -1154,7 +1154,7 @@
     </model>
     <model name="plant_0_7">
       <static>true</static>
-      <pose>2.6999999999999997 -1.2 0 0 0 0</pose>
+      <pose>3.15 -1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.975 0 0 0</pose>
@@ -1258,129 +1258,14 @@
         </visual>
       </link>
     </model>
-    <model name="plant_0_8">
-      <static>true</static>
-      <pose>3.6 -1.2 0 0 0 0</pose>
-      <link name="link">
-        <visual name="leaf0">
-          <pose>0.000 0.000 0.947 0 0 0</pose>
-          <geometry><sphere><radius>0.113</radius></sphere></geometry>
-          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf1">
-          <pose>0.007 0.034 0.916 0 0 0</pose>
-          <geometry><sphere><radius>0.082</radius></sphere></geometry>
-          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.58 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf2">
-          <pose>-0.033 0.075 0.909 0 0 0</pose>
-          <geometry><sphere><radius>0.110</radius></sphere></geometry>
-          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf3">
-          <pose>-0.050 0.078 0.950 0 0 0</pose>
-          <geometry><sphere><radius>0.088</radius></sphere></geometry>
-          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf4">
-          <pose>-0.042 -0.034 0.916 0 0 0</pose>
-          <geometry><sphere><radius>0.105</radius></sphere></geometry>
-          <material><ambient>0.06 0.34 0.08 1</ambient><diffuse>0.10 0.62 0.13 1</diffuse></material>
-        </visual>
-        <visual name="berry0">
-          <pose>0.101 0.043 0.898 0 0 0</pose>
-          <geometry><sphere><radius>0.034</radius></sphere></geometry>
-          <material>
-            <ambient>0.59 0.02 0.03 1</ambient>
-            <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx0">
-          <pose>0.101 0.043 0.927 0 0 0</pose>
-          <geometry><sphere><radius>0.015</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry1">
-          <pose>-0.075 0.068 0.892 0 0 0</pose>
-          <geometry><sphere><radius>0.034</radius></sphere></geometry>
-          <material>
-            <ambient>0.61 0.02 0.03 1</ambient>
-            <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx1">
-          <pose>-0.075 0.068 0.921 0 0 0</pose>
-          <geometry><sphere><radius>0.015</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry2">
-          <pose>-0.125 -0.032 0.900 0 0 0</pose>
-          <geometry><sphere><radius>0.033</radius></sphere></geometry>
-          <material>
-            <ambient>0.56 0.02 0.03 1</ambient>
-            <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx2">
-          <pose>-0.125 -0.032 0.928 0 0 0</pose>
-          <geometry><sphere><radius>0.015</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry3">
-          <pose>0.000 0.093 0.883 0 0 0</pose>
-          <geometry><sphere><radius>0.036</radius></sphere></geometry>
-          <material>
-            <ambient>0.60 0.02 0.03 1</ambient>
-            <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx3">
-          <pose>0.000 0.093 0.914 0 0 0</pose>
-          <geometry><sphere><radius>0.016</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry4">
-          <pose>-0.129 -0.034 0.898 0 0 0</pose>
-          <geometry><sphere><radius>0.030</radius></sphere></geometry>
-          <material>
-            <ambient>0.57 0.02 0.03 1</ambient>
-            <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx4">
-          <pose>-0.129 -0.034 0.923 0 0 0</pose>
-          <geometry><sphere><radius>0.014</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry5">
-          <pose>0.089 -0.081 0.874 0 0 0</pose>
-          <geometry><sphere><radius>0.029</radius></sphere></geometry>
-          <material>
-            <ambient>0.57 0.02 0.03 1</ambient>
-            <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx5">
-          <pose>0.089 -0.081 0.899 0 0 0</pose>
-          <geometry><sphere><radius>0.013</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-      </link>
-    </model>
     <model name="gutter_1">
       <static>true</static>
       <pose>0 0.0 0 0 0 0</pose>
       <link name="link">
         <pose>0 0 0.400 0 0 0</pose>
-        <collision name="c"><geometry><box><size>8.5 0.4 0.8</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>8.0 0.4 0.8</size></box></geometry></collision>
         <visual name="body">
-          <geometry><box><size>8.5 0.4 0.8</size></box></geometry>
+          <geometry><box><size>8.0 0.4 0.8</size></box></geometry>
           <material>
             <ambient>0.80 0.81 0.83 1</ambient>
             <diffuse>0.92 0.93 0.95 1</diffuse>
@@ -1389,14 +1274,14 @@
         </visual>
         <visual name="soil">
           <pose>0 0 0.411 0 0 0</pose>
-          <geometry><box><size>8.44 0.32 0.025</size></box></geometry>
+          <geometry><box><size>7.94 0.32 0.025</size></box></geometry>
           <material><ambient>0.20 0.13 0.08 1</ambient><diffuse>0.28 0.19 0.11 1</diffuse></material>
         </visual>
       </link>
     </model>
     <model name="plant_1_0">
       <static>true</static>
-      <pose>-3.6 0.0 0 0 0 0</pose>
+      <pose>-3.15 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.972 0 0 0</pose>
@@ -1488,7 +1373,7 @@
     </model>
     <model name="plant_1_1">
       <static>true</static>
-      <pose>-2.7 0.0 0 0 0 0</pose>
+      <pose>-2.25 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.957 0 0 0</pose>
@@ -1580,7 +1465,7 @@
     </model>
     <model name="plant_1_2">
       <static>true</static>
-      <pose>-1.8 0.0 0 0 0 0</pose>
+      <pose>-1.3499999999999999 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.969 0 0 0</pose>
@@ -1695,7 +1580,7 @@
     </model>
     <model name="plant_1_3">
       <static>true</static>
-      <pose>-0.8999999999999999 0.0 0 0 0 0</pose>
+      <pose>-0.44999999999999973 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.953 0 0 0</pose>
@@ -1796,7 +1681,7 @@
     </model>
     <model name="plant_1_4">
       <static>true</static>
-      <pose>0.0 0.0 0 0 0 0</pose>
+      <pose>0.4500000000000002 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.951 0 0 0</pose>
@@ -1916,7 +1801,7 @@
     </model>
     <model name="plant_1_5">
       <static>true</static>
-      <pose>0.8999999999999999 0.0 0 0 0 0</pose>
+      <pose>1.35 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.961 0 0 0</pose>
@@ -2027,7 +1912,7 @@
     </model>
     <model name="plant_1_6">
       <static>true</static>
-      <pose>1.8000000000000003 0.0 0 0 0 0</pose>
+      <pose>2.2500000000000004 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.994 0 0 0</pose>
@@ -2119,7 +2004,7 @@
     </model>
     <model name="plant_1_7">
       <static>true</static>
-      <pose>2.6999999999999997 0.0 0 0 0 0</pose>
+      <pose>3.15 0.0 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.977 0 0 0</pose>
@@ -2232,139 +2117,14 @@
         </visual>
       </link>
     </model>
-    <model name="plant_1_8">
-      <static>true</static>
-      <pose>3.6 0.0 0 0 0 0</pose>
-      <link name="link">
-        <visual name="leaf0">
-          <pose>0.000 0.000 0.957 0 0 0</pose>
-          <geometry><sphere><radius>0.120</radius></sphere></geometry>
-          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf1">
-          <pose>-0.063 -0.065 0.933 0 0 0</pose>
-          <geometry><sphere><radius>0.084</radius></sphere></geometry>
-          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf2">
-          <pose>0.063 -0.086 0.956 0 0 0</pose>
-          <geometry><sphere><radius>0.103</radius></sphere></geometry>
-          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf3">
-          <pose>0.086 -0.079 0.937 0 0 0</pose>
-          <geometry><sphere><radius>0.098</radius></sphere></geometry>
-          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf4">
-          <pose>-0.009 0.062 0.925 0 0 0</pose>
-          <geometry><sphere><radius>0.065</radius></sphere></geometry>
-          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf5">
-          <pose>-0.073 -0.054 0.948 0 0 0</pose>
-          <geometry><sphere><radius>0.071</radius></sphere></geometry>
-          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf6">
-          <pose>-0.010 0.056 0.900 0 0 0</pose>
-          <geometry><sphere><radius>0.065</radius></sphere></geometry>
-          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
-        </visual>
-        <visual name="berry0">
-          <pose>-0.056 -0.087 0.876 0 0 0</pose>
-          <geometry><sphere><radius>0.035</radius></sphere></geometry>
-          <material>
-            <ambient>0.53 0.02 0.03 1</ambient>
-            <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx0">
-          <pose>-0.056 -0.087 0.906 0 0 0</pose>
-          <geometry><sphere><radius>0.016</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry1">
-          <pose>-0.046 -0.088 0.896 0 0 0</pose>
-          <geometry><sphere><radius>0.030</radius></sphere></geometry>
-          <material>
-            <ambient>0.60 0.02 0.03 1</ambient>
-            <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx1">
-          <pose>-0.046 -0.088 0.922 0 0 0</pose>
-          <geometry><sphere><radius>0.014</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry2">
-          <pose>0.110 0.049 0.920 0 0 0</pose>
-          <geometry><sphere><radius>0.030</radius></sphere></geometry>
-          <material>
-            <ambient>0.54 0.02 0.03 1</ambient>
-            <diffuse>0.87 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx2">
-          <pose>0.110 0.049 0.946 0 0 0</pose>
-          <geometry><sphere><radius>0.014</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry3">
-          <pose>-0.075 -0.053 0.906 0 0 0</pose>
-          <geometry><sphere><radius>0.030</radius></sphere></geometry>
-          <material>
-            <ambient>0.60 0.02 0.03 1</ambient>
-            <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx3">
-          <pose>-0.075 -0.053 0.932 0 0 0</pose>
-          <geometry><sphere><radius>0.014</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry4">
-          <pose>-0.128 0.023 0.890 0 0 0</pose>
-          <geometry><sphere><radius>0.030</radius></sphere></geometry>
-          <material>
-            <ambient>0.57 0.02 0.03 1</ambient>
-            <diffuse>0.93 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx4">
-          <pose>-0.128 0.023 0.915 0 0 0</pose>
-          <geometry><sphere><radius>0.013</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry5">
-          <pose>-0.050 -0.092 0.894 0 0 0</pose>
-          <geometry><sphere><radius>0.036</radius></sphere></geometry>
-          <material>
-            <ambient>0.59 0.02 0.03 1</ambient>
-            <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx5">
-          <pose>-0.050 -0.092 0.925 0 0 0</pose>
-          <geometry><sphere><radius>0.016</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-      </link>
-    </model>
     <model name="gutter_2">
       <static>true</static>
       <pose>0 1.2 0 0 0 0</pose>
       <link name="link">
         <pose>0 0 0.400 0 0 0</pose>
-        <collision name="c"><geometry><box><size>8.5 0.4 0.8</size></box></geometry></collision>
+        <collision name="c"><geometry><box><size>8.0 0.4 0.8</size></box></geometry></collision>
         <visual name="body">
-          <geometry><box><size>8.5 0.4 0.8</size></box></geometry>
+          <geometry><box><size>8.0 0.4 0.8</size></box></geometry>
           <material>
             <ambient>0.80 0.81 0.83 1</ambient>
             <diffuse>0.92 0.93 0.95 1</diffuse>
@@ -2373,14 +2133,14 @@
         </visual>
         <visual name="soil">
           <pose>0 0 0.411 0 0 0</pose>
-          <geometry><box><size>8.44 0.32 0.025</size></box></geometry>
+          <geometry><box><size>7.94 0.32 0.025</size></box></geometry>
           <material><ambient>0.20 0.13 0.08 1</ambient><diffuse>0.28 0.19 0.11 1</diffuse></material>
         </visual>
       </link>
     </model>
     <model name="plant_2_0">
       <static>true</static>
-      <pose>-3.6 1.2 0 0 0 0</pose>
+      <pose>-3.15 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.982 0 0 0</pose>
@@ -2500,7 +2260,7 @@
     </model>
     <model name="plant_2_1">
       <static>true</static>
-      <pose>-2.7 1.2 0 0 0 0</pose>
+      <pose>-2.25 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.976 0 0 0</pose>
@@ -2606,7 +2366,7 @@
     </model>
     <model name="plant_2_2">
       <static>true</static>
-      <pose>-1.8 1.2 0 0 0 0</pose>
+      <pose>-1.3499999999999999 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.981 0 0 0</pose>
@@ -2707,7 +2467,7 @@
     </model>
     <model name="plant_2_3">
       <static>true</static>
-      <pose>-0.8999999999999999 1.2 0 0 0 0</pose>
+      <pose>-0.44999999999999973 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.977 0 0 0</pose>
@@ -2804,7 +2564,7 @@
     </model>
     <model name="plant_2_4">
       <static>true</static>
-      <pose>0.0 1.2 0 0 0 0</pose>
+      <pose>0.4500000000000002 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.976 0 0 0</pose>
@@ -2891,7 +2651,7 @@
     </model>
     <model name="plant_2_5">
       <static>true</static>
-      <pose>0.8999999999999999 1.2 0 0 0 0</pose>
+      <pose>1.35 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.976 0 0 0</pose>
@@ -3011,7 +2771,7 @@
     </model>
     <model name="plant_2_6">
       <static>true</static>
-      <pose>1.8000000000000003 1.2 0 0 0 0</pose>
+      <pose>2.2500000000000004 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.985 0 0 0</pose>
@@ -3112,7 +2872,7 @@
     </model>
     <model name="plant_2_7">
       <static>true</static>
-      <pose>2.6999999999999997 1.2 0 0 0 0</pose>
+      <pose>3.15 1.2 0 0 0 0</pose>
       <link name="link">
         <visual name="leaf0">
           <pose>0.000 0.000 0.974 0 0 0</pose>
@@ -3206,126 +2966,6 @@
         </visual>
         <visual name="calyx4">
           <pose>0.013 0.092 0.930 0 0 0</pose>
-          <geometry><sphere><radius>0.015</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-      </link>
-    </model>
-    <model name="plant_2_8">
-      <static>true</static>
-      <pose>3.6 1.2 0 0 0 0</pose>
-      <link name="link">
-        <visual name="leaf0">
-          <pose>0.000 0.000 0.965 0 0 0</pose>
-          <geometry><sphere><radius>0.126</radius></sphere></geometry>
-          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf1">
-          <pose>-0.085 0.085 0.909 0 0 0</pose>
-          <geometry><sphere><radius>0.120</radius></sphere></geometry>
-          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf2">
-          <pose>0.065 0.031 0.966 0 0 0</pose>
-          <geometry><sphere><radius>0.118</radius></sphere></geometry>
-          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf3">
-          <pose>0.053 0.045 0.952 0 0 0</pose>
-          <geometry><sphere><radius>0.120</radius></sphere></geometry>
-          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.45 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf4">
-          <pose>-0.047 -0.051 0.953 0 0 0</pose>
-          <geometry><sphere><radius>0.085</radius></sphere></geometry>
-          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
-        </visual>
-        <visual name="leaf5">
-          <pose>0.038 -0.023 0.945 0 0 0</pose>
-          <geometry><sphere><radius>0.100</radius></sphere></geometry>
-          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
-        </visual>
-        <visual name="berry0">
-          <pose>-0.100 -0.039 0.863 0 0 0</pose>
-          <geometry><sphere><radius>0.028</radius></sphere></geometry>
-          <material>
-            <ambient>0.53 0.02 0.03 1</ambient>
-            <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx0">
-          <pose>-0.100 -0.039 0.887 0 0 0</pose>
-          <geometry><sphere><radius>0.013</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry1">
-          <pose>0.004 -0.090 0.901 0 0 0</pose>
-          <geometry><sphere><radius>0.035</radius></sphere></geometry>
-          <material>
-            <ambient>0.61 0.02 0.03 1</ambient>
-            <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx1">
-          <pose>0.004 -0.090 0.931 0 0 0</pose>
-          <geometry><sphere><radius>0.016</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry2">
-          <pose>0.028 -0.102 0.880 0 0 0</pose>
-          <geometry><sphere><radius>0.034</radius></sphere></geometry>
-          <material>
-            <ambient>0.60 0.02 0.03 1</ambient>
-            <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx2">
-          <pose>0.028 -0.102 0.909 0 0 0</pose>
-          <geometry><sphere><radius>0.015</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry3">
-          <pose>-0.134 0.030 0.919 0 0 0</pose>
-          <geometry><sphere><radius>0.031</radius></sphere></geometry>
-          <material>
-            <ambient>0.55 0.02 0.03 1</ambient>
-            <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx3">
-          <pose>-0.134 0.030 0.945 0 0 0</pose>
-          <geometry><sphere><radius>0.014</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry4">
-          <pose>0.097 0.050 0.872 0 0 0</pose>
-          <geometry><sphere><radius>0.035</radius></sphere></geometry>
-          <material>
-            <ambient>0.55 0.02 0.03 1</ambient>
-            <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx4">
-          <pose>0.097 0.050 0.901 0 0 0</pose>
-          <geometry><sphere><radius>0.016</radius></sphere></geometry>
-          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
-        </visual>
-        <visual name="berry5">
-          <pose>-0.107 -0.020 0.903 0 0 0</pose>
-          <geometry><sphere><radius>0.033</radius></sphere></geometry>
-          <material>
-            <ambient>0.55 0.02 0.03 1</ambient>
-            <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
-          </material>
-        </visual>
-        <visual name="calyx5">
-          <pose>-0.107 -0.020 0.931 0 0 0</pose>
           <geometry><sphere><radius>0.015</radius></sphere></geometry>
           <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
         </visual>

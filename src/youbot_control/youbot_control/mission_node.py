@@ -30,7 +30,9 @@ PATROL = [
     (-3.8, 0.6), (3.8, 0.6),      # +X: left camera sees the Y=+1.2 row
     (3.8, -0.6), (-3.8, -0.6),    # -X: left camera sees the Y=-1.2 row
 ]
-DEPOT = (4.6, 0.0)         # right cross-corridor
+DEPOT = (4.3, 1.9)         # east end of the wide top corridor. (4.6, 0.0) sat
+                           # in the pinch between the inflated gutter ends and
+                           # the inflated east wall -> the robot jammed there.
 ARRIVAL_TOLERANCE = 0.30   # m
 DEDUP_DIST = 0.6           # m: merge detections into one crate
 GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next

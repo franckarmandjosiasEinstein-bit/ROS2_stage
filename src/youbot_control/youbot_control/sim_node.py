@@ -26,17 +26,17 @@ from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 
 # --- Strawberry greenhouse (from the real plan) -----------------------------
 # Footprint 10 m (X, length) x 5 m (Y, width); origin at centre. Three culture
-# gutters run along the length (8.5 m x 0.4 m) at Y = -1.2, 0, +1.2, leaving
+# gutters run along the length (8.0 m x 0.4 m) at Y = -1.2, 0, +1.2, leaving
 # 0.8 m driving aisles between them and ~1.1 m margins to the side walls. Open
-# cross-corridors at both X ends (gutters span X in [-4.25, 4.25]).
+# cross-corridors at both X ends (gutters span X in [-4, 4]).
 ARENA_X_HALF = 5.0   # walls at X = +/- 5 m  (10 m long)
 ARENA_Y_HALF = 2.5   # walls at Y = +/- 2.5 m (5 m wide)
 
 # Obstacles the lidar sees: (centre_x, centre_y, size_x, size_y) -- the gutters.
 OBSTACLES = [
-    (0.0, 1.2, 8.5, 0.4),
-    (0.0, 0.0, 8.5, 0.4),
-    (0.0, -1.2, 8.5, 0.4),
+    (0.0, 1.2, 8.0, 0.4),
+    (0.0, 0.0, 8.0, 0.4),
+    (0.0, -1.2, 8.0, 0.4),
 ]
 
 # Crates to collect, placed in the 0.8 m aisles (Y = +/- 0.6) next to a gutter.

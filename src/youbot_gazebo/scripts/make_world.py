@@ -6,7 +6,7 @@ but here it is a real 3D world the gpu_lidar ray-casts against and RViz/Gazebo
 render with colour, lighting and textures:
 
     Footprint  10 m (X) x 5 m (Y), origin at centre, walls 2.5 m high.
-    Gutters    3 x (8.5 x 0.4 x 0.8) at Y = -1.2, 0, +1.2, spanning X[-4.25,4.25].
+    Gutters    3 x (8.0 x 0.4 x 0.8) at Y = -1.2, 0, +1.2, spanning X[-4,4].
     Aisles     0.8 m between gutters (Y = +/-0.6); open cross-corridors at X ends.
     Plants     dense rows of strawberry plants on each gutter top: brown pot,
                bushy green foliage and ripe red strawberries (the harvest
@@ -27,7 +27,9 @@ WALL_H = 2.5
 WALL_T = 0.10
 
 GUTTERS_Y = (-1.2, 0.0, 1.2)
-GUTTER_LEN = 8.5
+GUTTER_LEN = 8.0   # 8.5 pinched the end-of-row corridors to ~6 cm once both
+                   # the gutter ends and the walls were inflated by 0.32 m --
+                   # the robot jammed in the corners. 8.0 leaves ~0.3 m clear.
 GUTTER_W = 0.4
 GUTTER_H = 0.8
 
