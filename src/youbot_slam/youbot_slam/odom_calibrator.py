@@ -81,6 +81,7 @@ class OdomCalibrator(Node):
         self._dist = 0.0                 # reference distance travelled
         self._scale = [1.0, 1.0, 1.0]    # sx, sy, syaw
         self._saved = False
+        self._saved_at = 0.0
 
         self._prev_truth = None
         self._prev_noisy = None
@@ -126,7 +127,11 @@ class OdomCalibrator(Node):
             for i in range(3):
                 self._update_scale(i)
         self._prev_truth, self._prev_noisy = truth, noisy
-        if not self._saved and self._dist >= self._min_dist:
+        # Re-save as the estimate keeps improving: axes only become
+        # identifiable once the robot has moved along them, so the Y bias
+        # (which needs the lateral creeping of multi-pick) lands well after
+        # the first save. Freezing at the first save would persist y = 0.
+        if self._dist >= self._min_dist and self._dist >= self._saved_at + 2.0:
             self._save()
 
     def _update_scale(self, i: int) -> None:
@@ -191,9 +196,10 @@ class OdomCalibrator(Node):
                 f.write(f"scale_x: {self._scale[0]:.6f}\n")
                 f.write(f"scale_y: {self._scale[1]:.6f}\n")
                 f.write(f"scale_yaw: {self._scale[2]:.6f}\n")
-            self._saved = True
+            first, self._saved, self._saved_at = not self._saved, True, self._dist
             self.get_logger().info(
-                f"Calibration converged after {self._dist:.1f} m and saved to "
+                ("Calibration converged after" if first else "Calibration refined at")
+                + f" {self._dist:.1f} m, saved to "
                 f"{self._file}: bias x {self._scale[0] - 1:+.1%}, "
                 f"y {self._scale[1] - 1:+.1%}, yaw {self._scale[2] - 1:+.1%}. "
                 "Re-run with mode:=apply to drop the reference.")

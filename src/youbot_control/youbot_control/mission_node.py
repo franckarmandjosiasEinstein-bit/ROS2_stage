@@ -46,6 +46,12 @@ ALIGN_KP = 0.28            # m/s per unit offset (proportional centring)
 ALIGN_VMIN = 0.025         # m/s: floor so it keeps creeping near the target
 ALIGN_VMAX = 0.10          # m/s: cap
 ALIGN_TIMEOUT = 12.0       # s: give up aligning if it can't centre the fruit
+# Global watchdog. Every per-state timeout above can only fire while that
+# state is being ticked; if the machine ever lands somewhere none of them
+# cover, the mission goes silent (observed in the field: silent for 80 s
+# after 'Goal reached'). This is the backstop that always makes progress.
+WATCHDOG = 75.0            # s without a state change -> force the next goal
+HEARTBEAT = 15.0           # s between state reports
 
 # Multi-pick per station: like commercial harvesters, pick everything within
 # reach before moving on (driving costs time). After each pick the mission
@@ -84,6 +90,8 @@ class MissionNode(Node):
         self._picks_at_stop = 0  # picks done at the current station
         self._sweep_sign = 0.0   # station sweep direction (0 = not set yet)
         self._station_target = None  # offset of the berry being re-aligned to
+        self._state_sig = None       # last observed state signature
+        self._state_since = 0.0      # when the state last changed
 
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
@@ -96,6 +104,7 @@ class MissionNode(Node):
         self.hold_pub = self.create_publisher(Bool, "pick_hold", 5)
         self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.create_timer(0.5, self._tick)
+        self.create_timer(HEARTBEAT, self._heartbeat)
         self.get_logger().info("mission_node up: patrol -> see fruit -> pick -> resume.")
 
     # --- perception -------------------------------------------------
@@ -123,10 +132,44 @@ class MissionNode(Node):
     def _on_pick_done(self, _msg: Empty) -> None:
         self._pick_done = True
 
+    # --- state watchdog ---------------------------------------------
+    def _signature(self):
+        return (self._phase, self._patrol_i, self._goal, self._goal_sent,
+                self._aligning, self._picking, self._picks_at_stop)
+
+    def _heartbeat(self) -> None:
+        """Say where the mission is, so a stall is visible instead of silent."""
+        if self._phase == "done":
+            return
+        pos = ("?" if self._pose is None
+               else f"({self._pose[0]:+.2f}, {self._pose[1]:+.2f})")
+        goal = "none" if self._goal is None else \
+            f"{self._goal_kind} ({self._goal[0]:+.2f}, {self._goal[1]:+.2f})"
+        state = ("aligning" if self._aligning else
+                 "picking" if self._picking else "driving")
+        self.get_logger().info(
+            f"[state] {self._phase}/{state} at {pos} -> goal {goal} "
+            f"| waypoint {self._patrol_i}/{len(PATROL)} | {self._ripe} ripe in view")
+
+    def _check_watchdog(self) -> None:
+        sig, t = self._signature(), self._now()
+        if sig != self._state_sig:
+            self._state_sig, self._state_since = sig, t
+            return
+        if t - self._state_since < WATCHDOG:
+            return
+        self.get_logger().warn(
+            f"[watchdog] no progress for {WATCHDOG:.0f}s in {self._phase} "
+            "-- releasing the base and advancing to the next goal.")
+        self._release_base()
+        self._abandon_goal()
+        self._state_since = t
+
     # --- mission loop -----------------------------------------------
     def _tick(self) -> None:
         if self._pose is None or self._phase == "done":
             return
+        self._check_watchdog()
         if self._picking:
             self._publish_cmd(0.0, 0.0, 0.0)  # base held still while the arm works
             self._update_pick()

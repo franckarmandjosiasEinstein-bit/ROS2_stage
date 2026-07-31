@@ -105,10 +105,35 @@ class OnlineScanMatcher(ScanMatcher):
         self.last_quality = w / max(1, int(use.sum()))
         return w + 0.5 * float((ok & ~known).sum())
 
+    def observable_axes(self, prior, ranges, max_range, probe=0.06, flat=0.01):
+        """Which world axes this scan can actually pin down.
+
+        Sliding along a straight corridor does not change what the lidar sees,
+        so the score surface is FLAT along the corridor axis: any 'better'
+        pose found there is noise, and applying it integrates into drift.
+        This probes the curvature of the score around the prior (scores at
+        +/-probe versus at the prior) and reports the axes carrying real
+        information. Measured in the field: with calibrated odometry the
+        estimate ended 1.04 m off truth while the odometry it was fed was
+        only 0.13 m off -- the matcher was actively making X worse."""
+        base = self._score(*prior, ranges, 0.0, max_range)
+        if base <= 0.0:
+            return (False, False)
+        out = []
+        for axis in (0, 1):
+            plus, minus = list(prior), list(prior)
+            plus[axis] += probe
+            minus[axis] -= probe
+            curv = (self._score(*plus, ranges, 0.0, max_range)
+                    + self._score(*minus, ranges, 0.0, max_range) - 2.0 * base)
+            out.append(abs(curv) > flat * abs(base))
+        return tuple(out)
+
     def correct_online(self, prior, ranges, max_range):
         """Coarse+fine search in a window matched to per-scan odometry drift
         (a few cm), NOT the parent's +/-0.30 m: the backward corridor-lock
         jump must stay out of reach, and drift between two scans is tiny.
+        Corrections on unobservable axes are dropped (see observable_axes).
         Returns (pose, quality_at_pose)."""
         prior_score = self._score(*prior, ranges, 0.0, max_range)
         coarse, _ = self._search(prior, ranges, 0.0, max_range,
@@ -119,6 +144,12 @@ class OnlineScanMatcher(ScanMatcher):
                                    ang_win=0.015, ang_step=0.005)
         # 1% margin: a correction must clearly beat the prior, otherwise
         # score noise random-walks the pose over many near-tie scans.
-        pose = fine if score > 1.01 * prior_score else prior
+        if score > 1.01 * prior_score:
+            ox, oy = self.observable_axes(prior, ranges, max_range)
+            pose = (fine[0] if ox else prior[0],
+                    fine[1] if oy else prior[1],
+                    fine[2])
+        else:
+            pose = prior
         self._score(*pose, ranges, 0.0, max_range)   # refresh last_quality
         return pose, self.last_quality

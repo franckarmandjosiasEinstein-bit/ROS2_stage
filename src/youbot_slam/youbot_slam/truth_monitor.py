@@ -63,6 +63,7 @@ class TruthMonitor(Node):
         self._odom = None       # raw drifting odometry
         self._ripe = 0          # clusters vision reports this frame
         self._berries = self._load_berries()
+        self._closest = None     # best gripper-to-berry distance this window
 
         self._buf = Buffer()
         self._tf = TransformListener(self._buf, self)
@@ -228,6 +229,8 @@ class TruthMonitor(Node):
             near = self._nearest_berry(tip)
             if near is not None:
                 d, b = near
+                if self._closest is None or d < self._closest:
+                    self._closest = d
                 reach = self._marker(5, Marker.LINE_LIST, (0.015, 0.0, 0.0),
                                      GREEN if d < 0.10 else RED)
                 reach.points = [Point(x=tip[0], y=tip[1], z=tip[2]),
@@ -269,14 +272,15 @@ class TruthMonitor(Node):
                      f"{self._ripe}"
                      + ("  <-- MISSING" if self._ripe < len(view) else "")
                      + ("  <-- FALSE POSITIVES" if self._ripe > len(view) else ""))
-        tip = self._gripper_tip()
-        if tip is not None:
-            near = self._nearest_berry(tip)
-            if near is not None:
-                d, _ = near
-                verdict = "on target" if d < 0.10 else ("close" if d < 0.25 else "THIN AIR")
-                lines.append(f"ARM     gripper {d:.02f} m from the nearest real "
-                             f"berry -> {verdict}")
+        # Report the CLOSEST approach over the window, not the instantaneous
+        # distance: the arm is stowed most of the time, so sampling at random
+        # would always read 'thin air' even on a perfect pick.
+        if self._closest is not None:
+            d = self._closest
+            verdict = "on target" if d < 0.10 else ("close" if d < 0.25 else "THIN AIR")
+            lines.append(f"ARM     closest gripper-to-berry approach {d:.02f} m "
+                         f"-> {verdict}")
+            self._closest = None
         self.get_logger().info("\n".join(lines))
 
 
@@ -285,8 +289,8 @@ def main(args=None) -> None:
     node = TruthMonitor()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, RuntimeError):
+        pass          # RuntimeError: message arriving mid-shutdown (rclpy)
     finally:
         node.destroy_node()
         if rclpy.ok():
