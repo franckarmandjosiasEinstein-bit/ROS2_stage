@@ -39,6 +39,28 @@ if pgrep -f "gz sim" >/dev/null 2>&1; then
   sleep 1
 fi
 
+# Entry-point metadata check. With --symlink-install the console scripts under
+# install/ resolve their entry points through an egg-link back to
+# src/*.egg-info, and when that metadata goes missing EVERY node dies at import
+# with "PackageNotFoundError: No package metadata was found for youbot-control"
+# -- fifteen identical tracebacks that say nothing about the actual fix. Catch
+# it here instead, in one line.
+if ! python3 -c "
+import importlib.metadata as m
+for d in ('youbot-control', 'youbot-slam'):
+    m.distribution(d)
+" 2>/dev/null; then
+  echo "[run.sh] The installed packages carry no entry-point metadata, so every"
+  echo "[run.sh] node would die on startup. Rebuild from clean:"
+  echo
+  echo "    rm -rf build install log && colcon build --symlink-install"
+  echo "    source install/setup.bash"
+  echo
+  echo "[run.sh] If it comes back, drop --symlink-install: a plain colcon build"
+  echo "[run.sh] writes real dist metadata and does not depend on src/ at all."
+  exit 1
+fi
+
 if [ "$1" = "slam" ]; then
   shift
   ros2 launch youbot_slam gazebo_slam.launch.py "$@"

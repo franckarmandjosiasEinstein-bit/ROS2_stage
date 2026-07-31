@@ -89,6 +89,27 @@ colcon test-result --verbose
 python3 -m pytest src/youbot_control/test -v
 ```
 
+## Dépannage
+
+**`PackageNotFoundError: No package metadata was found for youbot-control`**
+— tous les nœuds meurent au démarrage, Gazebo tourne quand même.
+
+`colcon build --symlink-install` ne copie pas le code : il pose un lien vers
+`src/`, et les scripts installés retrouvent leur `main()` via les métadonnées
+`src/<paquet>.egg-info`. Quand ce dossier manque ou vient d'un autre
+setuptools, tous les nœuds Python échouent à l'import avec la même trace.
+Reconstruire à neuf :
+
+```bash
+rm -rf build install log
+colcon build --symlink-install
+source install/setup.bash
+```
+
+Si le problème revient, enlever `--symlink-install` : un `colcon build` normal
+copie le code et écrit de vraies métadonnées, sans dépendre de `src/`. `run.sh`
+vérifie ce point avant de lancer quoi que ce soit et affiche la commande.
+
 ## État d'avancement
 
 - [x] Squelette du workspace + 3 packages qui compilent
