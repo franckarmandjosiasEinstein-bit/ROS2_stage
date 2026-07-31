@@ -36,6 +36,7 @@ Publishes:   /pose_slam  (nav_msgs/Odometry, frame map)  corrected pose
 from __future__ import annotations
 
 import math
+from collections import deque
 
 import numpy as np
 import rclpy
@@ -92,7 +93,8 @@ class SlamNode(Node):
         self._turned = 0.0
 
         self._odom = None          # latest drifting odometry (x, y, yaw)
-        self._odom_at_scan = None  # drifting odometry at the previous scan
+        self._odom_hist = deque(maxlen=200)   # (t, x, y, yaw) for time pairing
+        self._odom_at_scan = None  # drifting odometry at the PREVIOUS scan time
         self._pose = None          # corrected pose (x, y, yaw)
         self._gt = None            # ground truth, metrics only
         self._err_sum = 0.0
@@ -111,11 +113,22 @@ class SlamNode(Node):
     # ------------------------------------------------------------------ inputs
     def _on_noisy(self, msg: Odometry) -> None:
         p = msg.pose.pose
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         self._odom = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
+        self._odom_hist.append((t, *self._odom))
         if self._pose is None:
             # Boot: adopt the odometry pose until the first scan arrives.
             self._pose = self._odom
             self._odom_at_scan = self._odom
+
+    def _odom_at(self, t: float):
+        """Odometry sample nearest to time t (the scan's own timestamp).
+        Pairing the scan with the LATEST odometry instead skewed the prior by
+        however far the robot moved while scans waited in the queue -- with
+        the slow field rebuild that reached ~0.3 m and locked the pose."""
+        if not self._odom_hist:
+            return self._odom
+        return min(self._odom_hist, key=lambda s: abs(s[0] - t))[1:]
 
     def _on_truth(self, msg: Odometry) -> None:
         p = msg.pose.pose
@@ -126,15 +139,22 @@ class SlamNode(Node):
         if self._odom is None or self._pose is None:
             return
 
+        # Stale-scan guard: if this scan waited in the queue while the robot
+        # kept driving, matching it against a later pose only corrupts things.
+        t_scan = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self._odom_hist and self._odom_hist[-1][0] - t_scan > 0.4:
+            return
+
         # 1. PREDICT -- odometry increment since the last scan, applied in the
         # body frame of the last corrected pose (standard motion composition).
+        # Both endpoints are time-matched to the scans' own timestamps.
         ox, oy, oth = self._odom_at_scan
-        nx, ny, nth = self._odom
+        nx, ny, nth = self._odom_at(t_scan)
         c, s = math.cos(-oth), math.sin(-oth)
         dxb = c * (nx - ox) - s * (ny - oy)
         dyb = s * (nx - ox) + c * (ny - oy)
         dth = math.atan2(math.sin(nth - oth), math.cos(nth - oth))
-        self._odom_at_scan = self._odom
+        self._odom_at_scan = (nx, ny, nth)
 
         x, y, th = self._pose
         c, s = math.cos(th), math.sin(th)

@@ -23,6 +23,16 @@ isolated on the greenhouse simulation bench (docs in the package README):
    over known-cell beams) lets slam_node skip map updates when the match is
    poor, which broke the feedback loop and took the bench from 1.15 m final
    error to 0.05 m.
+
+4. SELF-HIT FILTER + FAST CAPPED DISTANCE FIELD (real-robot fixes). The
+   gpu_lidar sees the robot's own visuals -- arm pedestal (0.07 m, ~50 deg
+   wide), camera mast (0.21 m) and basket walls (0.03-0.28 m, most of the
+   rear): beams under `min_valid_range` are dropped. And the parent's
+   pure-Python BFS distance field took ~1 s on a 200x200 grid, long enough
+   for scans to queue up and be matched against FUTURE odometry -- the pose
+   lagged the robot at driving speed. The field is now vectorised numpy
+   min-propagation capped at 12 cells (weights are ~0 beyond 8 anyway),
+   ~50x faster, so the node keeps up with the 10 Hz lidar.
 """
 
 from __future__ import annotations
@@ -33,15 +43,37 @@ from youbot_control.lib.scan_matcher import ScanMatcher
 
 
 class OnlineScanMatcher(ScanMatcher):
+    DIST_CAP = 12                     # cells; exp(-12^2/2sig^2) ~ 0 anyway
+
     def __init__(self, ref_grid: np.ndarray, known: np.ndarray,
                  resolution: float, arena_size: float,
                  angle_min: float, angle_inc: float,
-                 beam_stride: int = 3, sigma_m: float = 0.12) -> None:
+                 beam_stride: int = 3, sigma_m: float = 0.12,
+                 min_valid_range: float = 0.35) -> None:
         super().__init__(ref_grid, resolution, arena_size, beam_stride, sigma_m)
         self.known = known            # bool grid: cell has been observed
         self.angle_min = angle_min
         self.angle_inc = angle_inc
+        self.min_valid_range = min_valid_range   # drop lidar self-hits
         self.last_quality = 0.0       # mean weight over known-cell beams
+
+    @staticmethod
+    def _distance_field(seed: np.ndarray) -> np.ndarray:
+        # Vectorised min-propagation (4-neighbour, capped): ~50x faster than
+        # the parent's deque BFS, which stalled the node for ~1 s per rebuild.
+        cap = OnlineScanMatcher.DIST_CAP
+        dist = np.where(seed, 0, cap).astype(np.int32)
+        for _ in range(cap):
+            up = np.full_like(dist, cap);    up[:-1, :] = dist[1:, :]
+            down = np.full_like(dist, cap);  down[1:, :] = dist[:-1, :]
+            left = np.full_like(dist, cap);  left[:, :-1] = dist[:, 1:]
+            right = np.full_like(dist, cap); right[:, 1:] = dist[:, :-1]
+            best = np.minimum(np.minimum(up, down), np.minimum(left, right)) + 1
+            nxt = np.minimum(dist, best)
+            if np.array_equal(nxt, dist):
+                break
+            dist = nxt
+        return dist
 
     def _score(self, x, y, th, ranges, fov, max_range) -> float:
         # `fov` is ignored -- the exact ROS layout replaces the parent's.
@@ -52,7 +84,7 @@ class OnlineScanMatcher(ScanMatcher):
         idx = np.arange(0, n, self.beam_stride)
         r = ranges[idx]
         a = th + self.angle_min + idx * self.angle_inc
-        finite = np.isfinite(r) & (r < max_range)
+        finite = np.isfinite(r) & (r < max_range) & (r > self.min_valid_range)
         r_safe = np.where(finite, r, 0.0)
         ex = x + r_safe * np.cos(a)
         ey = y + r_safe * np.sin(a)
