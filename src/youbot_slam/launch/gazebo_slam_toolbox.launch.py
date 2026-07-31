@@ -26,20 +26,36 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-# Lock the Gazebo GUI camera onto the spawned robot: move_to recentres, follow
-# keeps it in frame as it drives. Retried for ~60 s since the GUI can be slow.
+# Lock the Gazebo GUI camera onto the spawned robot.
+#
+# Why this is a confirmation loop and not one call. /gui/move_to answers
+# "data: true" as soon as the SERVICE is up, which happens well before the GUI's
+# render scene has been populated from /world/<w>/scene/info. The old version
+# exited on that first true and the log then showed, a second later:
+#
+#     [GUI] [Err] [CameraTracking.cc:425] Unable to move to target.
+#                                         Target: 'youbot' not found
+#
+# -- the request was accepted and quietly did nothing, so the camera stayed
+# wherever it had been left and the robot was "invisible". Whether it worked
+# was a race between the GUI loading and our 6 s timer, which is exactly why it
+# came and went between runs.
+#
+# So: keep re-issuing, and believe it only when the CameraTracking plugin says
+# on /gui/currently_tracked that it is tracking the robot.
 FOLLOW_ROBOT = (
     'req=\'data: "youbot"\'; '
-    'for i in $(seq 1 30); do '
-    '  if gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
-    '       --reptype gz.msgs.Boolean --timeout 2000 --req "$req" 2>/dev/null '
-    '       | grep -q "data: true"; then '
-    '    gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
-    '       --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; '
-    '    echo "[view] Gazebo camera locked on the robot."; exit 0; '
-    '  fi; sleep 2; done; '
-    'echo "[view] could not reach the Gazebo GUI -- use the Entity Tree to '
-    'right-click youbot > Follow."'
+    'for i in $(seq 1 40); do '
+    '  gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
+    '     --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; '
+    '  gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
+    '     --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; '
+    '  if timeout 3 gz topic -e -t /gui/currently_tracked -n 1 2>/dev/null '
+    '       | grep -q youbot; then '
+    '    echo "[view] Gazebo camera is following the robot (confirmed)."; exit 0; '
+    '  fi; sleep 1; done; '
+    'echo "[view] the Gazebo camera would not lock on -- right-click youbot in '
+    'the Entity Tree > Follow."'
 )
 
 
