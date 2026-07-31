@@ -126,7 +126,8 @@ def generate_launch_description() -> LaunchDescription:
         RegisterEventHandler(OnShutdown(on_shutdown=[
             ExecuteProcess(
                 cmd=["bash", "-c", 'pkill -9 -f "gz sim"; pkill -9 -f "gz-sim"; '
-                     'pkill -9 -f "ruby.*gz sim"'],
+                     'pkill -9 -f "ruby.*gz sim"; pkill -9 -f parameter_bridge; '
+                     'pkill -9 -f rviz2; pkill -9 -f rqt_image_view'],
                 output="screen"),
         ])),
     ])

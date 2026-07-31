@@ -20,7 +20,7 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import Image
-from std_msgs.msg import Int32, Float32
+from std_msgs.msg import Int32, Float32, Float32MultiArray
 
 from youbot_control.lib.vision import red_mask, blob_centroids
 
@@ -41,6 +41,9 @@ class StrawberryDetector(Node):
         # Horizontal offset of the fruit nearest the image centre, in [-1, 1]
         # (0 = a strawberry is directly beside the robot). 2.0 = none in view.
         self.offset_pub = self.create_publisher(Float32, "ripe_offset", 5)
+        # ALL cluster offsets this frame (same [-1, 1] convention) -- lets the
+        # mission target the NEXT berry at a station, not just the nearest.
+        self.offsets_pub = self.create_publisher(Float32MultiArray, "ripe_offsets", 5)
         self.get_logger().info(
             f"strawberry_detector up: {topic} -> /camera/detections + /ripe_count + /ripe_offset")
 
@@ -54,9 +57,11 @@ class StrawberryDetector(Node):
         annotated = rgb.copy()
         cx = msg.width / 2.0
         best_off = 2.0
+        offsets = []
         for u, v in centroids:
             self._draw_box(annotated, int(round(u)), int(round(v)))
             off = (u - cx) / cx
+            offsets.append(float(off))
             if abs(off) < abs(best_off):
                 best_off = off
         # Mark the centred target with a filled dot so it is obvious in the view.
@@ -68,6 +73,7 @@ class StrawberryDetector(Node):
         self.det_pub.publish(self._to_msg(annotated, msg.header))
         self.count_pub.publish(Int32(data=len(centroids)))
         self.offset_pub.publish(Float32(data=float(best_off)))
+        self.offsets_pub.publish(Float32MultiArray(data=sorted(offsets, key=abs)))
         if centroids:
             self.get_logger().info(
                 f"{len(centroids)} cluster(s), nearest offset {best_off:+.2f}.",

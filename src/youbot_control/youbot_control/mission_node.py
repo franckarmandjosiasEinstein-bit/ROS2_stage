@@ -19,7 +19,7 @@ from rclpy.node import Node
 
 from geometry_msgs.msg import PoseArray, PoseStamped, Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Empty, Int32, Float32, Bool
+from std_msgs.msg import Empty, Int32, Float32, Float32MultiArray, Bool
 
 # Coverage patrol: only the two central 0.8 m aisles (Y = +/-0.6). The robot
 # turns to face its heading, so its left (+Y, where the camera and arm are)
@@ -47,6 +47,15 @@ ALIGN_VMIN = 0.025         # m/s: floor so it keeps creeping near the target
 ALIGN_VMAX = 0.10          # m/s: cap
 ALIGN_TIMEOUT = 12.0       # s: give up aligning if it can't centre the fruit
 
+# Multi-pick per station: like commercial harvesters, pick everything within
+# reach before moving on (driving costs time). After each pick the mission
+# looks for the NEXT cluster in the frame, sweeping in one direction only so
+# already-picked berries (now behind) are never re-targeted.
+MAX_PICKS_PER_STOP = 3     # arm cycles per stop before resuming the patrol
+NEXT_MIN = 0.18            # |offset| below this = the berry just picked
+NEXT_MAX = 1.20            # |offset| beyond this = out of the arm's reach
+TRACK_WIN = 0.40           # per-frame tracking window while re-aligning
+
 
 class MissionNode(Node):
     def __init__(self) -> None:
@@ -71,11 +80,16 @@ class MissionNode(Node):
         self._align_sign = 1.0
         self._align_last_abs = None
         self._align_check_t = 0.0
+        self._offsets = []       # ALL cluster offsets in the current frame
+        self._picks_at_stop = 0  # picks done at the current station
+        self._sweep_sign = 0.0   # station sweep direction (0 = not set yet)
+        self._station_target = None  # offset of the berry being re-aligned to
 
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
         self.create_subscription(Int32, "ripe_count", self._on_ripe, 10)
         self.create_subscription(Float32, "ripe_offset", self._on_ripe_offset, 10)
+        self.create_subscription(Float32MultiArray, "ripe_offsets", self._on_ripe_offsets, 10)
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
         self.pick_pub = self.create_publisher(Empty, "do_pick", 5)
@@ -102,6 +116,9 @@ class MissionNode(Node):
 
     def _on_ripe_offset(self, msg) -> None:
         self._ripe_offset = float(msg.data)
+
+    def _on_ripe_offsets(self, msg) -> None:
+        self._offsets = list(msg.data)
 
     def _on_pick_done(self, _msg: Empty) -> None:
         self._pick_done = True
@@ -210,14 +227,32 @@ class MissionNode(Node):
         self._align_sign = 1.0
         self._align_check_t = self._now()
         self._align_last_abs = abs(self._ripe_offset)
+        self._picks_at_stop = 0                  # new station
+        self._sweep_sign = 0.0
+        self._station_target = None              # first target = nearest cluster
         self._last_pick_xy = self._pose          # space the next detection from here
         self.hold_pub.publish(Bool(data=True))   # navigation yields the base
         self.get_logger().info(
             f"Fruit spotted (offset {self._ripe_offset:+.2f}) -> stopping to align.")
 
     def _update_align(self) -> None:
-        off = self._ripe_offset
         t = self._now()
+        if self._station_target is None:
+            # First berry of the station: steer on the nearest-to-centre offset.
+            off = self._ripe_offset
+        else:
+            # Re-aligning to the NEXT berry: the nearest-to-centre offset would
+            # point back at the one just picked, so track OUR target from frame
+            # to frame instead (closest offset to its last known position).
+            cands = [o for o in self._offsets
+                     if abs(o - self._station_target) < TRACK_WIN]
+            if not cands:
+                self._publish_cmd(0.0, 0.0, 0.0)
+                self.get_logger().info("Next berry lost from view, resuming patrol.")
+                self._release_base()
+                return
+            self._station_target = min(cands, key=lambda o: abs(o - self._station_target))
+            off = self._station_target
         # Lost the fruit or took too long -> give up and resume the patrol.
         if self._ripe < RIPE_MIN or (t - self._align_start) > ALIGN_TIMEOUT:
             self._publish_cmd(0.0, 0.0, 0.0)
@@ -251,17 +286,47 @@ class MissionNode(Node):
             f"Aligned at ({self._pose[0]:+.2f}, {self._pose[1]:+.2f}) -> picking.")
 
     def _update_pick(self) -> None:
-        if self._pick_done or (self._now() - self._pick_start) > PICK_TIMEOUT:
-            done = "done" if self._pick_done else f"timed out ({PICK_TIMEOUT:.0f}s)"
-            self.get_logger().info(f"Pick {done}, resuming patrol.")
+        if not (self._pick_done or (self._now() - self._pick_start) > PICK_TIMEOUT):
+            return
+        if not self._pick_done:                   # arm timed out -> bail out
+            self.get_logger().info(f"Pick timed out ({PICK_TIMEOUT:.0f}s), resuming patrol.")
             self._picking = False
             self._release_base()
+            return
+        self._picks_at_stop += 1
+        self._picking = False
+        # Station sweep: anything else within reach? Pick it before moving --
+        # driving costs time, so harvest everything reachable from this stop.
+        # One sweep direction only, so picked berries (now behind) are never
+        # re-targeted.
+        if self._picks_at_stop < MAX_PICKS_PER_STOP:
+            cands = [o for o in self._offsets
+                     if NEXT_MIN < abs(o) < NEXT_MAX
+                     and (self._sweep_sign == 0.0 or o * self._sweep_sign > 0.0)]
+            if cands:
+                target = min(cands, key=abs)
+                self._sweep_sign = 1.0 if target > 0.0 else -1.0
+                self._station_target = target
+                self._aligning = True
+                self._align_start = self._now()
+                self._align_sign = 1.0
+                self._align_check_t = self._now()
+                self._align_last_abs = abs(target)
+                self.get_logger().info(
+                    f"Station: {self._picks_at_stop} picked here, next berry at "
+                    f"offset {target:+.2f} -> re-aligning.")
+                return
+        self.get_logger().info(
+            f"Pick done ({self._picks_at_stop} at this stop), resuming patrol.")
+        self._release_base()
 
     def _release_base(self) -> None:
         """Give the base back to navigation and resume the current patrol goal."""
         self.hold_pub.publish(Bool(data=False))
         self._aligning = False
         self._picking = False
+        self._station_target = None
+        self._last_pick_xy = self._pose       # space the next stop from HERE
         self._goal_sent = False               # re-send the patrol goal to resume
 
     def _set_goal(self, xy, kind) -> None:
