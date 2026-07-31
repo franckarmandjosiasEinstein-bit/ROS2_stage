@@ -44,7 +44,7 @@ from nav_msgs.msg import Odometry
 
 # Minimum accumulated squared motion per axis before its scale is trusted
 # (x, y, yaw). Below this the axis is not excited enough to be identifiable.
-MIN_EXCITATION = (0.05, 0.05, 0.02)
+MIN_EXCITATION = (0.015, 0.015, 0.008)
 
 
 def yaw_from_quaternion(q) -> float:
@@ -68,7 +68,7 @@ class OdomCalibrator(Node):
         self.declare_parameter("calib_file",
                                os.path.expanduser("~/.ros/youbot_odom_calib.yaml"))
         # Distance to drive before the estimate is trusted and saved.
-        self.declare_parameter("min_distance", 6.0)     # m
+        self.declare_parameter("min_distance", 3.0)     # m
         self.declare_parameter("report_period", 10.0)   # s
 
         self._mode = str(self.get_parameter("mode").value)
@@ -222,7 +222,9 @@ class OdomCalibrator(Node):
             f"odometry bias estimate after {self._dist:.1f} m: "
             f"x {self._scale[0] - 1:+.1%}, y {self._scale[1] - 1:+.1%}, "
             f"yaw {self._scale[2] - 1:+.1%}"
-            + ("" if self._saved else " (still refining)"))
+            + ("" if self._saved else
+               f" (refining -- {self._min_dist - self._dist:.1f} m to go; "
+               "the robot only drives ~1.5 m/min while harvesting)"))
 
 
 def main(args=None) -> None:

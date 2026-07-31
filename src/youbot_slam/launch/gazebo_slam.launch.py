@@ -141,6 +141,10 @@ def generate_launch_description() -> LaunchDescription:
              remappings=[("odom", "odom_noisy")],
              condition=UnlessCondition(use_slam)),
 
+        # Ground truth vs belief, on one RViz picture + one scoreboard.
+        Node(package="youbot_slam", executable="truth_monitor",
+             name="truth_monitor", output="screen", parameters=[sim_time]),
+
         # --- the UNCHANGED control stack, rewired to the SLAM pose -------------
         control("mapping_node", localized=True),
         control("planning_node", localized=True),

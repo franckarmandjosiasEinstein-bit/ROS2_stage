@@ -42,6 +42,17 @@ class NavigationNode(Node):
         self.declare_parameter("safety_slow", 0.45)      # m: begin slowing
         self.declare_parameter("safety_halfcone", 0.30)  # rad: forward danger cone
         self.declare_parameter("safety_min", 0.35)       # never brake below this (no freeze)
+        # Geofence: the base is a kinematic "ghost" (no collision, so physics
+        # can never wedge or tip it) -- which also means no wall can stop it.
+        # Containment therefore has to be a software protective stop, exactly
+        # as on a real robot, where you never let a collision be the limit.
+        self.declare_parameter("fence_x", 4.55)          # m: |x| beyond this = out
+        self.declare_parameter("fence_y", 2.10)          # m: |y| beyond this = out
+        self.declare_parameter("fence_margin", 0.25)     # m: start pushing back here
+        # Stuck detector: commanding motion but not moving -> escape manoeuvre.
+        self.declare_parameter("stuck_speed", 0.03)      # m/s: below this = not moving
+        self.declare_parameter("stuck_time", 4.0)        # s before declaring stuck
+        self.declare_parameter("recover_time", 2.0)      # s of escape manoeuvre
 
         self.controller = PurePursuit(
             lookahead=self.get_parameter("lookahead").value,
@@ -51,11 +62,21 @@ class NavigationNode(Node):
         self._slow = float(self.get_parameter("safety_slow").value)
         self._halfcone = float(self.get_parameter("safety_halfcone").value)
         self._minfactor = float(self.get_parameter("safety_min").value)
+        self._fx = float(self.get_parameter("fence_x").value)
+        self._fy = float(self.get_parameter("fence_y").value)
+        self._fmargin = float(self.get_parameter("fence_margin").value)
+        self._stuck_speed = float(self.get_parameter("stuck_speed").value)
+        self._stuck_time = float(self.get_parameter("stuck_time").value)
+        self._recover_time = float(self.get_parameter("recover_time").value)
         self._pose = None
         self._scan = None
         self._last_wp = None
         self._reached_logged = False
         self._held = False       # mission owns /cmd_vel during align + pick
+        self._moved_at = None    # last time the base actually moved
+        self._last_pos = None
+        self._recover_until = 0.0
+        self._recover_cmd = (0.0, 0.0, 0.0)
         self.create_subscription(Path, "plan", self._on_plan, 1)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "scan", self._on_scan, 5)
@@ -105,6 +126,57 @@ class NavigationNode(Node):
         self.controller.set_path(waypoints)
         self.get_logger().info(f"New plan: {len(waypoints)} waypoints.")
 
+    # --- containment and recovery ------------------------------------------
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _fence_push(self):
+        """Body-frame velocity that pushes the base back inside the arena, or
+        None while it is comfortably inside. Beyond the fence this OVERRIDES
+        the path follower: no plan is worth leaving the greenhouse for."""
+        x, y, yaw = self._pose
+        px = py = 0.0
+        if x > self._fx - self._fmargin:
+            px = -1.0
+        elif x < -self._fx + self._fmargin:
+            px = 1.0
+        if y > self._fy - self._fmargin:
+            py = -1.0
+        elif y < -self._fy + self._fmargin:
+            py = 1.0
+        if px == 0.0 and py == 0.0:
+            return None
+        # Rotate the world-frame push into the body frame.
+        c, s = math.cos(-yaw), math.sin(-yaw)
+        speed = 0.25
+        return (speed * (c * px - s * py), speed * (s * px + c * py), 0.0)
+
+    def _update_stuck(self, commanded) -> bool:
+        """True while an escape manoeuvre is running. A robot that commands
+        motion but does not move is jammed (a corner, a map artefact): back
+        off along its own heading and rotate so the planner gets a new view."""
+        t = self._now()
+        if t < self._recover_until:
+            return True
+        x, y, _ = self._pose
+        if self._last_pos is None:
+            self._last_pos, self._moved_at = (x, y), t
+            return False
+        moved = math.hypot(x - self._last_pos[0], y - self._last_pos[1])
+        self._last_pos = (x, y)
+        want = math.hypot(commanded[0], commanded[1]) > self._stuck_speed
+        if not want or moved > self._stuck_speed * 0.05:
+            self._moved_at = t
+            return False
+        if t - self._moved_at < self._stuck_time:
+            return False
+        self._recover_until = t + self._recover_time
+        self._recover_cmd = (-0.15, 0.0, 0.6)      # reverse + turn away
+        self._moved_at = t
+        self.get_logger().warn(
+            f"Stuck at ({x:+.2f}, {y:+.2f}) -- backing off and turning.")
+        return True
+
     def _control(self) -> None:
         if self._held:
             return  # mission drives the base directly (aligning / picking)
@@ -117,12 +189,23 @@ class NavigationNode(Node):
             if not self._reached_logged:
                 self._reached_logged = True
                 self.get_logger().info("Goal reached.")
-        elif status == "running":
-            # Brake off the lidar in the direction we're actually moving so the
-            # base slows/stops before hitting a gutter or wall, but keeps turning
-            # (wz) so it can rotate away and the planner reroutes.
-            factor = self._safety_factor(math.atan2(vy, vx))
-            self._publish(vx * factor, vy * factor, wz)
+            return
+        if status != "running":
+            return
+
+        # 1. Escape manoeuvre wins over everything (it is what unblocks us).
+        if self._update_stuck((vx, vy)):
+            self._publish(*self._recover_cmd)
+            return
+        # 2. Geofence override: outside the arena, drive back in, nothing else.
+        push = self._fence_push()
+        if push is not None:
+            self._publish(*push)
+            return
+        # 3. Normal following, braked off the lidar in the direction we are
+        # actually moving, but still turning (wz) so it can rotate away.
+        factor = self._safety_factor(math.atan2(vy, vx))
+        self._publish(vx * factor, vy * factor, wz)
 
     def _publish(self, vx, vy, wz) -> None:
         t = Twist()

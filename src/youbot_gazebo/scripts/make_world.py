@@ -140,6 +140,12 @@ def gutter(name, y):
     </model>"""
 
 
+# True world positions of every berry, filled in by plant() and dumped next to
+# the world. This is the ground-truth reference the debug monitor compares the
+# robot's perception against -- generated, never hand-maintained.
+TRUE_BERRIES = []
+
+
 def plant(name, x, y):
     """A realistic-looking strawberry plant sitting on the gutter top: a bushy
     cluster of green leaves and ripe glossy strawberries, each plant slightly
@@ -176,6 +182,7 @@ def plant(name, x, y):
         bz = rng.uniform(0.06, 0.12)
         br = rng.uniform(0.028, 0.036)
         red = rng.uniform(0.85, 1.0)           # ripeness shade
+        TRUE_BERRIES.append((x + bx, y + by, z0 + bz, br))
         parts.append(f"""
         <visual name="berry{i}">
           <pose>{bx:.3f} {by:.3f} {z0 + bz:.3f} 0 0 0</pose>
@@ -342,8 +349,21 @@ def build() -> str:
 def main() -> None:
     here = os.path.dirname(os.path.abspath(__file__))
     out = os.path.join(here, "..", "worlds", "greenhouse.sdf")
+    text = build()                      # fills TRUE_BERRIES as a side effect
     with open(os.path.normpath(out), "w") as f:
-        f.write(build())
+        f.write(text)
+
+    # Ground-truth berry catalogue for youbot_slam/truth_monitor.
+    ref = os.path.join(here, "..", "worlds", "berries.yaml")
+    with open(os.path.normpath(ref), "w") as f:
+        f.write("# Ground-truth berry positions (x y z radius, metres), "
+                "generated with the world.\n")
+        f.write("# Used by youbot_slam/truth_monitor to score perception "
+                "against reality.\n")
+        f.write("berries:\n")
+        for bx, by, bz, br in TRUE_BERRIES:
+            f.write(f"  - [{bx:.4f}, {by:.4f}, {bz:.4f}, {br:.4f}]\n")
+    print(f"wrote {os.path.normpath(ref)} ({len(TRUE_BERRIES)} berries)")
     print(f"wrote {os.path.normpath(out)}")
 
 

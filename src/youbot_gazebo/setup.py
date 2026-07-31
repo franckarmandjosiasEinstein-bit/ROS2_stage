@@ -13,7 +13,7 @@ setup(
          ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
-        ("share/" + package_name + "/worlds", glob("worlds/*.sdf")),
+        ("share/" + package_name + "/worlds", glob("worlds/*.sdf") + glob("worlds/*.yaml")),
         ("share/" + package_name + "/urdf", glob("urdf/*.urdf")),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
         ("share/" + package_name + "/meshes", glob("meshes/*.stl")),

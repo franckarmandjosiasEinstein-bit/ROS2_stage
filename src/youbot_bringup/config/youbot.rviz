@@ -84,6 +84,12 @@ Visualization Manager:
         Reliability Policy: Reliable
       Normalize Range: true
     - Class: rviz_default_plugins/MarkerArray
+      Name: TruthVsBelief
+      Enabled: true
+      Topic:
+        Value: /truth_markers
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/MarkerArray
       Name: Harvest
       Enabled: true
       Topic:
