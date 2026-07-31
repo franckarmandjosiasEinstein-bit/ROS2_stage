@@ -7,10 +7,21 @@ Publishes:
                                               drawn around detected ripe fruit
     /ripe_count         (std_msgs/Int32)     number of ripe clusters this frame
 
-Perception is pure colour segmentation (lib/vision.red_mask) -- ideal for the
-digital twin, where ripe berries are near-pure red. The exact same node
-interface (subscribe an Image, publish detections) is what a YOLOv8 model would
-later replace for real-world robustness, without touching the rest of the stack.
+Perception is pure colour segmentation (lib/vision.red_mask). The exact same
+node interface (subscribe an Image, publish detections) is what a YOLOv8 model
+would later replace for real-world robustness, without touching the rest of
+the stack.
+
+Every threshold is a ROS parameter and the node reports what it is seeing even
+when it sees nothing:
+
+    ros2 param set /strawberry_detector min_diff 35
+    ros2 topic echo /ripe_count
+
+When a frame yields no fruit the log prints the reddest pixel actually present
+(`best r-g`). That one number says whether the thresholds are wrong or the
+camera simply is not pointing at a plant -- the field logs said "15 berries in
+view, vision reports 0" for a whole run and there was no way to tell which.
 """
 
 from __future__ import annotations
@@ -31,12 +42,21 @@ class StrawberryDetector(Node):
         self.declare_parameter("image_topic", "/camera/image")
         self.declare_parameter("box_half", 10)     # px: half-size of the drawn box
         self.declare_parameter("min_pixels", 6)    # min blob size to count as fruit
+        # Ripeness thresholds (see lib/vision.red_mask for why they are
+        # differences and not ratios).
+        self.declare_parameter("value_min", 55)    # ignore near-black pixels
+        self.declare_parameter("min_diff", 45)     # how far red must lead g and b
+        self.declare_parameter("max_sym", 0.20)    # |g-b| <= this * r  (rejects orange)
+        self.declare_parameter("max_ratio", 0.62)  # g <= this * r      (rejects pink)
         topic = self.get_parameter("image_topic").value
         self._box = int(self.get_parameter("box_half").value)
         self._min = int(self.get_parameter("min_pixels").value)
 
         self.create_subscription(Image, topic, self._on_image, 5)
         self.det_pub = self.create_publisher(Image, "camera/detections", 5)
+        # The segmentation itself, as an image. Tuning a colour threshold from
+        # a count alone is guesswork; seeing which pixels survived is not.
+        self.mask_pub = self.create_publisher(Image, "camera/ripe_mask", 5)
         self.count_pub = self.create_publisher(Int32, "ripe_count", 5)
         # Horizontal offset of the fruit nearest the image centre, in [-1, 1]
         # (0 = a strawberry is directly beside the robot). 2.0 = none in view.
@@ -51,7 +71,11 @@ class StrawberryDetector(Node):
         rgb = self._to_rgb(msg)
         if rgb is None:
             return
-        mask = red_mask(rgb)
+        mask = red_mask(rgb,
+                        value_min=int(self.get_parameter("value_min").value),
+                        min_diff=int(self.get_parameter("min_diff").value),
+                        max_sym=float(self.get_parameter("max_sym").value),
+                        max_ratio=float(self.get_parameter("max_ratio").value))
         centroids = blob_centroids(mask, min_pixels=self._min)
 
         annotated = rgb.copy()
@@ -71,6 +95,8 @@ class StrawberryDetector(Node):
                 min(centroids, key=lambda c: abs((c[0]-cx)/cx))[1])), colour=(255, 220, 0))
 
         self.det_pub.publish(self._to_msg(annotated, msg.header))
+        self.mask_pub.publish(self._to_msg(
+            np.repeat((mask[:, :, None] * np.uint8(255)), 3, axis=2), msg.header))
         self.count_pub.publish(Int32(data=len(centroids)))
         self.offset_pub.publish(Float32(data=float(best_off)))
         self.offsets_pub.publish(Float32MultiArray(data=sorted(offsets, key=abs)))
@@ -78,6 +104,15 @@ class StrawberryDetector(Node):
             self.get_logger().info(
                 f"{len(centroids)} cluster(s), nearest offset {best_off:+.2f}.",
                 throttle_duration_sec=2.0)
+        else:
+            # Nothing found: say what the frame actually contained, so a wrong
+            # threshold is distinguishable from a camera aimed at a wall.
+            r = rgb[:, :, 0].astype(np.int16)
+            lead = int(np.max(r - np.maximum(rgb[:, :, 1], rgb[:, :, 2]).astype(np.int16)))
+            self.get_logger().info(
+                f"no fruit: {int(mask.sum())} px pass the mask, reddest pixel in "
+                f"frame leads g/b by {lead} (threshold {self.get_parameter('min_diff').value}).",
+                throttle_duration_sec=5.0)
 
     # --- drawing --------------------------------------------------------
     def _draw_box(self, img, u, v, colour=(30, 230, 30)) -> None:

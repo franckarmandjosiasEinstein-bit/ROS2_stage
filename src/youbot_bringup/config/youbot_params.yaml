@@ -17,8 +17,12 @@ planning_node:
 
 navigation_node:
   ros__parameters:
-    lookahead: 0.25        # short -> hugs the plan, less corner-cutting in aisles
-    cruise_speed: 0.45     # m/s along the lookahead vector
+    # Faster now that the guard below is trustworthy. The old brake never
+    # filtered the robot's own arm column out of the scan, saw it at 0.07 m
+    # forever and sat on its 35 % floor: the base crawled at 0.16 m/s all run,
+    # whatever cruise_speed said.
+    lookahead: 0.32        # short enough to hug the plan in a 0.8 m aisle
+    cruise_speed: 0.60     # m/s along the lookahead vector
     control_period: 0.05   # 20 Hz control loop
     # Obstacle braking and the arena fence moved to safety_node: one guard for
     # every publisher, one boundary. Two of them disagreeing is what pinned the
@@ -38,6 +42,11 @@ safety_node:
     side_min: 0.30         # m: flank clearance held while translating
     side_push: 0.12        # m/s: max recentring correction
     side_band: 0.35        # m: fore/aft extent of the flank measurement
-    fence_x: 4.60          # m: bound on the base centre (inner wall face 4.95)
-    fence_y: 2.15          # m: bound on the base centre (inner wall face 2.45)
+    # The wall the FOOTPRINT must stay inside (inner glass faces 4.95 / 2.45,
+    # 0.10 m of margin). All four corners are checked, rotated by the heading:
+    # bounding the centre alone let the chassis clip the glass on a diagonal.
+    fence_x: 4.85
+    fence_y: 2.35
+    base_length: 0.58
+    base_width: 0.38
     cmd_timeout: 1.0       # s of silence -> stop, never coast

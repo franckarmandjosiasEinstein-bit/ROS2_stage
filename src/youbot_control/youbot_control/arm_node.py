@@ -6,18 +6,35 @@ publishes /pick_done. Each joint target is sent to its gz JointPositionControlle
 (a Float64 per joint, bridged to gz Double); the same angles are published on
 /joint_states so robot_state_publisher animates the arm in RViz too.
 
-Subscribes:  /do_pick   (std_msgs/Empty)   start one pick cycle
+A pick is refused when the gripper would land outside the greenhouse. The base
+is a kinematic ghost and the arm has no collision either, so nothing physical
+stops the manipulator sweeping through a glass wall -- it just looks wrong and,
+on a real cell, it is the accident you design the workspace limits to prevent.
+The arm reaches over the robot's LEFT side, so in a margin lane the thing on
+the left is the wall, not a plant row: the check projects the reach into world
+coordinates and declines rather than swinging into the glass.
+
+Subscribes:  /do_pick   (std_msgs/Empty)      start one pick cycle
+             /odom      (nav_msgs/Odometry)   estimated pose, for the workspace
+                                              limit (remapped to the SLAM pose
+                                              by the level-3 launch)
 Publishes:   /arm_joint_1_cmd .. /gripper_right_cmd  (std_msgs/Float64) -> gz
              /joint_states  (sensor_msgs/JointState) -> robot_state_publisher
              /pick_done     (std_msgs/Empty)   emitted when the cycle finishes
+                                               (also on a refusal, so the
+                                               mission never waits on a pick
+                                               that will not happen)
 """
 
 from __future__ import annotations
+
+import math
 
 import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import Empty, Float64, Int32
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -44,8 +61,18 @@ PICK_SEQUENCE = [
     (PLACE, None), (RELEASE, "release"), (STOW, None),
 ]
 
-ARM_STEP = 0.03    # rad per tick (30 Hz -> ~1 rad in ~1.1 s)
-GRIP_STEP = 0.0025  # m per tick
+# Joint rate. 0.03 rad/tick at 30 Hz took ~2 s just to unfold from STOW, and a
+# full cycle ran close to 10 s: with 100+ berries to pick that is most of the
+# run spent watching the arm move. 0.05 rad/tick is 1.5 rad/s, still a sane
+# speed for a 5 kg-payload arm and it cuts a pick cycle by about a third.
+ARM_STEP = 0.05    # rad per tick (30 Hz -> ~1 rad in 0.7 s)
+GRIP_STEP = 0.004  # m per tick
+
+# Where the gripper ends up at REACH, in the base frame: the arm is mounted
+# facing the robot's +Y side, so it reaches over the LEFT flank.
+REACH_XY = (0.12, 0.55)
+# Inner glass faces of the 10 x 5 m greenhouse, minus a hand's clearance.
+WALL_X, WALL_Y = 4.85, 2.35
 
 
 def _sign(x):
@@ -70,14 +97,43 @@ class ArmNode(Node):
         self._count_pub = self.create_publisher(Int32, "harvest_count", 5)
         self._marker_pub = self.create_publisher(MarkerArray, "harvest_markers", 5)
         self.create_subscription(Empty, "do_pick", self._on_do_pick, 5)
+        self._pose = None
+        self._refused = 0
+        self.create_subscription(Odometry, "odom", self._on_odom, 10)
 
         self.create_timer(1.0 / 30.0, self._tick)
         self.get_logger().info(
             "arm_node up: /do_pick -> pick + basket; cmds + /joint_states + /harvest_count")
 
+    def _on_odom(self, msg: Odometry) -> None:
+        p = msg.pose.pose
+        q = p.orientation
+        self._pose = (p.position.x, p.position.y,
+                      math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+
+    def _reach_target(self):
+        """Where the gripper will be at REACH, in world coordinates."""
+        if self._pose is None:
+            return None
+        x, y, yaw = self._pose
+        c, s = math.cos(yaw), math.sin(yaw)
+        return (x + REACH_XY[0] * c - REACH_XY[1] * s,
+                y + REACH_XY[0] * s + REACH_XY[1] * c)
+
     def _on_do_pick(self, _msg: Empty) -> None:
         if self._picking:
             return  # already busy
+        tgt = self._reach_target()
+        if tgt is not None and (abs(tgt[0]) > WALL_X or abs(tgt[1]) > WALL_Y):
+            # Reaching from here would put the gripper through the glass.
+            self._refused += 1
+            self.get_logger().warn(
+                f"Pick refused: reaching from here puts the gripper at "
+                f"({tgt[0]:+.2f}, {tgt[1]:+.2f}), outside the greenhouse. "
+                f"({self._refused} refused so far.)")
+            self._done_pub.publish(Empty())   # unblock the mission immediately
+            return
         self._picking = True
         self._queue = [(list(p), ev) for p, ev in PICK_SEQUENCE]
         self.get_logger().info("Pick sequence started.")

@@ -71,11 +71,17 @@ class SafetyNode(Node):
         # merely driving alongside.
         self.declare_parameter("half_width", 0.24)
         self.declare_parameter("min_valid_range", 0.30)  # m: ignore self-hits
-        # Arena bounds for the base CENTRE: the greenhouse is 10 x 5 m with
-        # 0.10 m walls (inner faces at +/-4.95 and +/-2.45), and the base
-        # half-diagonal is ~0.34 m, so these keep the body off the glass.
-        self.declare_parameter("fence_x", 4.60)
-        self.declare_parameter("fence_y", 2.15)
+        # Arena bounds, as the walls the BODY must stay inside -- not the
+        # centre. The greenhouse is 10 x 5 m with 0.10 m walls, so the inner
+        # faces are at +/-4.95 and +/-2.45; the fence checks all four corners
+        # of the 0.58 x 0.38 m footprint against them, rotated by the current
+        # heading. Bounding the centre alone is what let the chassis clip the
+        # glass on a diagonal: at 45 deg the corner reaches 0.35 m out, not
+        # the 0.19 m a side-on estimate suggests.
+        self.declare_parameter("fence_x", 4.85)
+        self.declare_parameter("fence_y", 2.35)
+        self.declare_parameter("base_length", 0.58)
+        self.declare_parameter("base_width", 0.38)
         self.declare_parameter("fence_speed", 0.20)     # m/s pushing back in
         # Lateral containment. Braking only on the COMMANDED direction misses
         # the way the robot actually entered the gutters: during visual
@@ -95,6 +101,8 @@ class SafetyNode(Node):
         self._min_range = float(self.get_parameter("min_valid_range").value)
         self._fx = float(self.get_parameter("fence_x").value)
         self._fy = float(self.get_parameter("fence_y").value)
+        self._hl = float(self.get_parameter("base_length").value) / 2.0
+        self._hw = float(self.get_parameter("base_width").value) / 2.0
         self._fence_speed = float(self.get_parameter("fence_speed").value)
         self._side_min = float(self.get_parameter("side_min").value)
         self._side_push = float(self.get_parameter("side_push").value)
@@ -198,6 +206,25 @@ class SafetyNode(Node):
             return self._side_push * min(1.0, (self._side_min - right) / self._side_min)
         return 0.0
 
+    def _overhang(self):
+        """How far the footprint pokes past each wall, as (dx, dy) in world
+        metres. (0, 0) while the whole body is inside."""
+        x, y, yaw = self._pose
+        c, s = math.cos(yaw), math.sin(yaw)
+        ox = oy = 0.0
+        for sl, sw in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+            cx = x + sl * self._hl * c - sw * self._hw * s
+            cy = y + sl * self._hl * s + sw * self._hw * c
+            if cx > self._fx:
+                ox = min(ox, self._fx - cx)
+            elif cx < -self._fx:
+                ox = max(ox, -self._fx - cx)
+            if cy > self._fy:
+                oy = min(oy, self._fy - cy)
+            elif cy < -self._fy:
+                oy = max(oy, -self._fy - cy)
+        return ox, oy
+
     def _fence(self):
         """Body-frame command that drives back inside, or None when inside.
 
@@ -205,17 +232,20 @@ class SafetyNode(Node):
         with a 0.25 m margin while this one had none, and the two disagreed
         about where the boundary was: the robot ping-ponged along x = -4.30
         for an entire run. One fence, one boundary, and it only speaks when
-        the robot is genuinely out."""
+        part of the body is genuinely out."""
         if self._pose is None:
             return None
-        x, y, yaw = self._pose
-        px = -1.0 if x > self._fx else (1.0 if x < -self._fx else 0.0)
-        py = -1.0 if y > self._fy else (1.0 if y < -self._fy else 0.0)
-        if px == 0.0 and py == 0.0:
+        ox, oy = self._overhang()
+        if ox == 0.0 and oy == 0.0:
             return None
+        # Push proportionally to the overhang, so a corner 2 cm past the glass
+        # gets a nudge and not the full 0.20 m/s lurch.
+        n = math.hypot(ox, oy)
+        gain = min(1.0, n / 0.10)
+        yaw = self._pose[2]
         c, s = math.cos(-yaw), math.sin(-yaw)
-        v = self._fence_speed
-        return (v * (c * px - s * py), v * (s * px + c * py))
+        v = self._fence_speed * gain / n
+        return (v * (c * ox - s * oy), v * (s * ox + c * oy))
 
     # --------------------------------------------------------------- loop
     def _tick(self) -> None:

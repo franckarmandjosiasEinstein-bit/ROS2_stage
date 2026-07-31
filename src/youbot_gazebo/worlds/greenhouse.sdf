@@ -357,7 +357,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -371,7 +376,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -385,7 +395,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -399,7 +414,12 @@
           <material>
             <ambient>0.58 0.02 0.03 1</ambient>
             <diffuse>0.93 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -413,7 +433,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -427,7 +452,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.93 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -472,7 +502,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.87 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -486,7 +521,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -500,7 +540,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.87 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -514,7 +559,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -528,7 +578,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -542,7 +597,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -597,7 +657,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -611,7 +676,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -625,7 +695,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.87 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -639,7 +714,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -653,7 +733,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -667,7 +752,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -717,7 +807,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -731,7 +826,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -745,7 +845,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -759,7 +864,12 @@
           <material>
             <ambient>0.58 0.02 0.03 1</ambient>
             <diffuse>0.94 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -773,7 +883,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -787,7 +902,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -837,7 +957,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -851,7 +976,12 @@
           <material>
             <ambient>0.58 0.02 0.03 1</ambient>
             <diffuse>0.93 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -865,7 +995,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -879,7 +1014,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -893,7 +1033,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -907,7 +1052,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -957,7 +1107,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -971,7 +1126,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -985,7 +1145,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -999,7 +1164,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1013,7 +1183,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -1027,7 +1202,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -1072,7 +1252,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1086,7 +1271,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1100,7 +1290,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1114,7 +1309,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.87 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1128,7 +1328,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -1142,7 +1347,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -1192,7 +1402,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1206,7 +1421,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1220,7 +1440,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1234,7 +1459,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.87 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1248,7 +1478,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -1319,7 +1554,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1333,7 +1573,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1347,7 +1592,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1361,7 +1611,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1411,7 +1666,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1425,7 +1685,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1439,7 +1704,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1453,7 +1723,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1498,7 +1773,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1512,7 +1792,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1526,7 +1811,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1540,7 +1830,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1554,7 +1849,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -1568,7 +1868,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -1613,7 +1918,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.90 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1627,7 +1937,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1641,7 +1956,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.93 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1655,7 +1975,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1669,7 +1994,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -1719,7 +2049,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1733,7 +2068,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1747,7 +2087,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1761,7 +2106,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1775,7 +2125,12 @@
           <material>
             <ambient>0.62 0.02 0.03 1</ambient>
             <diffuse>1.00 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -1789,7 +2144,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -1844,7 +2204,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.85 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1858,7 +2223,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1872,7 +2242,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1886,7 +2261,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -1900,7 +2280,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -1950,7 +2335,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -1964,7 +2354,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.85 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -1978,7 +2373,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -1992,7 +2392,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2037,7 +2442,12 @@
           <material>
             <ambient>0.58 0.02 0.03 1</ambient>
             <diffuse>0.93 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2051,7 +2461,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2065,7 +2480,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2079,7 +2499,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2093,7 +2518,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -2107,7 +2537,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -2178,7 +2613,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2192,7 +2632,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2206,7 +2651,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2220,7 +2670,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2234,7 +2689,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -2248,7 +2708,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -2298,7 +2763,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2312,7 +2782,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2326,7 +2801,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2340,7 +2820,12 @@
           <material>
             <ambient>0.62 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2354,7 +2839,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -2399,7 +2889,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2413,7 +2908,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2427,7 +2927,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.90 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2441,7 +2946,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2455,7 +2965,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -2510,7 +3025,12 @@
           <material>
             <ambient>0.56 0.02 0.03 1</ambient>
             <diffuse>0.91 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2524,7 +3044,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2538,7 +3063,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.86 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2552,7 +3082,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.85 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2597,7 +3132,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2611,7 +3151,12 @@
           <material>
             <ambient>0.60 0.02 0.03 1</ambient>
             <diffuse>0.97 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2625,7 +3170,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2639,7 +3189,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.96 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2689,7 +3244,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2703,7 +3263,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2717,7 +3282,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2731,7 +3301,12 @@
           <material>
             <ambient>0.57 0.02 0.03 1</ambient>
             <diffuse>0.92 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2745,7 +3320,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -2759,7 +3339,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.89 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx5">
@@ -2804,7 +3389,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2818,7 +3408,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.98 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2832,7 +3427,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2846,7 +3446,12 @@
           <material>
             <ambient>0.54 0.02 0.03 1</ambient>
             <diffuse>0.87 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2860,7 +3465,12 @@
           <material>
             <ambient>0.53 0.02 0.03 1</ambient>
             <diffuse>0.85 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">
@@ -2905,7 +3515,12 @@
           <material>
             <ambient>0.59 0.02 0.03 1</ambient>
             <diffuse>0.95 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx0">
@@ -2919,7 +3534,12 @@
           <material>
             <ambient>0.58 0.02 0.03 1</ambient>
             <diffuse>0.94 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx1">
@@ -2933,7 +3553,12 @@
           <material>
             <ambient>0.62 0.02 0.03 1</ambient>
             <diffuse>1.00 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx2">
@@ -2947,7 +3572,12 @@
           <material>
             <ambient>0.55 0.02 0.03 1</ambient>
             <diffuse>0.88 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx3">
@@ -2961,7 +3591,12 @@
           <material>
             <ambient>0.61 0.02 0.03 1</ambient>
             <diffuse>0.99 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx4">

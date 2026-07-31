@@ -190,7 +190,12 @@ def plant(name, x, y):
           <material>
             <ambient>{red*0.62:.2f} 0.02 0.03 1</ambient>
             <diffuse>{red:.2f} 0.09 0.10 1</diffuse>
-            <specular>0.8 0.8 0.8 1</specular>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
         <visual name="calyx{i}">

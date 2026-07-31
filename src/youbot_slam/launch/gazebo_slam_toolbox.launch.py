@@ -125,7 +125,7 @@ def generate_launch_description() -> LaunchDescription:
         control("navigation_node", localized=True),
         control("mission_node", localized=True),
         control("strawberry_detector"),
-        control("arm_node"),
+        control("arm_node", localized=True),   # workspace limit uses the estimate
 
 
         # The GUI camera: Gazebo REWRITES ~/.gz/sim/8/gui.config on every exit

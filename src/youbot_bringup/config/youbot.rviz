@@ -83,6 +83,16 @@ Visualization Manager:
         Value: /camera/detections
         Reliability Policy: Reliable
       Normalize Range: true
+    # What the ripeness threshold actually kept: white = counted as fruit.
+    # Turn it on when detections look wrong -- the mask says at a glance
+    # whether the threshold is off or the camera is simply not on a row.
+    - Class: rviz_default_plugins/Image
+      Name: RipeMask
+      Enabled: false
+      Topic:
+        Value: /camera/ripe_mask
+        Reliability Policy: Reliable
+      Normalize Range: true
     - Class: rviz_default_plugins/MarkerArray
       Name: TruthVsBelief
       Enabled: true
