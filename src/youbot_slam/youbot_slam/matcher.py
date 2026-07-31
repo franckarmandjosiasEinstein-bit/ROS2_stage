@@ -85,6 +85,8 @@ class OnlineScanMatcher(ScanMatcher):
         fine, score = self._search(coarse, ranges, 0.0, max_range,
                                    lin_win=0.03, lin_step=0.01,
                                    ang_win=0.015, ang_step=0.005)
-        pose = fine if score > prior_score else prior
+        # 1% margin: a correction must clearly beat the prior, otherwise
+        # score noise random-walks the pose over many near-tie scans.
+        pose = fine if score > 1.01 * prior_score else prior
         self._score(*pose, ranges, 0.0, max_range)   # refresh last_quality
         return pose, self.last_quality

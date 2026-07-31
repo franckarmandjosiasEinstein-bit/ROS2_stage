@@ -66,6 +66,14 @@ class SlamNode(Node):
         self.declare_parameter("rebuild_every", 5)    # scans between rebuilds
         self.declare_parameter("min_surface_cells", 30)
         self.declare_parameter("quality_gate", 0.55)  # min quality to map-update
+        # Match/update only after real motion (the slam_toolbox
+        # minimum_travel_* idea). A 2D lidar streams ~10 Hz even when the
+        # robot is parked for a 12 s pick: hundreds of near-tie corrections
+        # at a standstill random-walked the pose in the first Gazebo run
+        # (0.4 -> 6 m error while odometry barely drifted). Between gated
+        # scans the pose advances by odometry composition only.
+        self.declare_parameter("min_travel", 0.08)    # m
+        self.declare_parameter("min_turn", 0.06)      # rad
         self.declare_parameter("metrics_period", 5.0)
 
         res = float(self.get_parameter("resolution").value)
@@ -78,6 +86,10 @@ class SlamNode(Node):
         self._rebuild_every = int(self.get_parameter("rebuild_every").value)
         self._min_surface = int(self.get_parameter("min_surface_cells").value)
         self._quality_gate = float(self.get_parameter("quality_gate").value)
+        self._min_travel = float(self.get_parameter("min_travel").value)
+        self._min_turn = float(self.get_parameter("min_turn").value)
+        self._moved = 0.0          # travel accumulated since the last match
+        self._turned = 0.0
 
         self._odom = None          # latest drifting odometry (x, y, yaw)
         self._odom_at_scan = None  # drifting odometry at the previous scan
@@ -129,6 +141,17 @@ class SlamNode(Node):
         prior = (x + c * dxb - s * dyb,
                  y + s * dxb + c * dyb,
                  math.atan2(math.sin(th + dth), math.cos(th + dth)))
+
+        # Motion gate: below it, dead-reckon only (publish, no match/update).
+        self._moved += math.hypot(dxb, dyb)
+        self._turned += abs(dth)
+        first_map = self._matcher is None and self._scans_since_rebuild == 0
+        if (self._moved < self._min_travel and self._turned < self._min_turn
+                and not first_map):
+            self._pose = prior
+            self._publish(msg.header.stamp)
+            return
+        self._moved, self._turned = 0.0, 0.0
 
         # 2. CORRECT -- tight coarse+fine search around the prior.
         ranges = list(msg.ranges)
