@@ -75,6 +75,12 @@ class SlamNode(Node):
         # scans the pose advances by odometry composition only.
         self.declare_parameter("min_travel", 0.08)    # m
         self.declare_parameter("min_turn", 0.06)      # rad
+        # Low-gain fusion (complementary-filter style): apply only this
+        # fraction of each match correction. Odometry drifts slowly (a few
+        # mm per matched step), so 35 % per match still tracks it easily,
+        # while any residual systematic matcher bias (e.g. corridor pull)
+        # is divided by ~3 instead of integrating at full strength.
+        self.declare_parameter("correction_gain", 0.35)
         self.declare_parameter("metrics_period", 5.0)
 
         res = float(self.get_parameter("resolution").value)
@@ -89,6 +95,7 @@ class SlamNode(Node):
         self._quality_gate = float(self.get_parameter("quality_gate").value)
         self._min_travel = float(self.get_parameter("min_travel").value)
         self._min_turn = float(self.get_parameter("min_turn").value)
+        self._gain = float(self.get_parameter("correction_gain").value)
         self._moved = 0.0          # travel accumulated since the last match
         self._turned = 0.0
 
@@ -173,11 +180,19 @@ class SlamNode(Node):
             return
         self._moved, self._turned = 0.0, 0.0
 
-        # 2. CORRECT -- tight coarse+fine search around the prior.
+        # 2. CORRECT -- tight coarse+fine search around the prior, applied at
+        # reduced gain (see correction_gain above).
         ranges = list(msg.ranges)
         if self._matcher is not None:
-            self._pose, quality = self._matcher.correct_online(
+            est, quality = self._matcher.correct_online(
                 prior, ranges, msg.range_max)
+            g = self._gain
+            dth_c = math.atan2(math.sin(est[2] - prior[2]),
+                               math.cos(est[2] - prior[2]))
+            self._pose = (prior[0] + g * (est[0] - prior[0]),
+                          prior[1] + g * (est[1] - prior[1]),
+                          math.atan2(math.sin(prior[2] + g * dth_c),
+                                     math.cos(prior[2] + g * dth_c)))
         else:
             self._pose, quality = prior, 1.0   # bootstrap: trust odometry
 

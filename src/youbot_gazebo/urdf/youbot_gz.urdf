@@ -36,7 +36,13 @@
     </visual>
   </link>
 
-  <!-- Collection basket on the rear plate: harvested fruit is dropped here -->
+  <!-- Collection basket on the rear plate, raised on four legs so its walls
+       sit ABOVE the lidar plane (z = 0.20): at the old height they filled it
+       and blinded the rear ~150 deg of every scan. In a corridor the rear
+       wall is what pins the along-axis position: the SLAM locked without
+       it, while ground-truth mapping (which skips returns under 0.25 m)
+       never noticed. Same lesson as a real robot: mount the lidar clear of
+       the chassis, or the chassis becomes the map. -->
   <link name="basket">
     <inertial><mass value="0.2"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
     <visual><origin xyz="0 0 0.005"/><geometry><box size="0.22 0.28 0.01"/></geometry><material name="basket"/></visual>
@@ -44,8 +50,12 @@
     <visual><origin xyz="-0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"/></visual>
     <visual><origin xyz="0 0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
     <visual><origin xyz="0 -0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="-0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="-0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
   </link>
-  <joint name="j_basket" type="fixed"><parent link="base_link"/><child link="basket"/><origin xyz="-0.13 0 0.19"/></joint>
+  <joint name="j_basket" type="fixed"><parent link="base_link"/><child link="basket"/><origin xyz="-0.13 0 0.26"/></joint>
 
   <!-- Four mecanum wheels (real CAD meshes, mm -> scale 0.001; axle Z -> Y via
        roll 90 deg, then shift +0.025 to centre the 50 mm width on the hub).
