@@ -170,15 +170,21 @@ class TruthMonitor(Node):
         seg2 = vx * vx + vy * vy + vz * vz
         if seg2 < 1e-9:
             return False
-        for lx, ly, lz, lr in self._foliage:
-            wx, wy, wz = lx - cx, ly - cy, lz - cz
+        # Leaves AND other berries. A berry two metres down the row is behind
+        # every plant in between -- and behind their fruit. Leaving the fruit
+        # out of the occluder set is why the monitor still read "13 visible,
+        # vision reports 1" whenever it was looking along a row: the misses
+        # were all at 1.5 to 2.2 m, the matches all under 0.6 m.
+        for ox, oy, oz, orad in self._foliage + self._berries:
+            wx, wy, wz = ox - cx, oy - cy, oz - cz
             t = (wx * vx + wy * vy + wz * vz) / seg2
             # Stop short of the berry itself: a leaf level with the fruit is
-            # what it hangs among, not what hides it.
+            # what it hangs among, not what hides it, and the target must not
+            # occlude itself.
             if t <= 0.02 or t >= 0.92:
                 continue
             px, py, pz = cx + t * vx, cy + t * vy, cz + t * vz
-            if (lx - px) ** 2 + (ly - py) ** 2 + (lz - pz) ** 2 < (lr + br) ** 2:
+            if (ox - px) ** 2 + (oy - py) ** 2 + (oz - pz) ** 2 < (orad + br) ** 2:
                 return True
         return False
 
@@ -330,7 +336,13 @@ class TruthMonitor(Node):
     def _report(self) -> None:
         if self._truth is None:
             return
-        lines = ["--- truth vs belief ---"]
+        # Log the true pose AND heading. Without the heading a report saying
+        # "9 visible, vision reports 1" cannot be re-checked offline: which
+        # berries were in frame depends entirely on which way the camera was
+        # pointing, and reconstructing that from the mission's messages is
+        # guesswork.
+        lines = ["--- truth vs belief --- (truth pose %.2f, %.2f, %.0f deg)"
+                 % (self._truth[0], self._truth[1], math.degrees(self._truth[2]))]
         if self._slam is not None:
             e = math.hypot(self._slam[0] - self._truth[0], self._slam[1] - self._truth[1])
             dh = math.degrees(abs(math.atan2(math.sin(self._slam[2] - self._truth[2]),

@@ -41,6 +41,12 @@ Subscribes:  /cmd_vel_raw (geometry_msgs/Twist)  every publisher
              /scan        (sensor_msgs/LaserScan)
              /odom        (nav_msgs/Odometry)     estimated pose
 Publishes:   /cmd_vel     (geometry_msgs/Twist)   the only thing the base sees
+             /safety_override (std_msgs/Bool)     true while the guard is
+                 overriding rather than passing the command through. A
+                 publisher that keeps commanding into an override just fights
+                 it: the field log shows twenty seconds of "Outside the arena"
+                 every three seconds while the mission kept creeping sideways
+                 after a berry. Whoever is driving can now see it and stop.
 """
 
 from __future__ import annotations
@@ -53,6 +59,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Bool
 
 
 def yaw_from_quaternion(q) -> float:
@@ -119,6 +126,7 @@ class SafetyNode(Node):
         self.create_subscription(LaserScan, "scan", self._on_scan, 5)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
+        self.override_pub = self.create_publisher(Bool, "safety_override", 5)
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._tick)
         self.get_logger().info(
             "safety_node up: /cmd_vel_raw -> [swept-corridor stop + flank "
@@ -253,6 +261,7 @@ class SafetyNode(Node):
         # 3. Command timeout -- a silent publisher must not leave us coasting.
         if self._cmd is None or (self._now() - self._cmd_t) > self._timeout:
             self.pub.publish(out)
+            self.override_pub.publish(Bool(data=False))
             return
         vx, vy = self._cmd.linear.x, self._cmd.linear.y
         wz = self._cmd.angular.z
@@ -262,6 +271,7 @@ class SafetyNode(Node):
         if push is not None:
             out.linear.x, out.linear.y = push
             self.pub.publish(out)
+            self.override_pub.publish(Bool(data=True))
             self.get_logger().warn("Outside the arena -- driving back in.",
                                    throttle_duration_sec=3.0)
             return
@@ -276,6 +286,7 @@ class SafetyNode(Node):
         vy += self._recentre(translating)
         out.linear.x, out.linear.y, out.angular.z = vx, vy, wz
         self.pub.publish(out)
+        self.override_pub.publish(Bool(data=blocked))
 
         if blocked:
             if self._blocked_since is None:

@@ -39,6 +39,11 @@ GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
 PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
 RIPE_MIN = 1               # ripe clusters in view to stop and align
+LOST_GRACE = 2.0           # s the fruit may be absent before alignment is
+                           # abandoned (a berry near the frame edge flickers)
+COMMIT_OFFSET = 0.85       # |offset| beyond this = at the very edge of frame;
+                           # stopping for it wastes a station, because it
+                           # leaves the frame as soon as the robot creeps
 CENTER_TOL = 0.15          # fruit this near the image centre = aligned -> pick
 PICK_SPACING = 0.7         # m: min travel between two picks (plants are ~0.9 m
                            # apart, so this lets it pick almost every plant)
@@ -76,6 +81,8 @@ class MissionNode(Node):
         self._goal_sent = False
         self._goal_time = None   # wall-clock secs when the goal was sent
         self._ripe = 0           # ripe fruit clusters currently in view
+        self._ripe_seen_t = 0.0  # last time fruit was actually in the frame
+        self._overridden = False  # safety_node is vetoing our commands
         self._ripe_offset = 2.0  # horizontal offset of nearest fruit (0 = beside)
         self._picking = False    # arm is running a pick cycle
         self._pick_done = False
@@ -97,6 +104,7 @@ class MissionNode(Node):
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(PoseArray, "detected_crates", self._on_detections, 10)
         self.create_subscription(Int32, "ripe_count", self._on_ripe, 10)
+        self.create_subscription(Bool, "safety_override", self._on_override, 5)
         self.create_subscription(Float32, "ripe_offset", self._on_ripe_offset, 10)
         self.create_subscription(Float32MultiArray, "ripe_offsets", self._on_ripe_offsets, 10)
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
@@ -121,8 +129,15 @@ class MissionNode(Node):
                     f"Vision: new crate at ({c[0]:+.2f}, {c[1]:+.2f}) "
                     f"[{len(self._known)} known].")
 
+    def _on_override(self, msg: Bool) -> None:
+        """The guard is overriding us. Nothing we command is reaching the
+        wheels, so alignment cannot converge -- stop asking."""
+        self._overridden = bool(msg.data)
+
     def _on_ripe(self, msg: Int32) -> None:
         self._ripe = int(msg.data)
+        if self._ripe >= RIPE_MIN:
+            self._ripe_seen_t = self._now()
 
     def _on_ripe_offset(self, msg) -> None:
         self._ripe_offset = float(msg.data)
@@ -187,6 +202,7 @@ class MissionNode(Node):
         # See a strawberry while driving a rang -> STOP and align to it, then pick
         # (spaced out so one cluster isn't picked repeatedly).
         if (self._phase == "explore" and self._ripe >= RIPE_MIN
+                and abs(self._ripe_offset) <= COMMIT_OFFSET
                 and self._far_from_last_pick()):
             self._begin_align()
             return
@@ -305,9 +321,24 @@ class MissionNode(Node):
             self._station_target = min(cands, key=lambda o: abs(o - self._station_target))
             off = self._station_target
         # Lost the fruit or took too long -> give up and resume the patrol.
-        if self._ripe < RIPE_MIN or (t - self._align_start) > ALIGN_TIMEOUT:
+        #
+        # "Lost" has to mean GONE, not "absent from one frame". The old test
+        # was `self._ripe < RIPE_MIN`, and a berry near the edge of the frame
+        # drops out for a frame or two all the time -- the field log is full of
+        # "Fruit spotted (offset +0.92)" followed one second later by
+        # "Alignment lost", fifteen times in a run, each costing a full stop
+        # and a replan storm. Give the detection LOST_GRACE seconds to come
+        # back before abandoning.
+        if (t - self._ripe_seen_t) > LOST_GRACE or (t - self._align_start) > ALIGN_TIMEOUT:
             self._publish_cmd(0.0, 0.0, 0.0)
             self.get_logger().info("Alignment lost/timed out, resuming patrol.")
+            self._release_base()
+            return
+        if self._overridden:
+            self._publish_cmd(0.0, 0.0, 0.0)
+            self.get_logger().info(
+                "Safety guard is overriding -- this berry is out of reach from "
+                "here, resuming patrol.")
             self._release_base()
             return
         # Centred -> pick.
