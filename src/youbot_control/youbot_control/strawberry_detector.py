@@ -33,7 +33,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32, Float32, Float32MultiArray
 
-from youbot_control.lib.vision import red_mask, blob_centroids
+from youbot_control.lib.vision import red_mask, close_mask, blob_centroids
 
 
 class StrawberryDetector(Node):
@@ -48,6 +48,12 @@ class StrawberryDetector(Node):
         self.declare_parameter("min_diff", 45)     # how far red must lead g and b
         self.declare_parameter("max_sym", 0.20)    # |g-b| <= this * r  (rejects orange)
         self.declare_parameter("max_ratio", 0.62)  # g <= this * r      (rejects pink)
+        # Shape clean-up: close gaps a leaf cuts across a berry, then demand
+        # the blob be round-ish. One fruit should count once, and a red sliver
+        # along a gutter edge should count as none.
+        self.declare_parameter("close_iterations", 2)  # bridges gaps up to 4 px
+        self.declare_parameter("min_fill", 0.45)   # blob pixels / bounding box
+        self.declare_parameter("max_aspect", 3.0)  # longer box side / shorter
         topic = self.get_parameter("image_topic").value
         self._box = int(self.get_parameter("box_half").value)
         self._min = int(self.get_parameter("min_pixels").value)
@@ -76,7 +82,11 @@ class StrawberryDetector(Node):
                         min_diff=int(self.get_parameter("min_diff").value),
                         max_sym=float(self.get_parameter("max_sym").value),
                         max_ratio=float(self.get_parameter("max_ratio").value))
-        centroids = blob_centroids(mask, min_pixels=self._min)
+        mask = close_mask(mask, int(self.get_parameter("close_iterations").value))
+        centroids = blob_centroids(
+            mask, min_pixels=self._min,
+            min_fill=float(self.get_parameter("min_fill").value),
+            max_aspect=float(self.get_parameter("max_aspect").value))
 
         annotated = rgb.copy()
         cx = msg.width / 2.0

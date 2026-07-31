@@ -58,7 +58,47 @@ def red_mask(rgb: np.ndarray, value_min: int = 55, min_diff: int = 45,
             & (np.abs(g - b) <= max_sym * r) & (g <= max_ratio * r))
 
 
-def blob_centroids(mask: np.ndarray, min_pixels: int = 4):
+def _dilate(mask: np.ndarray) -> np.ndarray:
+    out = mask.copy()
+    out[1:, :] |= mask[:-1, :]
+    out[:-1, :] |= mask[1:, :]
+    out[:, 1:] |= mask[:, :-1]
+    out[:, :-1] |= mask[:, 1:]
+    return out
+
+
+def _erode(mask: np.ndarray) -> np.ndarray:
+    out = mask.copy()
+    out[1:, :] &= mask[:-1, :]
+    out[:-1, :] &= mask[1:, :]
+    out[:, 1:] &= mask[:, :-1]
+    out[:, :-1] &= mask[:, 1:]
+    out[0, :] = out[-1, :] = False          # outside the image = background
+    out[:, 0] = out[:, -1] = False
+    return out
+
+
+def close_mask(mask: np.ndarray, iterations: int = 1) -> np.ndarray:
+    """Morphological closing: dilate then erode, same number of times.
+
+    A leaf crossing a berry splits it into two red regions, and the labeller
+    then reports two fruit where there is one -- the FALSE POSITIVES seen in
+    the field log. Closing bridges gaps up to 2*iterations pixels wide without
+    growing the blob overall, so a partly-veiled berry counts once. It also
+    removes isolated single-pixel speckle, which is what a highlight on a wet
+    leaf edge looks like."""
+    if iterations <= 0:
+        return mask
+    out = mask
+    for _ in range(iterations):
+        out = _dilate(out)
+    for _ in range(iterations):
+        out = _erode(out)
+    return out
+
+
+def blob_centroids(mask: np.ndarray, min_pixels: int = 4,
+                   min_fill: float = 0.0, max_aspect: float = 0.0):
     """4-connectivity connected components; return blob centroids as (u, v).
 
     Union-find over the SET pixels only. The previous version walked all
@@ -67,7 +107,15 @@ def blob_centroids(mask: np.ndarray, min_pixels: int = 4):
     magnitude less Python. That headroom matters: the detector shares a CPU
     with Gazebo's renderer, and a detector that falls behind hands the mission
     stale fruit offsets -- the robot then aligns on where a berry was a second
-    ago, which looks exactly like "it picks in thin air"."""
+    ago, which looks exactly like "it picks in thin air".
+
+    Two shape gates, because a strawberry is ROUND and the things that fool a
+    colour threshold are not. `min_fill` is the fraction of the bounding box
+    the blob actually fills -- a disc fills pi/4 = 0.79, an L of two specks
+    bridged by closing fills far less. `max_aspect` is the longer side of the
+    box over the shorter -- a disc is 1, a red highlight running along the lip
+    of a gutter is 10 or more, and fills its box completely, so only the aspect
+    gate catches it. Either set to 0 disables that gate."""
     ys, xs = np.nonzero(mask)
     n = ys.size
     if n == 0:
@@ -100,6 +148,25 @@ def blob_centroids(mask: np.ndarray, min_pixels: int = 4):
     sum_u = np.bincount(roots, weights=xs.astype(np.float64))
     sum_v = np.bincount(roots, weights=ys.astype(np.float64))
     keep = np.nonzero(counts >= min_pixels)[0]
+
+    if (min_fill > 0.0 or max_aspect > 0.0) and keep.size:
+        big = counts.size
+        u0 = np.full(big, np.iinfo(np.int32).max, dtype=np.int32)
+        u1 = np.full(big, -1, dtype=np.int32)
+        v0, v1 = u0.copy(), u1.copy()
+        np.minimum.at(u0, roots, xs)
+        np.maximum.at(u1, roots, xs)
+        np.minimum.at(v0, roots, ys)
+        np.maximum.at(v1, roots, ys)
+        w = (u1[keep] - u0[keep] + 1).astype(np.float64)
+        h = (v1[keep] - v0[keep] + 1).astype(np.float64)
+        ok = np.ones(keep.size, dtype=bool)
+        if min_fill > 0.0:
+            ok &= counts[keep] / (w * h) >= min_fill
+        if max_aspect > 0.0:
+            ok &= np.maximum(w, h) / np.minimum(w, h) <= max_aspect
+        keep = keep[ok]
+
     return [(sum_u[k] / counts[k], sum_v[k] / counts[k]) for k in keep]
 
 
