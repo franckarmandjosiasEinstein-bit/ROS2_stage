@@ -42,9 +42,22 @@ from tf2_ros import Buffer, TransformListener
 BASE_L, BASE_W = 0.58, 0.38
 WHEELS = (("wheel_fl", 0.225, 0.19), ("wheel_fr", 0.225, -0.19),
           ("wheel_rl", -0.225, 0.19), ("wheel_rr", -0.225, -0.19))
-# Camera: mounted looking at the +Y row, ~1.2 rad horizontal field of view.
+# Camera, from youbot_gz.urdf: <pose>0.18 0.14 0.78  0 -0.28 1.5708</pose> on
+# base_link. The yaw puts the optical axis on the robot's +Y side (the plant
+# row it harvests) and the pitch tips it 0.28 rad UP, at the fruit hanging near
+# z = 0.9. 640x480 at 1.2 rad horizontal gives 0.95 rad vertically.
 CAM_FOV = 1.2
+CAM_VFOV = 2.0 * math.atan(math.tan(CAM_FOV / 2.0) * 480.0 / 640.0)
 CAM_RANGE = 2.2
+CAM_MOUNT = (0.18, 0.14, 0.78)      # in base_link
+CAM_PITCH = 0.28                    # rad, upwards
+# A berry has to be big enough on the sensor to survive min_pixels. At 640 px
+# across 1.2 rad, fx = 468 px, so a 0.032 m berry spans 30/d pixels: a blob of
+# ~6 px needs roughly 3 px across, i.e. d < 10 m. Range, not size, is the real
+# limit here -- but the check belongs in the model, not in a comment, because
+# the moment the camera resolution changes it stops being true.
+CAM_FX = (640.0 / 2.0) / math.tan(CAM_FOV / 2.0)
+MIN_BLOB_PX = 2.5                   # apparent diameter to be worth reporting
 
 
 def yaw_from_quaternion(q) -> float:
@@ -62,7 +75,8 @@ class TruthMonitor(Node):
         self._slam = None       # SLAM estimate
         self._odom = None       # raw drifting odometry
         self._ripe = 0          # clusters vision reports this frame
-        self._berries = self._load_berries()
+        self._berries = self._load_catalogue("berries")
+        self._foliage = self._load_catalogue("foliage")
         self._closest = None     # best gripper-to-berry distance this window
 
         self._buf = Buffer()
@@ -80,7 +94,8 @@ class TruthMonitor(Node):
             "/truth_markers (green = reality, orange = belief)")
 
     # -------------------------------------------------------------- inputs
-    def _load_berries(self):
+    def _load_catalogue(self, section: str):
+        """Read one `section:` of berries.yaml as a list of (x, y, z, r)."""
         path = str(self.get_parameter("berry_file").value)
         if not path:
             try:
@@ -88,17 +103,19 @@ class TruthMonitor(Node):
                                     "worlds", "berries.yaml")
             except Exception:
                 return []
-        out = []
+        out, inside = [], False
         try:
             with open(path) as f:
                 for line in f:
                     line = line.strip()
-                    if not line.startswith("- ["):
+                    if line.endswith(":") and not line.startswith("#"):
+                        inside = line[:-1] == section
                         continue
-                    nums = line[line.index("[") + 1:line.index("]")].split(",")
-                    out.append(tuple(float(v) for v in nums))
+                    if inside and line.startswith("- ["):
+                        nums = line[line.index("[") + 1:line.index("]")].split(",")
+                        out.append(tuple(float(v) for v in nums))
         except (OSError, ValueError) as exc:
-            self.get_logger().warn(f"No berry reference ({exc}); base/arm only.")
+            self.get_logger().warn(f"No {section} reference ({exc}).")
         return out
 
     def _on_truth(self, msg):
@@ -126,23 +143,78 @@ class TruthMonitor(Node):
         return (t.transform.translation.x, t.transform.translation.y,
                 t.transform.translation.z)
 
+    def _camera(self):
+        """Camera position and optical axis in world coordinates."""
+        x, y, yaw = self._truth
+        c, s = math.cos(yaw), math.sin(yaw)
+        pos = (x + CAM_MOUNT[0] * c - CAM_MOUNT[1] * s,
+               y + CAM_MOUNT[0] * s + CAM_MOUNT[1] * c,
+               CAM_MOUNT[2])
+        a = yaw + math.pi / 2.0            # the axis looks over the +Y flank
+        axis = (math.cos(a) * math.cos(CAM_PITCH),
+                math.sin(a) * math.cos(CAM_PITCH),
+                math.sin(CAM_PITCH))
+        return pos, axis
+
+    def _occluded(self, cam, berry) -> bool:
+        """True when a leaf sits on the line of sight to this berry.
+
+        Segment-sphere test: a leaf blocks the view if the segment from the
+        camera to the berry passes within the leaf's radius of its centre, and
+        does so BEFORE reaching the berry. The berry's own leaf cluster counts
+        -- that is the point. Roughly half the fruit on a strawberry plant
+        hangs behind its own foliage, and no camera reports those."""
+        cx, cy, cz = cam
+        bx, by, bz, br = berry[0], berry[1], berry[2], berry[3]
+        vx, vy, vz = bx - cx, by - cy, bz - cz
+        seg2 = vx * vx + vy * vy + vz * vz
+        if seg2 < 1e-9:
+            return False
+        for lx, ly, lz, lr in self._foliage:
+            wx, wy, wz = lx - cx, ly - cy, lz - cz
+            t = (wx * vx + wy * vy + wz * vz) / seg2
+            # Stop short of the berry itself: a leaf level with the fruit is
+            # what it hangs among, not what hides it.
+            if t <= 0.02 or t >= 0.92:
+                continue
+            px, py, pz = cx + t * vx, cy + t * vy, cz + t * vz
+            if (lx - px) ** 2 + (ly - py) ** 2 + (lz - pz) ** 2 < (lr + br) ** 2:
+                return True
+        return False
+
     def _berries_in_view(self):
-        """True berries the camera should currently be able to see: on the +Y
-        side of the robot, within range and inside the horizontal FOV."""
+        """True berries the camera can ACTUALLY see: inside the frustum
+        (horizontal and vertical), within range, big enough on the sensor to
+        make a blob, and not hidden behind a leaf.
+
+        The first version of this only tested range and horizontal angle, and
+        so counted fruit behind foliage, above the frame, and 2 m down the row
+        at a grazing angle. Every run then printed "15 in view, vision reports
+        2 <-- MISSING", which reads as a perception failure and is not one. A
+        reference that overstates what is visible is worse than no reference:
+        it sends you tuning a detector that was never the problem."""
         if self._truth is None:
             return []
-        x, y, yaw = self._truth
+        cam, axis = self._camera()
         seen = []
-        for bx, by, bz, br in self._berries:
-            dx, dy = bx - x, by - y
-            d = math.hypot(dx, dy)
-            if d > CAM_RANGE:
+        for b in self._berries:
+            bx, by, bz, br = b
+            vx, vy, vz = bx - cam[0], by - cam[1], bz - cam[2]
+            d = math.sqrt(vx * vx + vy * vy + vz * vz)
+            if d > CAM_RANGE or d < 1e-6:
                 continue
-            # Camera looks along the robot's +Y axis (left side).
-            ang = math.atan2(dy, dx) - (yaw + math.pi / 2.0)
-            ang = math.atan2(math.sin(ang), math.cos(ang))
-            if abs(ang) <= CAM_FOV / 2.0:
-                seen.append((bx, by, bz, br, d))
+            # Horizontal and vertical angle off the optical axis, separately:
+            # a frustum is a rectangle, not a cone.
+            ah = math.atan2(vy, vx) - math.atan2(axis[1], axis[0])
+            ah = math.atan2(math.sin(ah), math.cos(ah))
+            av = math.asin(max(-1.0, min(1.0, vz / d))) - CAM_PITCH
+            if abs(ah) > CAM_FOV / 2.0 or abs(av) > CAM_VFOV / 2.0:
+                continue
+            if 2.0 * br * CAM_FX / d < MIN_BLOB_PX:
+                continue
+            if self._occluded(cam, b):
+                continue
+            seen.append((bx, by, bz, br, d))
         return seen
 
     # -------------------------------------------------------------- markers
@@ -268,10 +340,23 @@ class TruthMonitor(Node):
             e = math.hypot(self._odom[0] - self._truth[0], self._odom[1] - self._truth[1])
             lines.append(f"        odometry alone {e:.02f} m off truth")
         view = self._berries_in_view()
-        lines.append(f"BERRIES {len(view)} truly in view | vision reports "
-                     f"{self._ripe}"
-                     + ("  <-- MISSING" if self._ripe < len(view) else "")
-                     + ("  <-- FALSE POSITIVES" if self._ripe > len(view) else ""))
+        n = len(view)
+        if n == 0 and self._ripe == 0:
+            verdict = ""
+        elif self._ripe < n:
+            verdict = f"  <-- MISSING {n - self._ripe}"
+        elif self._ripe > n:
+            verdict = f"  <-- {self._ripe - n} FALSE POSITIVE(S)"
+        else:
+            verdict = "  <-- matched"
+        # "visible" here means: in the frustum, close enough, big enough on the
+        # sensor, and no leaf on the line of sight. Anything looser overstates
+        # what a camera could report and turns every run into a false alarm.
+        lines.append(f"BERRIES {n} visible to the camera | vision reports "
+                     f"{self._ripe}{verdict}")
+        if n:
+            lines.append("        nearest visible at %.2f m, farthest %.2f m"
+                         % (min(b[4] for b in view), max(b[4] for b in view)))
         # Report the CLOSEST approach over the window, not the instantaneous
         # distance: the arm is stowed most of the time, so sampling at random
         # would always read 'thin air' even on a perfect pick.

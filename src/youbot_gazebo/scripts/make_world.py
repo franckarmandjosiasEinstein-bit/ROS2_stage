@@ -144,6 +144,11 @@ def gutter(name, y):
 # the world. This is the ground-truth reference the debug monitor compares the
 # robot's perception against -- generated, never hand-maintained.
 TRUE_BERRIES = []
+# Every foliage sphere, as an OCCLUDER. A berry being inside the camera frustum
+# does not mean the camera can see it: half the fruit on a plant hangs behind
+# that plant's own leaves. Without this, "berries truly in view" counts fruit
+# no camera could ever report and every run reads as a perception failure.
+TRUE_FOLIAGE = []
 
 
 def plant(name, x, y):
@@ -165,6 +170,7 @@ def plant(name, x, y):
         fr = rng.uniform(0.07, 0.13) * s
         if i == 0:                             # big central tuft
             fx, fy, fz, fr = 0.0, 0.0, 0.17 * s, 0.13 * s
+        TRUE_FOLIAGE.append((x + fx, y + fy, z0 + fz, fr))
         g = rng.uniform(0.45, 0.62)            # leaf green variation
         parts.append(f"""
         <visual name="leaf{i}">
@@ -368,7 +374,14 @@ def main() -> None:
         f.write("berries:\n")
         for bx, by, bz, br in TRUE_BERRIES:
             f.write(f"  - [{bx:.4f}, {by:.4f}, {bz:.4f}, {br:.4f}]\n")
-    print(f"wrote {os.path.normpath(ref)} ({len(TRUE_BERRIES)} berries)")
+        f.write("# Foliage spheres, as occluders: a berry inside the camera "
+                "frustum is only\n# visible if no leaf sits on the line of "
+                "sight.\n")
+        f.write("foliage:\n")
+        for fx, fy, fz, fr in TRUE_FOLIAGE:
+            f.write(f"  - [{fx:.4f}, {fy:.4f}, {fz:.4f}, {fr:.4f}]\n")
+    print(f"wrote {os.path.normpath(ref)} ({len(TRUE_BERRIES)} berries, "
+          f"{len(TRUE_FOLIAGE)} leaves)")
     print(f"wrote {os.path.normpath(out)}")
 
 
