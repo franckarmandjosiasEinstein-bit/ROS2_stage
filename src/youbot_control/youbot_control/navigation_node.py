@@ -67,6 +67,7 @@ class NavigationNode(Node):
         self._last_wp = None
         self._reached_logged = False
         self._held = False       # mission owns /cmd_vel during align + pick
+        self._held_since = 0.0   # when the hold started (freeze diagnostic)
         self._moved_at = None    # last time the base actually moved
         self._last_pos = None
         self._recover_until = 0.0
@@ -84,7 +85,10 @@ class NavigationNode(Node):
         self._pose = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
 
     def _on_hold(self, msg: Bool) -> None:
-        self._held = bool(msg.data)
+        held = bool(msg.data)
+        if held and not self._held:
+            self._held_since = self._now()
+        self._held = held
 
     def _on_plan(self, msg: Path) -> None:
         waypoints = [(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses]
@@ -127,7 +131,17 @@ class NavigationNode(Node):
 
     def _control(self) -> None:
         if self._held:
-            return  # mission drives the base directly (aligning / picking)
+            # The mission owns the base (aligning / picking). It hands it back
+            # with pick_hold=False; if it ever dies mid-pick it never will, and
+            # this node then publishes NOTHING for the rest of the run -- the
+            # guard times out and the robot is frozen with no message anywhere
+            # explaining why. Say so rather than going quiet.
+            if self._now() - self._held_since > 60.0:
+                self.get_logger().warn(
+                    "Base held by mission_node for over 60 s (pick_hold=true) "
+                    "-- nothing is driving. Check mission_node is alive.",
+                    throttle_duration_sec=20.0)
+            return
         if self._pose is None or self.controller.is_finished():
             self._publish(0.0, 0.0, 0.0)
             return

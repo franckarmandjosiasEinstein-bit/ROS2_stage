@@ -183,7 +183,18 @@ class MissionNode(Node):
 
     # --- mission loop -----------------------------------------------
     def _tick(self) -> None:
-        if self._pose is None or self._phase == "done":
+        # A mission with no pose does NOTHING and says nothing: no goal, no
+        # command, and the watchdog below never runs either because it lives
+        # past this guard. From the outside that is indistinguishable from a
+        # crash -- the robot simply sits there. Say what we are waiting for.
+        if self._pose is None:
+            self.get_logger().warn(
+                "No pose yet on 'odom' (remapped to /pose_slam under SLAM) -- "
+                "the mission cannot start. Check slam_node is alive and "
+                "publishing: ros2 topic hz /pose_slam",
+                throttle_duration_sec=5.0)
+            return
+        if self._phase == "done":
             return
         self._check_watchdog()
         if self._picking:
