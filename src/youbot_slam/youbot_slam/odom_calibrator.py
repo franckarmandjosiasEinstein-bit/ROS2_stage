@@ -238,8 +238,8 @@ def main(args=None) -> None:
     node = OdomCalibrator()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, RuntimeError):
+        pass      # RuntimeError: message mid-shutdown (rclpy)
     finally:
         node.destroy_node()
         if rclpy.ok():

@@ -74,10 +74,16 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(use_gui),
     )
 
+    # navigation and mission both drive the base; both go through the guard.
+    GUARDED = ("navigation_node", "mission_node")
+
     def control(executable, localized=False):
+        remaps = [("odom", "pose_slam")] if localized else []
+        if executable in GUARDED:
+            remaps = remaps + [("cmd_vel", "cmd_vel_raw")]
         return Node(package="youbot_control", executable=executable, name=executable,
                     output="screen", parameters=[params, sim_time],
-                    remappings=[("odom", "pose_slam")] if localized else [])
+                    remappings=remaps)
 
     return LaunchDescription([
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
@@ -110,6 +116,7 @@ def generate_launch_description() -> LaunchDescription:
              output="screen", parameters=[sim_time]),
 
         # --- the UNCHANGED control stack, reading the toolbox pose -------------
+        control("safety_node", localized=True),   # /cmd_vel_raw -> /cmd_vel
         control("mapping_node", localized=True),
         control("planning_node", localized=True),
         control("navigation_node", localized=True),

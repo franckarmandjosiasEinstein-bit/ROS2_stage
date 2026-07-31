@@ -81,10 +81,16 @@ def generate_launch_description() -> LaunchDescription:
 
     # Control nodes read the estimated pose instead of ground truth. The topic
     # name inside each node is still "odom" -- only the wiring changes.
+    # navigation and mission both drive the base; both go through the guard.
+    GUARDED = ("navigation_node", "mission_node")
+
     def control(executable, localized=False):
+        remaps = [("odom", pose_topic)] if localized else []
+        if executable in GUARDED:
+            remaps = remaps + [("cmd_vel", "cmd_vel_raw")]
         return Node(package="youbot_control", executable=executable, name=executable,
                     output="screen", parameters=[params, sim_time],
-                    remappings=[("odom", pose_topic)] if localized else [])
+                    remappings=remaps)
 
     return LaunchDescription([
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
@@ -146,6 +152,7 @@ def generate_launch_description() -> LaunchDescription:
              name="truth_monitor", output="screen", parameters=[sim_time]),
 
         # --- the UNCHANGED control stack, rewired to the SLAM pose -------------
+        control("safety_node", localized=True),   # /cmd_vel_raw -> /cmd_vel
         control("mapping_node", localized=True),
         control("planning_node", localized=True),
         control("navigation_node", localized=True),

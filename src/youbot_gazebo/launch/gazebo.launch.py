@@ -76,9 +76,14 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(use_gui),
     )
 
+    # navigation and mission both drive the base; both go through the guard.
+    GUARDED = ("navigation_node", "mission_node")
+
     def control(executable):
+        remaps = [("cmd_vel", "cmd_vel_raw")] if executable in GUARDED else []
         return Node(package="youbot_control", executable=executable, name=executable,
-                    output="screen", parameters=[params, sim_time])
+                    output="screen", parameters=[params, sim_time],
+                    remappings=remaps)
 
     return LaunchDescription([
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
@@ -108,6 +113,7 @@ def generate_launch_description() -> LaunchDescription:
 
         # The validated control stack (no sim_node -- Gazebo IS the robot now).
         control("odom_tf"),               # /odom -> TF map->base_link (sim time)
+        control("safety_node"),      # /cmd_vel_raw -> /cmd_vel
         control("mapping_node"),
         control("planning_node"),
         control("navigation_node"),

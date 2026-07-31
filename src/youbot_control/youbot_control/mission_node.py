@@ -90,6 +90,7 @@ class MissionNode(Node):
         self._picks_at_stop = 0  # picks done at the current station
         self._sweep_sign = 0.0   # station sweep direction (0 = not set yet)
         self._station_target = None  # offset of the berry being re-aligned to
+        self._laps = 0               # completed harvest rounds
         self._state_sig = None       # last observed state signature
         self._state_since = 0.0      # when the state last changed
 
@@ -234,9 +235,16 @@ class MissionNode(Node):
                 f"At crate ({self._goal[0]:+.2f}, {self._goal[1]:+.2f}). "
                 f"TODO: pick with the arm. [{len(self._collected)}/{len(self._known)}]")
         elif kind == "depot":
+            # A harvester does not stop after one lap: unload, then go round
+            # again. (Idling at the depot is what filled the last field log
+            # with ten minutes of nothing.)
+            self._laps += 1
             self.get_logger().info(
-                f"Delivered {len(self._collected)} crate(s) at the depot. Mission complete.")
-            self._phase = "done"
+                f"Unloaded at the depot -- lap {self._laps} done. Starting the "
+                "next harvesting round.")
+            self._patrol_i = 0
+            self._phase = "explore"
+            self._last_pick_xy = None
         self._goal = None
         self._goal_sent = False
         self._goal_time = None
@@ -397,8 +405,8 @@ def main(args=None) -> None:
     node = MissionNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, RuntimeError):
+        pass      # RuntimeError: message mid-shutdown (rclpy)
     finally:
         node.destroy_node()
         if rclpy.ok():
