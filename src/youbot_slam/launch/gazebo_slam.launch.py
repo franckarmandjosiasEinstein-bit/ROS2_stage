@@ -49,6 +49,7 @@ def generate_launch_description() -> LaunchDescription:
     use_gui = LaunchConfiguration("gui")
     use_slam = LaunchConfiguration("slam")
     pose_topic = LaunchConfiguration("pose_topic")
+    calib_mode = LaunchConfiguration("calib")
     sim_time = {"use_sim_time": True}
 
     gz_sim = IncludeLaunchDescription(
@@ -81,6 +82,11 @@ def generate_launch_description() -> LaunchDescription:
                               description="Pose source for the control stack. Pass "
                                           "odom_noisy with slam:=false for the "
                                           "failure demo."),
+        DeclareLaunchArgument("calib", default_value="calibrate",
+                              description="calibrate: measure the odometry bias "
+                                          "against the reference and save it. "
+                                          "apply: use the saved bias, no "
+                                          "reference (real-robot mode)."),
 
         gz_sim,
         gz_sim_headless,
@@ -101,8 +107,16 @@ def generate_launch_description() -> LaunchDescription:
         # --- the level-3 layer -------------------------------------------------
         Node(package="youbot_slam", executable="noisy_odom", name="noisy_odom",
              output="screen", parameters=[sim_time]),
+        # Bias calibration: in a straight aisle the lidar cannot constrain X
+        # (aperture problem), so odometry's systematic scale bias integrates
+        # straight into the pose. Learn it once with the reference, then run
+        # with calib:=apply and no reference at all.
+        Node(package="youbot_slam", executable="odom_calibrator",
+             name="odom_calibrator", output="screen",
+             parameters=[{"mode": calib_mode}, sim_time]),
         Node(package="youbot_slam", executable="slam_node", name="slam_node",
              output="screen", parameters=[sim_time],
+             remappings=[("odom_noisy", "odom_calibrated")],
              condition=IfCondition(use_slam)),
         # Failure demo (slam:=false): TF comes from the drifting odometry and the
         # control stack is pointed at it via pose_topic:=odom_noisy.

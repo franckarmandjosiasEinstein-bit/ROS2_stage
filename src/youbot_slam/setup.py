@@ -27,6 +27,7 @@ setup(
             "noisy_odom = youbot_slam.noisy_odom:main",
             "slam_node = youbot_slam.slam_node:main",
             "pose_from_tf = youbot_slam.pose_from_tf:main",
+            "odom_calibrator = youbot_slam.odom_calibrator:main",
         ],
     },
 )
