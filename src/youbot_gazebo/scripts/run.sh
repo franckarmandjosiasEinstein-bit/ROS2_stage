@@ -26,6 +26,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Gazebo rewrites this on every exit with the camera pose you left behind, and
+# reads it back in preference to the world's <gui> pose -- so a run started
+# after you parked the camera on empty space opens blind. Drop it; the world's
+# pose applies, and the launch also locks the camera onto the robot.
+rm -f "$HOME/.gz/sim/8/gui.config" 2>/dev/null
+
 # Never start on top of a ghost sim from a previous crash/Ctrl-C.
 if pgrep -f "gz sim" >/dev/null 2>&1; then
   echo "[run.sh] leftover gz sim found -- cleaning up first."

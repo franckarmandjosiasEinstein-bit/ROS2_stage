@@ -23,12 +23,28 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
                             IncludeLaunchDescription, RegisterEventHandler,
-                            SetEnvironmentVariable)
+                            SetEnvironmentVariable, TimerAction)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+# Lock the Gazebo GUI camera onto the spawned robot: move_to recentres, follow
+# keeps it in frame as it drives. Retried for ~60 s since the GUI can be slow.
+FOLLOW_ROBOT = (
+    'req=\'data: "youbot"\'; '
+    'for i in $(seq 1 30); do '
+    '  if gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
+    '       --reptype gz.msgs.Boolean --timeout 2000 --req "$req" 2>/dev/null '
+    '       | grep -q "data: true"; then '
+    '    gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
+    '       --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; '
+    '    echo "[view] Gazebo camera locked on the robot."; exit 0; '
+    '  fi; sleep 2; done; '
+    'echo "[view] could not reach the Gazebo GUI -- use the Entity Tree to '
+    'right-click youbot > Follow."'
+)
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -132,6 +148,17 @@ def generate_launch_description() -> LaunchDescription:
         control("mission_node", localized=True),
         control("strawberry_detector"),
         control("arm_node"),
+
+
+        # The GUI camera: Gazebo REWRITES ~/.gz/sim/8/gui.config on every exit
+        # with wherever the camera was left, and reads it back in preference to
+        # the world's <gui> pose. Since the robot roams, that saved view is
+        # almost never where it respawns -- which is why it "disappears" at
+        # random. Lock the camera onto the robot once the GUI is up (retried,
+        # because GUI load time varies hugely with the GPU).
+        TimerAction(period=6.0, actions=[ExecuteProcess(
+            cmd=["bash", "-c", FOLLOW_ROBOT], output="screen",
+            condition=IfCondition(use_gui))]),
 
         Node(package="rviz2", executable="rviz2", name="rviz2", output="screen",
              arguments=["-d", rviz_cfg], parameters=[sim_time],
