@@ -64,7 +64,21 @@ def body_increment(prev, cur):
 class OdomCalibrator(Node):
     def __init__(self) -> None:
         super().__init__("odom_calibrator")
-        self.declare_parameter("mode", "calibrate")     # calibrate | apply
+        # auto (default) | calibrate | apply.
+        #
+        # "auto" is what makes the reference disappear on its own. In
+        # `calibrate` this node watches ground truth and keeps re-fitting the
+        # scale factors live, so /odom_calibrated is a ground-truth-ASSISTED
+        # estimate, good to a few centimetres over 20 m. Leave that running
+        # and the SLAM layer is asked to improve on a prior it cannot beat:
+        # every correction it makes reads as a regression. That is exactly
+        # what the field log showed -- "SLAM 0.43 m | odometry alone 0.07 m",
+        # where the 0.07 m was quietly reading the answer.
+        #
+        # So: calibrate once, then never again. Once the file exists, auto
+        # switches to apply and the ground-truth subscription is not even
+        # created. That run is level 3 for real.
+        self.declare_parameter("mode", "auto")          # auto | calibrate | apply
         self.declare_parameter("calib_file",
                                os.path.expanduser("~/.ros/youbot_odom_calib.yaml"))
         # Distance to drive before the estimate is trusted and saved.
@@ -88,6 +102,8 @@ class OdomCalibrator(Node):
         self._truth = {}                 # stamp -> (x, y, yaw)
         self._pose = None                # integrated calibrated pose
 
+        if self._mode == "auto":
+            self._mode = "apply" if os.path.exists(self._file) else "calibrate"
         if self._mode == "apply":
             self._load()
 
@@ -96,11 +112,17 @@ class OdomCalibrator(Node):
         if self._mode == "calibrate":
             self.create_subscription(Odometry, "odom", self._on_truth, 20)
         self.create_timer(float(self.get_parameter("report_period").value), self._report)
-        self.get_logger().info(
-            f"odom_calibrator up [{self._mode}]: /odom_noisy -> /odom_calibrated"
-            + (f" (reference /odom, saving to {self._file})"
-               if self._mode == "calibrate" else
-               f" (scales {self._scale[0]:.4f} / {self._scale[1]:.4f} / {self._scale[2]:.4f})"))
+        if self._mode == "calibrate":
+            self.get_logger().info(
+                "odom_calibrator up [calibrate]: /odom_noisy -> /odom_calibrated "
+                f"(reference /odom, saving to {self._file}). This run is "
+                "ground-truth-assisted; the NEXT one will not be.")
+        else:
+            self.get_logger().info(
+                "odom_calibrator up [apply]: /odom_noisy -> /odom_calibrated "
+                f"(scales {self._scale[0]:.4f} / {self._scale[1]:.4f} / "
+                f"{self._scale[2]:.4f} from {self._file}). No ground-truth "
+                "reference is subscribed -- this is a true level-3 run.")
 
     # ------------------------------------------------------------- reference
     def _on_truth(self, msg: Odometry) -> None:

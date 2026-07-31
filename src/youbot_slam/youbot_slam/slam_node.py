@@ -253,9 +253,16 @@ class SlamNode(Node):
         odom_err = math.hypot(self._odom[0] - self._gt[0],
                               self._odom[1] - self._gt[1])
         self._err_sum, self._err_n = 0.0, 0
+        # Say WHICH odometry. This node reads /odom_calibrated (the launch
+        # remaps it onto odom_noisy): the prior it was actually given, not the
+        # raw drifting encoder track truth_monitor prints under the same
+        # words. With the calibrator in `calibrate` mode that prior is
+        # ground-truth-assisted, and two log lines a second apart then quote
+        # 0.07 m and 1.05 m for "odometry alone" -- which is how a whole run
+        # gets misread.
         self.get_logger().info(
             f"pose error vs truth: SLAM {slam_err:.02f} m | "
-            f"odometry alone {odom_err:.02f} m")
+            f"the prior it was given {odom_err:.02f} m")
 
 
 def main(args=None) -> None:

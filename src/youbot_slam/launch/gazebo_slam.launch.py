@@ -120,11 +120,14 @@ def generate_launch_description() -> LaunchDescription:
                               description="Pose source for the control stack. Pass "
                                           "odom_noisy with slam:=false for the "
                                           "failure demo."),
-        DeclareLaunchArgument("calib", default_value="calibrate",
-                              description="calibrate: measure the odometry bias "
-                                          "against the reference and save it. "
-                                          "apply: use the saved bias, no "
-                                          "reference (real-robot mode)."),
+        DeclareLaunchArgument("calib", default_value="auto",
+                              description="auto: calibrate on the first run, "
+                                          "then apply the saved bias with no "
+                                          "reference at all. calibrate/apply "
+                                          "force one or the other. Staying in "
+                                          "calibrate hands SLAM a "
+                                          "ground-truth-assisted prior it "
+                                          "cannot beat."),
 
         gz_sim,
         gz_sim_headless,
