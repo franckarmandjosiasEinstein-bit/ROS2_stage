@@ -281,13 +281,26 @@
         </visual>
       </link>
     </model>
+    <!-- Aisle floor. The old pale beige (0.55/0.68) sat right on top of the
+         glass walls' pale blue (0.62/0.68): from the Gazebo camera the floor
+         and the walls were the same colour and you could not see where an
+         aisle ran. Dark slate-green reads clearly against both the walls and
+         the brown ground, and stays well clear of the harvester's excess-red
+         test (green suppresses r-g, so it can never be taken for fruit).
+
+         Six strips now, not two: the four aisles plus the two end lanes.
+         Together they ARE the survey circuit driven during the mapping laps,
+         so the route is painted on the floor. Aisles are centred on
+         y = -1.85 / -0.60 / +0.60 / +1.85, which are the free bands left
+         between the walls (inner faces y = +/-2.45) and the three 0.4 m
+         gutters at y = -1.2 / 0.0 / +1.2. -->
     <model name="aisle_pos">
       <static>true</static>
       <pose>0 0.6 0.001 0 0 0</pose>
       <link name="link">
         <visual name="v">
           <geometry><box><size>9.70 0.72 0.002</size></box></geometry>
-          <material><ambient>0.55 0.53 0.48 1</ambient><diffuse>0.68 0.66 0.60 1</diffuse></material>
+          <material><ambient>0.10 0.16 0.14 1</ambient><diffuse>0.15 0.25 0.21 1</diffuse></material>
         </visual>
       </link>
     </model>
@@ -297,7 +310,47 @@
       <link name="link">
         <visual name="v">
           <geometry><box><size>9.70 0.72 0.002</size></box></geometry>
-          <material><ambient>0.55 0.53 0.48 1</ambient><diffuse>0.68 0.66 0.60 1</diffuse></material>
+          <material><ambient>0.10 0.16 0.14 1</ambient><diffuse>0.15 0.25 0.21 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="aisle_far_pos">
+      <static>true</static>
+      <pose>0 1.85 0.001 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>9.70 0.85 0.002</size></box></geometry>
+          <material><ambient>0.10 0.16 0.14 1</ambient><diffuse>0.15 0.25 0.21 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="aisle_far_neg">
+      <static>true</static>
+      <pose>0 -1.85 0.001 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>9.70 0.85 0.002</size></box></geometry>
+          <material><ambient>0.10 0.16 0.14 1</ambient><diffuse>0.15 0.25 0.21 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="lane_east">
+      <static>true</static>
+      <pose>4.45 0 0.001 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.80 4.60 0.002</size></box></geometry>
+          <material><ambient>0.10 0.16 0.14 1</ambient><diffuse>0.15 0.25 0.21 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="lane_west">
+      <static>true</static>
+      <pose>-4.45 0 0.001 0 0 0</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry><box><size>0.80 4.60 0.002</size></box></geometry>
+          <material><ambient>0.10 0.16 0.14 1</ambient><diffuse>0.15 0.25 0.21 1</diffuse></material>
         </visual>
       </link>
     </model>

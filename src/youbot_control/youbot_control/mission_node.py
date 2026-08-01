@@ -30,6 +30,31 @@ PATROL = [
     (-3.8, 0.6), (3.8, 0.6),      # +X: left camera sees the Y=+1.2 row
     (3.8, -0.6), (-3.8, -0.6),    # -X: left camera sees the Y=-1.2 row
 ]
+
+# SURVEY -- the mapping phase, run BEFORE any harvesting.
+#
+# Two separate jobs were being asked of one route and neither was getting
+# done. PATROL is a harvesting route: it only visits the two central aisles,
+# because those are the ones where the left-hand camera always faces a plant
+# row. As a MAPPING route it is hopeless -- the outer aisles at y = +/-1.85
+# were never driven, so a third of the greenhouse never entered the map, and
+# the planner then had to route the robot through territory it had never
+# seen. Hence "it only ever explores one aisle".
+#
+# This is the coverage route, and it is a plain boustrophedon over all four
+# aisles plus both end lanes. Geometry it is derived from (greenhouse.sdf):
+#   walls      x = +/-5.0, y = +/-2.5  (0.1 thick -> inner faces 4.95 / 2.45)
+#   gutters    y = -1.2, 0.0, +1.2, each 8.0 long (x in [-4, 4]) and 0.4 wide
+# so the four free aisles are centred on y = -1.85, -0.60, +0.60, +1.85 and
+# the ends (|x| > 4.0) are open across the full width.
+SURVEY = [
+    (-4.40, -1.85), (4.40, -1.85),    # south margin, west -> east
+    (4.40, -0.60), (-4.40, -0.60),    # aisle 2, east -> west
+    (-4.40, 0.60), (4.40, 0.60),      # aisle 3, west -> east
+    (4.40, 1.85), (-4.40, 1.85),      # north margin, east -> west
+]
+SURVEY_LAPS = 3            # laps of the circuit before harvesting begins
+
 DEPOT = (4.3, 1.9)         # east end of the wide top corridor. (4.6, 0.0) sat
                            # in the pinch between the inflated gutter ends and
                            # the inflated east wall -> the robot jammed there.
@@ -82,7 +107,11 @@ class MissionNode(Node):
         self._known = []        # confirmed crate positions (x, y)
         self._collected = []    # crates already visited
         self._patrol_i = 0
-        self._phase = "explore"  # explore -> collect -> deliver -> done
+        self._survey_i = 0       # waypoint index within the survey circuit
+        self._survey_lap = 0     # completed survey laps
+        # survey -> explore -> collect -> deliver -> done. Mapping first: the
+        # harvest is only as good as the map the planner is driving on.
+        self._phase = "survey"
         self._goal = None        # (x, y) current goal
         self._goal_kind = None   # "explore" | "pick" | "depot"
         self._goal_sent = False
@@ -118,12 +147,15 @@ class MissionNode(Node):
         self.create_subscription(Float32MultiArray, "ripe_offsets", self._on_ripe_offsets, 10)
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
+        self.lap_pub = self.create_publisher(Int32, "survey_lap", 5)
         self.pick_pub = self.create_publisher(Empty, "do_pick", 5)
         self.hold_pub = self.create_publisher(Bool, "pick_hold", 5)
         self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.create_timer(0.5, self._tick)
         self.create_timer(HEARTBEAT, self._heartbeat)
-        self.get_logger().info("mission_node up: patrol -> see fruit -> pick -> resume.")
+        self.get_logger().info(
+            f"mission_node up: {SURVEY_LAPS} mapping laps of the whole "
+            "greenhouse first, then patrol -> see fruit -> pick -> resume.")
 
     # --- perception -------------------------------------------------
     def _on_odom(self, msg: Odometry) -> None:
@@ -159,8 +191,9 @@ class MissionNode(Node):
 
     # --- state watchdog ---------------------------------------------
     def _signature(self):
-        return (self._phase, self._patrol_i, self._goal, self._goal_sent,
-                self._aligning, self._picking, self._picks_at_stop)
+        return (self._phase, self._patrol_i, self._survey_i, self._goal,
+                self._goal_sent, self._aligning, self._picking,
+                self._picks_at_stop)
 
     def _heartbeat(self) -> None:
         """Say where the mission is, so a stall is visible instead of silent."""
@@ -172,9 +205,14 @@ class MissionNode(Node):
             f"{self._goal_kind} ({self._goal[0]:+.2f}, {self._goal[1]:+.2f})"
         state = ("aligning" if self._aligning else
                  "picking" if self._picking else "driving")
+        if self._phase == "survey":
+            where = (f"waypoint {self._survey_i}/{len(SURVEY)} "
+                     f"lap {self._survey_lap + 1}/{SURVEY_LAPS}")
+        else:
+            where = f"waypoint {self._patrol_i}/{len(PATROL)}"
         self.get_logger().info(
             f"[state] {self._phase}/{state} at {pos} -> goal {goal} "
-            f"| waypoint {self._patrol_i}/{len(PATROL)} | {self._ripe} ripe in view")
+            f"| {where} | {self._ripe} ripe in view")
 
     def _check_watchdog(self) -> None:
         sig, t = self._signature(), self._now()
@@ -243,6 +281,23 @@ class MissionNode(Node):
                           self._pose[1] - self._last_pick_xy[1]) > PICK_SPACING
 
     def _choose_goal(self) -> None:
+        if self._phase == "survey":
+            if self._survey_i < len(SURVEY):
+                self._set_goal(SURVEY[self._survey_i], "survey")
+                return
+            self._survey_lap += 1
+            self._survey_i = 0
+            self.lap_pub.publish(Int32(data=self._survey_lap))
+            if self._survey_lap < SURVEY_LAPS:
+                self.get_logger().info(
+                    f"[survey] lap {self._survey_lap}/{SURVEY_LAPS} complete "
+                    "-- going round again.")
+                self._set_goal(SURVEY[0], "survey")
+                return
+            self.get_logger().info(
+                f"[survey] {SURVEY_LAPS} laps done, the greenhouse is mapped "
+                "-- switching to harvesting.")
+            self._phase = "explore"
         if self._phase == "explore":
             if self._patrol_i < len(PATROL):
                 self._set_goal(PATROL[self._patrol_i], "explore")
@@ -261,7 +316,9 @@ class MissionNode(Node):
 
     def _on_arrival(self) -> None:
         kind = self._goal_kind
-        if kind == "explore":
+        if kind == "survey":
+            self._survey_i += 1
+        elif kind == "explore":
             # Picking happens on-the-fly while driving (see _tick); at the
             # waypoint we simply move on to the next one.
             self._patrol_i += 1
@@ -288,7 +345,9 @@ class MissionNode(Node):
     def _abandon_goal(self) -> None:
         """Give up on an unreachable goal and move the mission forward."""
         kind = self._goal_kind
-        if kind == "explore":
+        if kind == "survey":
+            self._survey_i += 1
+        elif kind == "explore":
             self._patrol_i += 1
         elif kind == "pick":
             # Mark it "handled" so collect doesn't loop on it forever.

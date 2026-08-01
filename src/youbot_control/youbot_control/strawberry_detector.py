@@ -26,14 +26,23 @@ view, vision reports 0" for a whole run and there was no way to tell which.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import rclpy
 from rclpy.node import Node
 
+from geometry_msgs.msg import Pose, PoseArray
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32, Float32, Float32MultiArray
 
 from youbot_control.lib.vision import red_mask, close_mask, blob_centroids
+
+
+def yaw_from_quaternion(q) -> float:
+    return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                      1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 class StrawberryDetector(Node):
@@ -54,6 +63,24 @@ class StrawberryDetector(Node):
         self.declare_parameter("close_iterations", 2)  # bridges gaps up to 4 px
         self.declare_parameter("min_fill", 0.45)   # blob pixels / bounding box
         self.declare_parameter("max_aspect", 3.0)  # longer box side / shorter
+        # --- where the fruit IS, not just where it is on the screen ---------
+        # A pixel alone gives a ray, not a point. The missing constraint here
+        # is height: strawberries hang off gutters whose soil line is fixed by
+        # the greenhouse structure, so they all sit in a narrow band around
+        # berry_z. Intersecting the pixel ray with that plane turns every
+        # detection into an (x, y) in the map -- which is what makes the
+        # perception debuggable: those estimates can be laid over the true
+        # berry catalogue and the error read off directly, instead of judging
+        # a detector by a count that says nothing about WHERE it looked.
+        # Mount and optics must match the URDF sensor block.
+        self.declare_parameter("cam_x", 0.18)      # m, base frame
+        self.declare_parameter("cam_y", 0.14)
+        self.declare_parameter("cam_z", 0.78)
+        self.declare_parameter("cam_pitch", 0.28)  # rad, positive = tilted up
+        self.declare_parameter("cam_yaw", math.pi / 2.0)   # rad from the heading
+        self.declare_parameter("cam_fov", 1.2)     # rad, horizontal
+        self.declare_parameter("berry_z", 0.97)    # m: the fruit plane
+        self.declare_parameter("max_range", 2.5)   # m: refuse distant guesses
         topic = self.get_parameter("image_topic").value
         self._box = int(self.get_parameter("box_half").value)
         self._min = int(self.get_parameter("min_pixels").value)
@@ -70,8 +97,61 @@ class StrawberryDetector(Node):
         # ALL cluster offsets this frame (same [-1, 1] convention) -- lets the
         # mission target the NEXT berry at a station, not just the nearest.
         self.offsets_pub = self.create_publisher(Float32MultiArray, "ripe_offsets", 5)
+        # Estimated MAP positions of the fruit seen this frame. truth_monitor
+        # accumulates these and prints them against the real catalogue.
+        self.world_pub = self.create_publisher(PoseArray, "berry_detections", 5)
+        self._pose = None            # robot (x, y, yaw); no pose -> no map fix
+        self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.get_logger().info(
-            f"strawberry_detector up: {topic} -> /camera/detections + /ripe_count + /ripe_offset")
+            f"strawberry_detector up: {topic} -> /camera/detections + /ripe_count "
+            "+ /ripe_offset + /berry_detections (map positions)")
+
+    def _on_odom(self, msg: Odometry) -> None:
+        p = msg.pose.pose
+        self._pose = (p.position.x, p.position.y,
+                      yaw_from_quaternion(p.orientation))
+
+    def _project(self, u, v, width, height):
+        """Pixel -> map (x, y), by intersecting the ray with the fruit plane.
+
+        Returns None when the ray never reaches the plane (pointing away from
+        it, or so shallow that the estimate would be meaningless) or lands
+        beyond max_range, where a 1 px error is already tens of centimetres."""
+        if self._pose is None:
+            return None
+        rx, ry, ryaw = self._pose
+        g = self.get_parameter
+        pitch = float(g("cam_pitch").value)
+        a = ryaw + float(g("cam_yaw").value)
+        fov = float(g("cam_fov").value)
+        fx = (width / 2.0) / math.tan(fov / 2.0)      # square pixels
+
+        # Camera basis in the map frame: optical axis, image-right, image-down.
+        ca, sa, cp, sp = math.cos(a), math.sin(a), math.cos(pitch), math.sin(pitch)
+        f = (ca * cp, sa * cp, sp)
+        right = (sa, -ca, 0.0)                         # f x up, normalised
+        down = (f[1] * right[2] - f[2] * right[1],     # f x right
+                f[2] * right[0] - f[0] * right[2],
+                f[0] * right[1] - f[1] * right[0])
+
+        xc = (u - width / 2.0) / fx
+        yc = (v - height / 2.0) / fx
+        d = tuple(f[i] + xc * right[i] + yc * down[i] for i in range(3))
+
+        cam = (rx + float(g("cam_x").value) * math.cos(ryaw)
+               - float(g("cam_y").value) * math.sin(ryaw),
+               ry + float(g("cam_x").value) * math.sin(ryaw)
+               + float(g("cam_y").value) * math.cos(ryaw),
+               float(g("cam_z").value))
+        if abs(d[2]) < 1e-3:
+            return None                                # ray parallel to the plane
+        t = (float(g("berry_z").value) - cam[2]) / d[2]
+        if t <= 0.0:
+            return None
+        horiz = math.hypot(t * d[0], t * d[1])
+        if horiz > float(g("max_range").value):
+            return None
+        return cam[0] + t * d[0], cam[1] + t * d[1]
 
     def _on_image(self, msg: Image):
         rgb = self._to_rgb(msg)
@@ -92,12 +172,22 @@ class StrawberryDetector(Node):
         cx = msg.width / 2.0
         best_off = 2.0
         offsets = []
+        world = PoseArray()
+        world.header.stamp = msg.header.stamp
+        world.header.frame_id = "map"
         for u, v in centroids:
             self._draw_box(annotated, int(round(u)), int(round(v)))
             off = (u - cx) / cx
             offsets.append(float(off))
             if abs(off) < abs(best_off):
                 best_off = off
+            xy = self._project(u, v, msg.width, msg.height)
+            if xy is not None:
+                p = Pose()
+                p.position.x, p.position.y = float(xy[0]), float(xy[1])
+                p.position.z = float(self.get_parameter("berry_z").value)
+                p.orientation.w = 1.0
+                world.poses.append(p)
         # Mark the centred target with a filled dot so it is obvious in the view.
         if centroids and abs(best_off) < 2.0:
             uc = int(round(best_off * cx + cx))
@@ -110,9 +200,15 @@ class StrawberryDetector(Node):
         self.count_pub.publish(Int32(data=len(centroids)))
         self.offset_pub.publish(Float32(data=float(best_off)))
         self.offsets_pub.publish(Float32MultiArray(data=sorted(offsets, key=abs)))
+        self.world_pub.publish(world)
         if centroids:
+            where = (f", {len(world.poses)} located on the map"
+                     if world.poses else
+                     ", none located (no pose yet)" if self._pose is None else
+                     ", none located (ray misses the fruit plane)")
             self.get_logger().info(
-                f"{len(centroids)} cluster(s), nearest offset {best_off:+.2f}.",
+                f"{len(centroids)} cluster(s), nearest offset {best_off:+.2f}"
+                f"{where}.",
                 throttle_duration_sec=2.0)
         else:
             # Nothing found: say what the frame actually contained, so a wrong

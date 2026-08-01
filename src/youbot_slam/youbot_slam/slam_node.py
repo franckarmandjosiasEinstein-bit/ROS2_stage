@@ -43,7 +43,7 @@ import rclpy
 from rclpy.node import Node
 
 from geometry_msgs.msg import TransformStamped
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
 from tf2_ros import TransformBroadcaster
 
@@ -146,6 +146,13 @@ class SlamNode(Node):
 
         self._br = TransformBroadcaster(self)
         self.pose_pub = self.create_publisher(Odometry, "pose_slam", 20)
+        # The map the matcher is actually using, uninflated. mapping_node's
+        # /map is a PLANNING grid: it is inflated by the robot radius, so
+        # measuring the greenhouse off it would report walls 0.36 m too thick.
+        # This one is the raw belief -- what map_eval scores, and what RViz
+        # should show if you want to see what the robot really thinks.
+        self.map_pub = self.create_publisher(OccupancyGrid, "map_slam", 1)
+        self.create_timer(2.0, self._publish_map)
         self.create_subscription(Odometry, "odom_noisy", self._on_noisy, 20)
         self.create_subscription(LaserScan, "scan", self._on_scan, 10)
         self.create_subscription(Odometry, "odom", self._on_truth, 20)
@@ -299,6 +306,29 @@ class SlamNode(Node):
         t.transform.rotation.z = math.sin(half)
         t.transform.rotation.w = math.cos(half)
         self._br.sendTransform(t)
+
+    def _publish_map(self) -> None:
+        """The log-odds belief as a ROS grid: -1 unknown, 0 free, 100 occupied.
+
+        Anything the robot has no opinion about must stay UNKNOWN rather than
+        be published as free -- a map that claims to have seen everything
+        scores 100 % coverage without having driven anywhere."""
+        lo = self.grid.log_odds
+        data = np.full(lo.shape, -1, dtype=np.int8)
+        data[lo < -0.2] = 0
+        data[lo > L_OCC_THRESHOLD] = 100
+
+        msg = OccupancyGrid()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+        msg.info.resolution = self.grid.resolution
+        msg.info.height, msg.info.width = lo.shape
+        msg.info.origin.position.x = -self.grid.arena_size / 2.0
+        msg.info.origin.position.y = -self.grid.arena_size / 2.0
+        msg.info.origin.orientation.w = 1.0
+        # Row 0 of a ROS grid is the bottom row; ours is the top one.
+        msg.data = data[::-1, :].flatten().tolist()
+        self.map_pub.publish(msg)
 
     def _report(self) -> None:
         if self._err_n == 0 or self._gt is None or self._odom is None:

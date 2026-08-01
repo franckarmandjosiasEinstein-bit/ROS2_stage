@@ -29,6 +29,7 @@ setup(
             "pose_from_tf = youbot_slam.pose_from_tf:main",
             "odom_calibrator = youbot_slam.odom_calibrator:main",
             "truth_monitor = youbot_slam.truth_monitor:main",
+            "map_eval = youbot_slam.map_eval:main",
         ],
     },
 )

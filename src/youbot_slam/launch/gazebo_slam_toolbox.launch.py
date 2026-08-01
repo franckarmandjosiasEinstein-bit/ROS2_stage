@@ -167,7 +167,8 @@ def generate_launch_description() -> LaunchDescription:
         control("planning_node", localized=True),
         control("navigation_node", localized=True),
         control("mission_node", localized=True),
-        control("strawberry_detector"),
+        control("strawberry_detector", localized=True),  # needs the pose
+                                                       # to place fruit on the map
         control("arm_node", localized=True),   # workspace limit uses the estimate
 
 

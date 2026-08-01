@@ -200,13 +200,20 @@ def generate_launch_description() -> LaunchDescription:
         Node(package="youbot_slam", executable="truth_monitor",
              name="truth_monitor", output="screen", parameters=[sim_time]),
 
+        # Scores the map the robot built against the real greenhouse: interior
+        # dimensions, plant-row positions, coverage. Reads the world file and
+        # publishes nothing -- a measuring instrument, not part of the loop.
+        Node(package="youbot_slam", executable="map_eval",
+             name="map_eval", output="screen", parameters=[sim_time]),
+
         # --- the UNCHANGED control stack, rewired to the SLAM pose -------------
         control("safety_node", localized=True),   # /cmd_vel_raw -> /cmd_vel
         control("mapping_node", localized=True),
         control("planning_node", localized=True),
         control("navigation_node", localized=True),
         control("mission_node", localized=True),
-        control("strawberry_detector"),
+        control("strawberry_detector", localized=True),  # needs the pose
+                                                       # to place fruit on the map
         control("arm_node", localized=True),   # workspace limit uses the estimate
 
 

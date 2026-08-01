@@ -32,7 +32,7 @@ import rclpy
 from rclpy.node import Node
 
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseArray
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Int32
 from visualization_msgs.msg import Marker, MarkerArray
@@ -59,6 +59,16 @@ CAM_PITCH = 0.28                    # rad, upwards
 CAM_FX = (640.0 / 2.0) / math.tan(CAM_FOV / 2.0)
 MIN_BLOB_PX = 2.5                   # apparent diameter to be worth reporting
 
+# Fruit MAP scoring. The detector projects each blob onto the fruit plane and
+# publishes an (x, y) in the map; this node accumulates those and scores them
+# against the real catalogue. A count of clusters per frame says a detector
+# fired -- it says nothing about whether it fired at the right place, which is
+# the only thing that matters for a robot that has to reach out and grab.
+MERGE_DIST = 0.25       # m: two estimates this close are the same fruit
+MATCH_TOL = 0.35        # m: an estimate this near a real berry counts as it
+MIN_SIGHTINGS = 2       # confirmations before an estimate is scored (one-frame
+                        # flickers are noise, not a detection)
+
 
 def yaw_from_quaternion(q) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -78,6 +88,7 @@ class TruthMonitor(Node):
         self._berries = self._load_catalogue("berries")
         self._foliage = self._load_catalogue("foliage")
         self._closest = None     # best gripper-to-berry distance this window
+        self._fruit_map = []     # [x, y, sightings]: the robot's fruit map
 
         self._buf = Buffer()
         self._tf = TransformListener(self._buf, self)
@@ -86,6 +97,8 @@ class TruthMonitor(Node):
         self.create_subscription(Odometry, "pose_slam", self._on_slam, 20)
         self.create_subscription(Odometry, "odom_noisy", self._on_odom, 20)
         self.create_subscription(Int32, "ripe_count", self._on_ripe, 10)
+        self.create_subscription(PoseArray, "berry_detections",
+                                 self._on_berry_map, 10)
         self.create_timer(0.5, self._publish)
         self.create_timer(float(self.get_parameter("report_period").value),
                           self._report)
@@ -132,6 +145,42 @@ class TruthMonitor(Node):
 
     def _on_ripe(self, msg):
         self._ripe = int(msg.data)
+
+    def _on_berry_map(self, msg: PoseArray) -> None:
+        """Fold this frame's estimated fruit positions into the running map.
+
+        Running mean per cluster rather than last-wins: the same berry is seen
+        from several poses along the aisle, and averaging those views is what
+        turns a noisy per-frame projection into a usable position."""
+        for p in msg.poses:
+            x, y = p.position.x, p.position.y
+            for e in self._fruit_map:
+                if math.hypot(e[0] - x, e[1] - y) < MERGE_DIST:
+                    e[2] += 1
+                    k = 1.0 / e[2]
+                    e[0] += (x - e[0]) * k
+                    e[1] += (y - e[1]) * k
+                    break
+            else:
+                self._fruit_map.append([x, y, 1])
+
+    def _score_fruit_map(self):
+        """(confirmed, localised_truth, mean_error, false_positives)."""
+        confirmed = [e for e in self._fruit_map if e[2] >= MIN_SIGHTINGS]
+        errors, false_pos = [], 0
+        for e in confirmed:
+            d = min((math.hypot(b[0] - e[0], b[1] - e[1])
+                     for b in self._berries), default=1e9)
+            if d <= MATCH_TOL:
+                errors.append(d)
+            else:
+                false_pos += 1
+        localised = sum(
+            1 for b in self._berries
+            if any(math.hypot(b[0] - e[0], b[1] - e[1]) <= MATCH_TOL
+                   for e in confirmed))
+        mean_err = sum(errors) / len(errors) if errors else None
+        return len(confirmed), localised, mean_err, false_pos
 
     # -------------------------------------------------------------- helpers
     def _gripper_tip(self):
@@ -298,6 +347,16 @@ class TruthMonitor(Node):
             m.pose.position.x, m.pose.position.y, m.pose.position.z = bx, by, bz
             arr.markers.append(m)
 
+        # The robot's own fruit map, orange next to the green reality: where a
+        # detection is wrong is visible at a glance instead of being a number.
+        for i, (ex, ey, seen) in enumerate(self._fruit_map[:200]):
+            if seen < MIN_SIGHTINGS:
+                continue
+            m = self._marker(400 + i, Marker.SPHERE, (0.09, 0.09, 0.09), ORANGE)
+            m.pose.position.x, m.pose.position.y = ex, ey
+            m.pose.position.z = 0.97
+            arr.markers.append(m)
+
         # Arm: gripper tip and its distance to the nearest real berry.
         tip = self._gripper_tip()
         if tip is not None:
@@ -369,6 +428,17 @@ class TruthMonitor(Node):
         if n:
             lines.append("        nearest visible at %.2f m, farthest %.2f m"
                          % (min(b[4] for b in view), max(b[4] for b in view)))
+        # The fruit MAP, which is what a per-frame count cannot tell you: not
+        # "did it fire" but "did it fire at the right place".
+        conf, loc, err, fp = self._score_fruit_map()
+        if conf or self._fruit_map:
+            pct = 100.0 * loc / max(1, len(self._berries))
+            lines.append(
+                f"MAP     {conf} fruit localised on the map | {loc}/"
+                f"{len(self._berries)} real berries found ({pct:.0f}%)")
+            lines.append("        position error %s | %d estimate(s) match no "
+                         "real berry" % ("%.02f m" % err if err is not None
+                                         else "n/a", fp))
         # Report the CLOSEST approach over the window, not the instantaneous
         # distance: the arm is stowed most of the time, so sampling at random
         # would always read 'thin air' even on a perfect pick.
