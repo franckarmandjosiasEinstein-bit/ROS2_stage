@@ -214,11 +214,22 @@ def generate_launch_description() -> LaunchDescription:
                              "its traceback is above."),
                  Shutdown(reason="slam_node died")]
                 if event.returncode not in (0, None) else []))),
-        # Failure demo (slam:=false): TF comes from the drifting odometry and the
-        # control stack is pointed at it via pose_topic:=odom_noisy.
+        # slam:=false. TF now follows pose_topic rather than being nailed to
+        # odom_noisy, so the two configurations this argument is actually used
+        # for are both coherent:
+        #
+        #   pose_topic:=odom_noisy      the failure demo -- the stack runs on
+        #                               raw drifting odometry and gets lost.
+        #   pose_topic:=odom_calibrated the working harvest -- calibrated
+        #                               odometry, no ground truth at runtime.
+        #
+        # With the topic hard-coded, the second one put the control stack on
+        # the calibrated pose while RViz and every TF consumer saw the raw
+        # one: the robot behaved correctly and the picture disagreed with it,
+        # which is the worst way to run a demo.
         Node(package="youbot_control", executable="odom_tf", name="odom_tf",
              output="screen", parameters=[sim_time],
-             remappings=[("odom", "odom_noisy")],
+             remappings=[("odom", pose_topic)],
              condition=UnlessCondition(use_slam)),
 
         # Ground truth vs belief, on one RViz picture + one scoreboard.
