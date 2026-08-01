@@ -81,6 +81,9 @@ class StrawberryDetector(Node):
         self.declare_parameter("cam_fov", 1.2)     # rad, horizontal
         self.declare_parameter("berry_z", 0.97)    # m: the fruit plane
         self.declare_parameter("max_range", 2.5)   # m: refuse distant guesses
+        # How far the estimate may move for one pixel of image error
+        # before it is thrown away as ill-conditioned (see _project).
+        self.declare_parameter("max_pixel_shift", 0.15)   # m per pixel
         topic = self.get_parameter("image_topic").value
         self._box = int(self.get_parameter("box_half").value)
         self._min = int(self.get_parameter("min_pixels").value)
@@ -112,11 +115,31 @@ class StrawberryDetector(Node):
                       yaw_from_quaternion(p.orientation))
 
     def _project(self, u, v, width, height):
-        """Pixel -> map (x, y), by intersecting the ray with the fruit plane.
+        """Pixel -> map (x, y), with a conditioning test.
 
-        Returns None when the ray never reaches the plane (pointing away from
-        it, or so shallow that the estimate would be meaningless) or lands
-        beyond max_range, where a 1 px error is already tens of centimetres."""
+        The fruit plane is only 0.19 m above the lens, so rays leave it at a
+        shallow angle and the intersection is ill-conditioned: near grazing
+        incidence one pixel of image error is metres on the ground, and the
+        estimate is worse than no estimate at all. Rather than guess a safe
+        elevation threshold, measure the thing that matters -- move the pixel
+        by one and see how far the answer moves. Past max_pixel_shift, say
+        nothing. In the field this is what separated 'position error 0.20 m'
+        on the fruit that were localised from the 83 estimates that matched no
+        real berry at all."""
+        p = self._ray_hit(u, v, width, height)
+        if p is None:
+            return None
+        q = self._ray_hit(u, v + 1.0, width, height)
+        if q is None:
+            return None
+        if math.hypot(q[0] - p[0], q[1] - p[1]) > float(
+                self.get_parameter("max_pixel_shift").value):
+            return None
+        return p
+
+    def _ray_hit(self, u, v, width, height):
+        """Where this pixel's ray crosses the fruit plane, in map coordinates,
+        or None if it never does (pointing away) or lands beyond max_range."""
         if self._pose is None:
             return None
         rx, ry, ryaw = self._pose

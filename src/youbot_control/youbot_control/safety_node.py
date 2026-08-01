@@ -90,6 +90,10 @@ class SafetyNode(Node):
         self.declare_parameter("base_length", 0.58)
         self.declare_parameter("base_width", 0.38)
         self.declare_parameter("fence_speed", 0.20)     # m/s pushing back in
+        # How far ahead the PREVENTIVE fence looks (see _keep_inside). Long
+        # enough that a 0.6 m/s command is stopped 0.3 m before the boundary,
+        # short enough not to veto legitimate motion in the end lanes.
+        self.declare_parameter("fence_lookahead", 0.5)  # s
         # Lateral containment. Braking only on the COMMANDED direction misses
         # the way the robot actually entered the gutters: during visual
         # alignment the mission commands vx only, and a small heading error
@@ -111,6 +115,7 @@ class SafetyNode(Node):
         self._hl = float(self.get_parameter("base_length").value) / 2.0
         self._hw = float(self.get_parameter("base_width").value) / 2.0
         self._fence_speed = float(self.get_parameter("fence_speed").value)
+        self._look = float(self.get_parameter("fence_lookahead").value)
         self._side_min = float(self.get_parameter("side_min").value)
         self._side_push = float(self.get_parameter("side_push").value)
         self._side_band = float(self.get_parameter("side_band").value)
@@ -215,9 +220,11 @@ class SafetyNode(Node):
         return 0.0
 
     def _overhang(self):
+        return self._overhang_at(*self._pose)
+
+    def _overhang_at(self, x, y, yaw):
         """How far the footprint pokes past each wall, as (dx, dy) in world
         metres. (0, 0) while the whole body is inside."""
-        x, y, yaw = self._pose
         c, s = math.cos(yaw), math.sin(yaw)
         ox = oy = 0.0
         for sl, sw in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
@@ -255,6 +262,54 @@ class SafetyNode(Node):
         v = self._fence_speed * gain / n
         return (v * (c * ox - s * oy), v * (s * ox + c * oy))
 
+    def _keep_inside(self, vx, vy, wz):
+        """Refuse any command that would push the footprint further out.
+
+        The fence above is CORRECTIVE: it speaks once part of the body is
+        already through the glass, and then has to shove it back while the
+        planner keeps steering the other way. The field log shows what that
+        costs -- "Outside the arena -- driving back in" every three seconds for
+        a minute, a stuck detector firing on top of it because the commands
+        were being replaced rather than obeyed, and the survey stalled on its
+        first waypoint until it timed out.
+
+        This is the preventive half, and it is the one that should almost
+        always be doing the work: predict the footprint a short time ahead at
+        the commanded velocity, and if a world axis gets worse, drop the
+        motion along that axis. Rotation is checked too -- turning in place
+        beside a wall sweeps the corners out even at zero translation, which is
+        exactly what happens at the end of every aisle.
+
+        What survives is the motion along the wall and away from it, so the
+        robot slides along the boundary instead of grinding into it."""
+        if self._pose is None:
+            return vx, vy, wz
+        x, y, yaw = self._pose
+        c, s = math.cos(yaw), math.sin(yaw)
+        wvx, wvy = c * vx - s * vy, s * vx + c * vy      # world-frame velocity
+        t = self._look
+        ox0, oy0 = self._overhang_at(x, y, yaw)
+
+        # Translation, one world axis at a time: keep whichever component does
+        # not make things worse. Testing them together would veto a sideways
+        # escape just because the forward component was bad.
+        ox1, _ = self._overhang_at(x + wvx * t, y, yaw)
+        if abs(ox1) > abs(ox0) + 1e-6:
+            wvx = 0.0
+        _, oy1 = self._overhang_at(x, y + wvy * t, yaw)
+        if abs(oy1) > abs(oy0) + 1e-6:
+            wvy = 0.0
+
+        # Rotation, at the position we will actually be at.
+        nx, ny = x + wvx * t, y + wvy * t
+        rx, ry = self._overhang_at(nx, ny, yaw + wz * t)
+        kx, ky = self._overhang_at(nx, ny, yaw)
+        if math.hypot(rx, ry) > math.hypot(kx, ky) + 1e-6:
+            wz = 0.0
+
+        c, s = math.cos(-yaw), math.sin(-yaw)            # back to body frame
+        return c * wvx - s * wvy, s * wvx + c * wvy, wz
+
     # --------------------------------------------------------------- loop
     def _tick(self) -> None:
         out = Twist()
@@ -284,6 +339,10 @@ class SafetyNode(Node):
         translating = math.hypot(vx, vy) > 0.02
         vx, vy, blocked = self._brake(vx, vy)
         vy += self._recentre(translating)
+        # Preventive fence LAST, so it also vets the recentring push: that one
+        # is the reason the base drifted into the margin in the first place --
+        # it shoves sideways off a flank without knowing where the wall is.
+        vx, vy, wz = self._keep_inside(vx, vy, wz)
         out.linear.x, out.linear.y, out.angular.z = vx, vy, wz
         self.pub.publish(out)
         # NOT an override. The brake scales the commanded direction down; the

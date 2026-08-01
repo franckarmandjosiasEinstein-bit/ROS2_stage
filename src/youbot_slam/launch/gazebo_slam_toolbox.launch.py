@@ -189,11 +189,13 @@ def generate_launch_description() -> LaunchDescription:
              arguments=["-d", rviz_cfg], parameters=[sim_time],
              condition=IfCondition(use_rviz)),
 
-        RegisterEventHandler(OnShutdown(on_shutdown=[
-            ExecuteProcess(
+        RegisterEventHandler(OnShutdown(
+            # A FUNCTION, not a prebuilt action: shutdown can be reached more
+            # than once (Ctrl-C racing a node exit), and re-executing the same
+            # ExecuteProcess instance is an error. This hands back a new one.
+            on_shutdown=lambda event, context: [ExecuteProcess(
                 cmd=["bash", "-c", 'pkill -9 -f "gz sim"; pkill -9 -f "gz-sim"; '
                      'pkill -9 -f "ruby.*gz sim"; pkill -9 -f parameter_bridge; '
                      'pkill -9 -f rviz2; pkill -9 -f rqt_image_view'],
-                output="screen"),
-        ])),
+                output="screen")])),
     ])

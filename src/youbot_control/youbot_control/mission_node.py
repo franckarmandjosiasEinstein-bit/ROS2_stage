@@ -47,11 +47,19 @@ PATROL = [
 #   gutters    y = -1.2, 0.0, +1.2, each 8.0 long (x in [-4, 4]) and 0.4 wide
 # so the four free aisles are centred on y = -1.85, -0.60, +0.60, +1.85 and
 # the ends (|x| > 4.0) are open across the full width.
+#
+# The x = +/-4.40 of the first version left only 0.10 m of slack: the
+# footprint sweeps a 0.347 m corner radius, the fence sits at 4.85, so the
+# centre limit is 4.503 -- and pure pursuit overshot by 0.25 m on the very
+# first leg. The robot ended up at (-4.65, -0.66) with a corner through the
+# glass, and spent the whole 60 s goal timeout being shoved back in. Every
+# waypoint now keeps 0.20 m clear of that limit on both axes, which
+# scripts/check_regressions.py enforces.
 SURVEY = [
-    (-4.40, -1.85), (4.40, -1.85),    # south margin, west -> east
-    (4.40, -0.60), (-4.40, -0.60),    # aisle 2, east -> west
-    (-4.40, 0.60), (4.40, 0.60),      # aisle 3, west -> east
-    (4.40, 1.85), (-4.40, 1.85),      # north margin, east -> west
+    (-4.25, -1.78), (4.25, -1.78),    # south margin, west -> east
+    (4.25, -0.60), (-4.25, -0.60),    # aisle 2, east -> west
+    (-4.25, 0.60), (4.25, 0.60),      # aisle 3, west -> east
+    (4.25, 1.78), (-4.25, 1.78),      # north margin, east -> west
 ]
 SURVEY_LAPS = 3            # laps of the circuit before harvesting begins
 

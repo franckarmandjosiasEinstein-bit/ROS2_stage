@@ -76,6 +76,28 @@ for d in ('youbot-control', 'youbot-slam'):
   exit 1
 fi
 
+# Pre-flight. Every check here is a failure this project has actually had, and
+# each one used to cost a full simulation run to discover: a shadowed message
+# class that killed SLAM in the first second, a survey waypoint 0.10 m from the
+# fence that stalled the whole mapping phase, a launch handler that fired on a
+# clean exit. About a second, against thirty minutes.
+CHECKS="$(dirname "$0")/../../../scripts/check_regressions.py"
+if [ -f "$CHECKS" ]; then
+  # Capture, THEN inspect. Piping straight into grep would report grep's exit
+  # status instead of the checker's, which is how a green pipeline hides a red
+  # test -- the exact class of mistake this file exists to prevent.
+  preflight=$(python3 "$CHECKS" 2>&1)
+  if [ $? -ne 0 ]; then
+    printf '%s\n' "$preflight" | grep -v '^  ok'
+    echo
+    echo "[run.sh] pre-flight checks FAILED (above). Fix them, or run"
+    echo "[run.sh]     python3 scripts/check_regressions.py"
+    echo "[run.sh] for the full list. Starting now would waste the run."
+    exit 1
+  fi
+  echo "[run.sh] pre-flight: $(printf '%s' "$preflight" | tail -n 1)"
+fi
+
 if [ "$1" = "slam" ]; then
   shift
   ros2 launch youbot_slam gazebo_slam.launch.py "$@"

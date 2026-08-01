@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections import deque
 
 import rclpy
 from rclpy.node import Node
@@ -66,8 +67,10 @@ MIN_BLOB_PX = 2.5                   # apparent diameter to be worth reporting
 # the only thing that matters for a robot that has to reach out and grab.
 MERGE_DIST = 0.25       # m: two estimates this close are the same fruit
 MATCH_TOL = 0.35        # m: an estimate this near a real berry counts as it
-MIN_SIGHTINGS = 2       # confirmations before an estimate is scored (one-frame
-                        # flickers are noise, not a detection)
+MIN_SIGHTINGS = 3       # confirmations before an estimate is scored. Two let a
+                        # pair of consecutive bad frames through; the same berry
+                        # is seen from a dozen poses along an aisle, so asking
+                        # for three costs nothing real.
 
 
 def yaw_from_quaternion(q) -> float:
@@ -82,7 +85,9 @@ class TruthMonitor(Node):
         self.declare_parameter("berry_file", "")
 
         self._truth = None      # ground-truth base pose (x, y, yaw)
+        self._truth_hist = deque(maxlen=400)   # (t, x, y, yaw), for time pairing
         self._slam = None       # SLAM estimate
+        self._slam_t = None     # the stamp that estimate carries
         self._odom = None       # raw drifting odometry
         self._ripe = 0          # clusters vision reports this frame
         self._berries = self._load_catalogue("berries")
@@ -131,13 +136,39 @@ class TruthMonitor(Node):
             self.get_logger().warn(f"No {section} reference ({exc}).")
         return out
 
+    @staticmethod
+    def _stamp(msg) -> float:
+        return msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+
     def _on_truth(self, msg):
         p = msg.pose.pose
         self._truth = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
+        self._truth_hist.append((self._stamp(msg), *self._truth))
 
     def _on_slam(self, msg):
         p = msg.pose.pose
         self._slam = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
+        self._slam_t = self._stamp(msg)
+
+    def _truth_at(self, t):
+        """Ground truth at time t, not the latest ground truth.
+
+        Comparing the newest sample of each stream is only fair while the robot
+        is holding still. /pose_slam carries its SCAN's timestamp and arrives at
+        10 Hz; ground truth streams at 50 Hz. During a turn at the end of an
+        aisle -- which is most of the interesting moments -- a tenth of a second
+        of skew is already several degrees, and the field log duly reported
+        'slam 0.30 m / 114 deg off truth' at moments when the map the robot was
+        building came out dimensionally correct to within 5 cm. A heading error
+        of 114 degrees cannot coexist with a good map: the number was measuring
+        the skew between two queues, not the estimator."""
+        if not self._truth_hist or t is None:
+            return self._truth
+        best = min(self._truth_hist, key=lambda s: abs(s[0] - t))
+        # Too far apart to mean anything -- say so rather than quote a figure.
+        if abs(best[0] - t) > 0.25:
+            return None
+        return best[1:]
 
     def _on_odom(self, msg):
         p = msg.pose.pose
@@ -403,10 +434,16 @@ class TruthMonitor(Node):
         lines = ["--- truth vs belief --- (truth pose %.2f, %.2f, %.0f deg)"
                  % (self._truth[0], self._truth[1], math.degrees(self._truth[2]))]
         if self._slam is not None:
-            e = math.hypot(self._slam[0] - self._truth[0], self._slam[1] - self._truth[1])
-            dh = math.degrees(abs(math.atan2(math.sin(self._slam[2] - self._truth[2]),
-                                             math.cos(self._slam[2] - self._truth[2]))))
-            lines.append(f"BASE    slam {e:.02f} m / {dh:.0f} deg off truth")
+            ref = self._truth_at(self._slam_t)
+            if ref is None:
+                lines.append("BASE    slam: no ground truth within 0.25 s of the "
+                             "estimate's stamp -- not comparable right now")
+            else:
+                e = math.hypot(self._slam[0] - ref[0], self._slam[1] - ref[1])
+                dh = math.degrees(abs(math.atan2(math.sin(self._slam[2] - ref[2]),
+                                                 math.cos(self._slam[2] - ref[2]))))
+                lines.append(f"BASE    slam {e:.02f} m / {dh:.0f} deg off truth "
+                             f"(time-matched)")
         if self._odom is not None:
             e = math.hypot(self._odom[0] - self._truth[0], self._odom[1] - self._truth[1])
             lines.append(f"        odometry alone {e:.02f} m off truth")
