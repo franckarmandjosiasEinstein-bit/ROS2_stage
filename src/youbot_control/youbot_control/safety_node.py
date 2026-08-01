@@ -286,7 +286,13 @@ class SafetyNode(Node):
         vy += self._recentre(translating)
         out.linear.x, out.linear.y, out.angular.z = vx, vy, wz
         self.pub.publish(out)
-        self.override_pub.publish(Bool(data=blocked))
+        # NOT an override. The brake scales the commanded direction down; the
+        # commander is still in control and closing on its target. Only the
+        # fence REPLACES the command, and only that is worth telling anyone
+        # about: publishing the brake here made mission_node throw away a
+        # berry sitting at offset +0.01 -- dead centre -- because standing
+        # next to a gutter naturally trips the brake.
+        self.override_pub.publish(Bool(data=False))
 
         if blocked:
             if self._blocked_since is None:

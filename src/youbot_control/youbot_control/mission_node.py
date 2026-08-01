@@ -51,6 +51,13 @@ ALIGN_KP = 0.28            # m/s per unit offset (proportional centring)
 ALIGN_VMIN = 0.025         # m/s: floor so it keeps creeping near the target
 ALIGN_VMAX = 0.10          # m/s: cap
 ALIGN_TIMEOUT = 12.0       # s: give up aligning if it can't centre the fruit
+ALIGN_STALL = 4.0          # s without the offset improving -> give up. The
+                           # timeout alone is far too patient: the log shows
+                           # 12 s of sim time (38 s on the wall at this
+                           # real-time factor) spent creeping at a berry whose
+                           # offset sat at +0.04..+0.08 and never centred,
+                           # with the robot visibly motionless the whole time.
+ALIGN_PROGRESS = 0.03      # |offset| must improve by this much to count
 # Global watchdog. Every per-state timeout above can only fire while that
 # state is being ticked; if the machine ever lands somewhere none of them
 # cover, the mission goes silent (observed in the field: silent for 80 s
@@ -93,6 +100,8 @@ class MissionNode(Node):
         self._align_sign = 1.0
         self._align_last_abs = None
         self._align_check_t = 0.0
+        self._align_best_abs = None   # best |offset| this alignment
+        self._align_gain_t = 0.0      # when it last improved
         self._offsets = []       # ALL cluster offsets in the current frame
         self._picks_at_stop = 0  # picks done at the current station
         self._sweep_sign = 0.0   # station sweep direction (0 = not set yet)
@@ -305,6 +314,8 @@ class MissionNode(Node):
         self._align_sign = 1.0
         self._align_check_t = self._now()
         self._align_last_abs = abs(self._ripe_offset)
+        self._align_best_abs = abs(self._ripe_offset)
+        self._align_gain_t = self._now()
         self._picks_at_stop = 0                  # new station
         self._sweep_sign = 0.0
         self._station_target = None              # first target = nearest cluster
@@ -348,8 +359,21 @@ class MissionNode(Node):
         if self._overridden:
             self._publish_cmd(0.0, 0.0, 0.0)
             self.get_logger().info(
-                "Safety guard is overriding -- this berry is out of reach from "
-                "here, resuming patrol.")
+                "Outside the arena -- this berry is not reachable from here, "
+                "resuming patrol.")
+            self._release_base()
+            return
+        # Not converging. Standing still for the full timeout while the offset
+        # refuses to shrink harvests nothing and reads, from the Gazebo window,
+        # exactly like a frozen robot.
+        if abs(off) < self._align_best_abs - ALIGN_PROGRESS:
+            self._align_best_abs = abs(off)
+            self._align_gain_t = t
+        elif t - self._align_gain_t > ALIGN_STALL:
+            self._publish_cmd(0.0, 0.0, 0.0)
+            self.get_logger().info(
+                f"Alignment stalled at offset {off:+.2f} for {ALIGN_STALL:.0f}s "
+                "-- resuming patrol.")
             self._release_base()
             return
         # Centred -> pick.
