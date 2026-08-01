@@ -27,62 +27,65 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-# Lock the Gazebo GUI camera onto the spawned robot.
+# Lock the Gazebo GUI camera onto the spawned robot, and KEEP it locked.
 #
-# Why this is a confirmation loop and not one call. /gui/move_to answers
-# "data: true" as soon as the SERVICE is up, which happens well before the GUI's
-# render scene has been populated from /world/<w>/scene/info. The old version
-# exited on that first true and the log then showed, a second later:
+# Three things had to be learned the hard way here, all visible in field logs.
 #
-#     [GUI] [Err] [CameraTracking.cc:425] Unable to move to target.
-#                                         Target: 'youbot' not found
+# 1. /gui/move_to answers "data: true" as soon as the SERVICE is up, which is
+#    well before the GUI's render scene has been populated. The old one-shot
+#    call exited on that first true and a second later the log said
+#        [GUI] [Err] Unable to move to target. Target: 'youbot' not found
+#    so the camera stayed where it was and the robot looked "invisible".
+#    Hence: keep re-issuing until /gui/currently_tracked names the robot.
 #
-# -- the request was accepted and quietly did nothing, so the camera stayed
-# wherever it had been left and the robot was "invisible". Whether it worked
-# was a race between the GUI loading and our 6 s timer, which is exactly why it
-# came and went between runs.
+# 2. Confirming the lock once is not enough. One run confirmed it at 12:53 and
+#    the robot was off screen by 12:58; another logged the loss at 15:18 and
+#    never got it back. The GUI drops the follow on its own.
 #
-# So: keep re-issuing, and believe it only when the CameraTracking plugin says
-# on /gui/currently_tracked that it is tracking the robot.
+# 3. /gui/follow is DEPRECATED in Harmonic -- the GUI says so at startup, right
+#    next to the replacement: "Tracking topic on [/gui/track]". Re-issuing a
+#    deprecated service is why the watchdog could detect the loss but never
+#    repair it. The track TOPIC is the supported path, so it is used first and
+#    the old service is kept only as a fallback for older Gazebo builds.
 #
-# And keep watching afterwards. Confirming the lock once is not enough: a run
-# logged "[view] Gazebo camera is following the robot (confirmed)." at 12:53
-# and the robot was off screen again by 12:58. The GUI drops the follow on its
-# own -- a scene rebuild, a stray click in the 3D view, the entity being
-# re-created -- and nothing said so, which is what made the robot look like it
-# had "disappeared" when it was in fact driving normally the whole time. The
-# watchdog re-issues /gui/follow (NOT /gui/move_to: that one snaps the camera,
-# and doing it every 15 s would be unusable) and logs the loss and the recovery
-# so the log tells you which of the two happened.
+# And the watchdog no longer trusts /gui/currently_tracked to decide whether to
+# act: that topic is not guaranteed to keep publishing while tracking is
+# healthy, so "no message" was being read as "lost" and vice versa. It simply
+# re-asserts the track every 20 s, which is a no-op when the GUI is already
+# tracking the robot. Only move_to (which SNAPS the camera, and would be
+# unusable on a timer) stays conditional on the tracking topic going quiet.
 FOLLOW_ROBOT = (
     ': gui_follow watchdog; '        # marker: lets run.sh pkill this by name
     'req=\'data: "youbot"\'; '
     'moveto() { gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
     '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
-    'follow() { gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
+    # The supported API (topic), then the deprecated one, so this works on
+    # Harmonic and on anything older that still only has the service.
+    'track() { gz topic -t /gui/track -m gz.msgs.TrackVisual '
+    '  -p \'name: "youbot", inherit_orientation: true, min_dist: 3.0, '
+    'max_dist: 9.0\' >/dev/null 2>&1; '
+    '  gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
     '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
     'tracked() { timeout 3 gz topic -e -t /gui/currently_tracked -n 1 '
     '  2>/dev/null | grep -q youbot; }; '
     'locked=0; '
     'for i in $(seq 1 40); do '
-    '  moveto; follow; '
+    '  moveto; track; '
     '  if tracked; then locked=1; break; fi; sleep 1; done; '
     'if [ "$locked" = 1 ]; then '
     '  echo "[view] Gazebo camera is following the robot (confirmed)."; '
     'else '
     '  echo "[view] the Gazebo camera would not lock on -- right-click youbot '
     'in the Entity Tree > Follow."; fi; '
-    'lost=0; '
-    'while sleep 15; do '
-    '  if tracked; then '
-    '    if [ "$lost" != 0 ]; then '
-    '      echo "[view] camera lock recovered."; lost=0; fi; '
-    '    continue; fi; '
-    '  if [ "$lost" = 0 ]; then '
-    '    echo "[view] the Gazebo camera stopped following the robot -- '
-    'the robot is still driving, the view lost it. Re-following."; fi; '
-    '  lost=$((lost + 1)); follow; '
-    '  if [ "$lost" -ge 4 ]; then moveto; fi; '
+    'quiet=0; '
+    'while sleep 20; do '
+    '  track; '                       # cheap, idempotent, always re-asserted
+    '  if tracked; then quiet=0; continue; fi; '
+    '  quiet=$((quiet + 1)); '
+    '  if [ "$quiet" = 3 ]; then '
+    '    echo "[view] the Gazebo camera lost the robot -- snapping back to it. '
+    'The robot itself is fine, check its truth pose in truth_monitor."; '
+    '    moveto; fi; '
     'done'
 )
 
