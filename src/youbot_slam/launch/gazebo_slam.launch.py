@@ -22,10 +22,11 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription, RegisterEventHandler,
-                            SetEnvironmentVariable, TimerAction)
+                            IncludeLaunchDescription, LogInfo,
+                            RegisterEventHandler, SetEnvironmentVariable,
+                            Shutdown, TimerAction)
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnShutdown
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -135,6 +136,12 @@ def generate_launch_description() -> LaunchDescription:
                     output="screen", parameters=[params, sim_time],
                     remappings=remaps)
 
+    slam_node = Node(
+        package="youbot_slam", executable="slam_node", name="slam_node",
+        output="screen", parameters=[sim_time],
+        remappings=[("odom_noisy", "odom_calibrated")],
+        condition=IfCondition(use_slam))
+
     return LaunchDescription([
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
         DeclareLaunchArgument("rviz", default_value="true"),
@@ -185,10 +192,17 @@ def generate_launch_description() -> LaunchDescription:
         Node(package="youbot_slam", executable="odom_calibrator",
              name="odom_calibrator", output="screen",
              parameters=[{"mode": calib_mode}, sim_time]),
-        Node(package="youbot_slam", executable="slam_node", name="slam_node",
-             output="screen", parameters=[sim_time],
-             remappings=[("odom_noisy", "odom_calibrated")],
-             condition=IfCondition(use_slam)),
+        slam_node,
+        # Without a pose there is no mission, no map and no harvest: the
+        # whole run is already over, and the only thing left to decide is
+        # whether you find out now or after ninety seconds of warnings
+        # buried in Gazebo output. Stop the launch and say why.
+        RegisterEventHandler(OnProcessExit(
+            target_action=slam_node,
+            on_exit=[LogInfo(msg="slam_node died -- no pose, so nothing "
+                                 "downstream can run. Stopping the whole "
+                                 "stack; its traceback is above."),
+                     Shutdown(reason="slam_node died")])),
         # Failure demo (slam:=false): TF comes from the drifting odometry and the
         # control stack is pointed at it via pose_topic:=odom_noisy.
         Node(package="youbot_control", executable="odom_tf", name="odom_tf",

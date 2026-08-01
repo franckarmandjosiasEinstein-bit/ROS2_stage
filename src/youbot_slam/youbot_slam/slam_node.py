@@ -43,7 +43,14 @@ import rclpy
 from rclpy.node import Node
 
 from geometry_msgs.msg import TransformStamped
-from nav_msgs.msg import Odometry, OccupancyGrid
+from nav_msgs.msg import Odometry
+# ALIASED on purpose. `OccupancyGrid` is also the name of our own numpy
+# log-odds grid, imported below -- and that import comes later in the file, so
+# it silently rebinds the name and create_publisher(OccupancyGrid, ...) hands
+# rclpy a plain Python class. The error it raises then blames the ROS 1/ROS 2
+# message mix-up, which is nowhere near the truth and killed the node on
+# startup. mapping_node aliases it for exactly this reason; so does this one.
+from nav_msgs.msg import OccupancyGrid as OccupancyGridMsg
 from sensor_msgs.msg import LaserScan
 from tf2_ros import TransformBroadcaster
 
@@ -151,7 +158,7 @@ class SlamNode(Node):
         # measuring the greenhouse off it would report walls 0.36 m too thick.
         # This one is the raw belief -- what map_eval scores, and what RViz
         # should show if you want to see what the robot really thinks.
-        self.map_pub = self.create_publisher(OccupancyGrid, "map_slam", 1)
+        self.map_pub = self.create_publisher(OccupancyGridMsg, "map_slam", 1)
         self.create_timer(2.0, self._publish_map)
         self.create_subscription(Odometry, "odom_noisy", self._on_noisy, 20)
         self.create_subscription(LaserScan, "scan", self._on_scan, 10)
@@ -318,7 +325,7 @@ class SlamNode(Node):
         data[lo < -0.2] = 0
         data[lo > L_OCC_THRESHOLD] = 100
 
-        msg = OccupancyGrid()
+        msg = OccupancyGridMsg()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
         msg.info.resolution = self.grid.resolution
