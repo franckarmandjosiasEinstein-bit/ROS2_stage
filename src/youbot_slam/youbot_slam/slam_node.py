@@ -92,6 +92,28 @@ class SlamNode(Node):
         # reverse-engineered afterwards. Split along/across the heading,
         # because a matcher that lags shows up almost purely along it.
         self.declare_parameter("max_drift_warn", 0.60)   # m
+        # MATURITY. Only cells whose evidence is established may vote in the
+        # match. This is the fix for the runaway lag, and the mechanism is
+        # sharper than "coverage": a cell grazed ONCE by a passing beam gets
+        # L_FREE = -0.40, and |−0.40| already passed the old 0.2 gate, so it
+        # counted as "known". The frontier just ahead of the robot is full of
+        # such cells -- known, but not yet resolved as obstacles. A beam
+        # landing there is scored as a MISS, not as unexplored. Advancing was
+        # therefore actively punished, and switching the score to a mean made
+        # it far worse: under a sum those zeros merely failed to add, under a
+        # mean each one drags the average down. Hence 2.03 m of drift in
+        # 13 min against 1.20 m in 36 min before. A cell must now be seen
+        # about five times (5 x 0.40) or hit three times (3 x 0.85) before its
+        # opinion counts; everything fresher is unexplored, which is the truth.
+        self.declare_parameter("mature_log_odds", 2.0)
+        # ANISOTROPIC GAIN. Down a straight aisle, position ALONG the aisle is
+        # unobservable -- sliding forward does not change what the lidar sees
+        # (the aperture problem), so any "better" pose found along it is noise
+        # or residual bias. Across the aisle and in heading, the plant rows
+        # give real information. A proper EKF gets this for free from its
+        # covariance; with a fixed-gain filter it has to be said explicitly.
+        # Full gain across and in heading, a fraction of it along.
+        self.declare_parameter("along_gain_scale", 0.15)
 
         res = float(self.get_parameter("resolution").value)
         size = float(self.get_parameter("arena_size").value)
@@ -107,6 +129,8 @@ class SlamNode(Node):
         self._min_turn = float(self.get_parameter("min_turn").value)
         self._gain = float(self.get_parameter("correction_gain").value)
         self._max_drift = float(self.get_parameter("max_drift_warn").value)
+        self._mature = float(self.get_parameter("mature_log_odds").value)
+        self._along_scale = float(self.get_parameter("along_gain_scale").value)
         self._moved = 0.0          # travel accumulated since the last match
         self._turned = 0.0
         self._corr_along = 0.0     # sum of applied corrections, body frame
@@ -202,16 +226,22 @@ class SlamNode(Node):
             g = self._gain
             dth_c = math.atan2(math.sin(est[2] - prior[2]),
                                math.cos(est[2] - prior[2]))
-            self._pose = (prior[0] + g * (est[0] - prior[0]),
-                          prior[1] + g * (est[1] - prior[1]),
+            # Resolve the proposed correction along and across the heading and
+            # damp the along-track part (see along_gain_scale), then rebuild
+            # the world-frame correction from the two components.
+            ch, sh = math.cos(prior[2]), math.sin(prior[2])
+            ex, ey = est[0] - prior[0], est[1] - prior[1]
+            along = (ch * ex + sh * ey) * self._along_scale
+            cross = -sh * ex + ch * ey
+            cx, cy = along * ch - cross * sh, along * sh + cross * ch
+            self._pose = (prior[0] + g * cx,
+                          prior[1] + g * cy,
                           math.atan2(math.sin(prior[2] + g * dth_c),
                                      math.cos(prior[2] + g * dth_c)))
             # Book-keeping only: where the corrections are pushing us,
             # resolved along and across the heading (see max_drift_warn).
-            ax, ay = self._pose[0] - prior[0], self._pose[1] - prior[1]
-            ch, sh = math.cos(prior[2]), math.sin(prior[2])
-            self._corr_along += ch * ax + sh * ay
-            self._corr_cross += -sh * ax + ch * ay
+            self._corr_along += g * along
+            self._corr_cross += g * cross
         else:
             self._pose, quality = prior, 1.0   # bootstrap: trust odometry
 
@@ -226,7 +256,12 @@ class SlamNode(Node):
         if self._matcher is None or self._scans_since_rebuild >= self._rebuild_every:
             occupied = (self.grid.log_odds > L_OCC_THRESHOLD)
             if int(occupied.sum()) >= self._min_surface:
-                known = np.abs(self.grid.log_odds) > 0.2
+                # Only MATURE cells vote (see mature_log_odds). The distance
+                # field stays generous -- one hit is enough to seed a surface,
+                # because a missing obstacle would create false misses -- but
+                # a cell only gets to say "there is nothing here" once several
+                # beams agree with it.
+                known = np.abs(self.grid.log_odds) > self._mature
                 self._matcher = OnlineScanMatcher(
                     occupied.astype(np.uint8), known,
                     self.grid.resolution, self.grid.arena_size,

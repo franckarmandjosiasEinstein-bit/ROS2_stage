@@ -44,6 +44,40 @@ qui rend la plateforme générique — serre, hôpital, entrepôt : même logici
    travers. Un plancher `min_beams` empêche une pose qui ne voit presque rien
    de marquer 1,0 avec trois rayons chanceux.
 
+   **Et ça n'a toujours pas suffi** : 2,03 m de dérive en 13 min, contre
+   1,20 m en 36 min avant. La moyenne était plus juste en principe et pire en
+   pratique, ce qui a fini par désigner le vrai coupable.
+
+   **La frontière.** Un rayon qui *frôle* une cellule sans s'y arrêter y
+   ajoute `L_FREE = -0,40`. L'ancienne porte acceptait toute cellule avec
+   |log-odds| > 0,2 : une seule rasance suffisait donc à déclarer une cellule
+   « connue et vide ». Or la bande juste devant le robot en est pleine —
+   connue, mais pas encore résolue comme obstacle. Un rayon qui y atterrit
+   n'était pas compté comme *inexploré*, il était compté comme **raté**.
+   Avancer était donc activement puni ; et sous une moyenne chaque raté tire
+   la note vers le bas au lieu de simplement ne rien ajouter, d'où
+   l'aggravation.
+
+   Banc dédié (couloir cartographié jusqu'à x = 0, cellules frôlées jusqu'à
+   x = +0,6), `correct_online` appelé **à la pose vraie** :
+
+   | porte | qualité | correction appliquée |
+   |---|---|---|
+   | |L| > 0,2 (ancienne) | 0,80 | **−0,110 m** (fenêtre pleine, en arrière) |
+   | |L| > 2,0 (`mature_log_odds`) | 0,99 | **0,000 m** |
+
+   Une cellule doit maintenant avoir été vue ~5 fois (5 × 0,40) ou touchée
+   3 fois (3 × 0,85) avant d'avoir droit au vote. Le champ de distance, lui,
+   reste généreux : un seul impact suffit à semer une surface, car un obstacle
+   manquant créerait de faux ratés.
+
+   **Gain anisotrope** (`along_gain_scale`). Le long d'une allée droite, la
+   position n'est pas observable — glisser vers l'avant ne change rien à ce
+   que voit le lidar. En travers et en cap, les rangs de plants informent
+   vraiment. Un EKF obtient ça gratuitement via sa covariance ; avec un filtre
+   à gain fixe il faut l'écrire : gain plein en travers et en cap, 15 % le
+   long du cap.
+
    Filet de sécurité ajouté au passage : `slam_node` cumule les corrections
    appliquées, projetées le long du cap et en travers, et **prévient dans le
    log** dès que le scan matching s'est éloigné de plus de `max_drift_warn`
