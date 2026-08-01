@@ -274,6 +274,24 @@ def check_slam_scoring() -> None:
           "the unobservable aisle axis takes corrections at full gain")
     check("divergence from dead reckoning is reported", "max_drift_warn" in slam,
           "a slow walk away from odometry would go unannounced again")
+    check("along-track drift is bounded, not just damped",
+          "along * self._corr_along > 0.0" in slam,
+          "damping alone left a 0.97 m walk, which is more than the mission's "
+          "0.30 m arrival tolerance: every leg then runs to its timeout")
+
+    # And the ratchet itself: it must stop a one-way walk while still letting
+    # the estimate come back.
+    ns: dict = {}
+    lim = 0.60
+    for name, corr, along, expect in (
+            ("under the bound, a push outward is kept", 0.20, -0.05, -0.05),
+            ("at the bound, a push further out is refused", -0.60, -0.05, 0.0),
+            ("at the bound, a correction back is still applied", -0.60, +0.05, +0.05),
+            ("past the bound, coming back is still applied", -0.90, +0.05, +0.05)):
+        got = 0.0 if (abs(corr) >= lim and along * corr > 0.0) else along
+        check(f"ratchet: {name}", abs(got - expect) < 1e-9,
+              f"corr {corr:+.02f}, proposed {along:+.02f} -> kept {got:+.02f}, "
+              f"expected {expect:+.02f}")
 
 
 def check_entry_points() -> None:

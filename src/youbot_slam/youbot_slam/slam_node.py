@@ -247,6 +247,23 @@ class SlamNode(Node):
             ex, ey = est[0] - prior[0], est[1] - prior[1]
             along = (ch * ex + sh * ey) * self._along_scale
             cross = -sh * ex + ch * ey
+            # RATCHET. Damping the along-track gain to 15 % cut the walk from
+            # 3.05 m to 0.97 m, which is better and still useless: at 0.97 m
+            # the mission never gets within its 0.30 m arrival tolerance, so
+            # every survey leg runs to its 60 s timeout and the robot sits at
+            # a waypoint it has physically reached. A gain cannot fix a bias
+            # that keeps pushing the same way -- only a bound can.
+            #
+            # So: the sum of along-track corrections may wander up to
+            # max_drift_warn, and past that only corrections that bring it
+            # BACK are accepted. Cross-track and heading stay fully corrected,
+            # because those are the axes the plant rows actually observe. The
+            # along-aisle axis is left to odometry, which is what it is good
+            # at and what the log keeps showing: 0.01 to 0.15 m against a
+            # scan matcher walking away metre by metre.
+            if abs(self._corr_along) >= self._max_drift and \
+                    along * self._corr_along > 0.0:
+                along = 0.0
             cx, cy = along * ch - cross * sh, along * sh + cross * ch
             self._pose = (prior[0] + g * cx,
                           prior[1] + g * cy,
