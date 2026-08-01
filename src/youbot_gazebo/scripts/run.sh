@@ -22,6 +22,21 @@ cleanup() {
   pkill -9 -f "rqt_image_view"    2>/dev/null
   pkill -9 -f "youbot_control"    2>/dev/null
   pkill -9 -f "youbot_slam"       2>/dev/null
+  pkill -9 -f "gui_follow"        2>/dev/null
+  # Say so out loud instead of leaving it to be guessed from the next run
+  # misbehaving. SIGKILL cannot be refused, so anything still listed here is a
+  # process whose command line none of the patterns above match -- printed with
+  # its name, so the missing pattern can just be added.
+  sleep 1
+  local left
+  left=$(pgrep -a -f "gz sim|gz-sim|parameter_bridge|rviz2|rqt_image_view|youbot_" \
+         2>/dev/null | grep -v "run.sh" | grep -v pgrep)
+  if [ -n "$left" ]; then
+    echo "[run.sh] STILL ALIVE after cleanup -- report these:"
+    printf '%s\n' "$left" | sed 's/^/[run.sh]   /'
+  else
+    echo "[run.sh] no sim process left alive (checked)."
+  fi
   echo "[run.sh] done."
 }
 trap cleanup EXIT INT TERM

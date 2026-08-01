@@ -47,19 +47,46 @@ from launch_ros.actions import Node
 #
 # So: keep re-issuing, and believe it only when the CameraTracking plugin says
 # on /gui/currently_tracked that it is tracking the robot.
+#
+# And keep watching afterwards. Confirming the lock once is not enough: a run
+# logged "[view] Gazebo camera is following the robot (confirmed)." at 12:53
+# and the robot was off screen again by 12:58. The GUI drops the follow on its
+# own -- a scene rebuild, a stray click in the 3D view, the entity being
+# re-created -- and nothing said so, which is what made the robot look like it
+# had "disappeared" when it was in fact driving normally the whole time. The
+# watchdog re-issues /gui/follow (NOT /gui/move_to: that one snaps the camera,
+# and doing it every 15 s would be unusable) and logs the loss and the recovery
+# so the log tells you which of the two happened.
 FOLLOW_ROBOT = (
+    ': gui_follow watchdog; '        # marker: lets run.sh pkill this by name
     'req=\'data: "youbot"\'; '
+    'moveto() { gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
+    '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
+    'follow() { gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
+    '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
+    'tracked() { timeout 3 gz topic -e -t /gui/currently_tracked -n 1 '
+    '  2>/dev/null | grep -q youbot; }; '
+    'locked=0; '
     'for i in $(seq 1 40); do '
-    '  gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
-    '     --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; '
-    '  gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
-    '     --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; '
-    '  if timeout 3 gz topic -e -t /gui/currently_tracked -n 1 2>/dev/null '
-    '       | grep -q youbot; then '
-    '    echo "[view] Gazebo camera is following the robot (confirmed)."; exit 0; '
-    '  fi; sleep 1; done; '
-    'echo "[view] the Gazebo camera would not lock on -- right-click youbot in '
-    'the Entity Tree > Follow."'
+    '  moveto; follow; '
+    '  if tracked; then locked=1; break; fi; sleep 1; done; '
+    'if [ "$locked" = 1 ]; then '
+    '  echo "[view] Gazebo camera is following the robot (confirmed)."; '
+    'else '
+    '  echo "[view] the Gazebo camera would not lock on -- right-click youbot '
+    'in the Entity Tree > Follow."; fi; '
+    'lost=0; '
+    'while sleep 15; do '
+    '  if tracked; then '
+    '    if [ "$lost" != 0 ]; then '
+    '      echo "[view] camera lock recovered."; lost=0; fi; '
+    '    continue; fi; '
+    '  if [ "$lost" = 0 ]; then '
+    '    echo "[view] the Gazebo camera stopped following the robot -- '
+    'the robot is still driving, the view lost it. Re-following."; fi; '
+    '  lost=$((lost + 1)); follow; '
+    '  if [ "$lost" -ge 4 ]; then moveto; fi; '
+    'done'
 )
 
 

@@ -82,6 +82,16 @@ class SlamNode(Node):
         # is divided by ~3 instead of integrating at full strength.
         self.declare_parameter("correction_gain", 0.35)
         self.declare_parameter("metrics_period", 5.0)
+        # Divergence alarm. Every match is bounded to a +/-0.11 m search
+        # window, so SLAM can never JUMP away from the prior -- it can only
+        # walk away, one small biased correction at a time, which is exactly
+        # what a 36 min run did (1.20 m off truth against a 0.20 m prior).
+        # The sum of all applied corrections IS the disagreement with dead
+        # reckoning; past this much, the odometry is the more credible of the
+        # two and the log should say so instead of leaving it to be
+        # reverse-engineered afterwards. Split along/across the heading,
+        # because a matcher that lags shows up almost purely along it.
+        self.declare_parameter("max_drift_warn", 0.60)   # m
 
         res = float(self.get_parameter("resolution").value)
         size = float(self.get_parameter("arena_size").value)
@@ -96,8 +106,11 @@ class SlamNode(Node):
         self._min_travel = float(self.get_parameter("min_travel").value)
         self._min_turn = float(self.get_parameter("min_turn").value)
         self._gain = float(self.get_parameter("correction_gain").value)
+        self._max_drift = float(self.get_parameter("max_drift_warn").value)
         self._moved = 0.0          # travel accumulated since the last match
         self._turned = 0.0
+        self._corr_along = 0.0     # sum of applied corrections, body frame
+        self._corr_cross = 0.0
 
         self._odom = None          # latest drifting odometry (x, y, yaw)
         self._odom_hist = deque(maxlen=200)   # (t, x, y, yaw) for time pairing
@@ -193,6 +206,12 @@ class SlamNode(Node):
                           prior[1] + g * (est[1] - prior[1]),
                           math.atan2(math.sin(prior[2] + g * dth_c),
                                      math.cos(prior[2] + g * dth_c)))
+            # Book-keeping only: where the corrections are pushing us,
+            # resolved along and across the heading (see max_drift_warn).
+            ax, ay = self._pose[0] - prior[0], self._pose[1] - prior[1]
+            ch, sh = math.cos(prior[2]), math.sin(prior[2])
+            self._corr_along += ch * ax + sh * ay
+            self._corr_cross += -sh * ax + ch * ay
         else:
             self._pose, quality = prior, 1.0   # bootstrap: trust odometry
 
@@ -263,6 +282,16 @@ class SlamNode(Node):
         self.get_logger().info(
             f"pose error vs truth: SLAM {slam_err:.02f} m | "
             f"the prior it was given {odom_err:.02f} m")
+
+        drift = math.hypot(self._corr_along, self._corr_cross)
+        if drift > self._max_drift:
+            self.get_logger().warn(
+                f"scan matching has walked {drift:.02f} m away from dead "
+                f"reckoning ({self._corr_along:+.02f} m along the heading, "
+                f"{self._corr_cross:+.02f} m across). A negative along-track "
+                f"figure means the estimate is LAGGING the robot: goals get "
+                f"driven at after they have already been passed.",
+                throttle_duration_sec=30.0)
 
 
 def main(args=None) -> None:

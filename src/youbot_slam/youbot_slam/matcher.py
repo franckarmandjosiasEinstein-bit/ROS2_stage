@@ -12,9 +12,30 @@ isolated on the greenhouse simulation bench (docs in the package README):
    self-built map the area AHEAD is unexplored, so a beam landing there
    scores 0 and the best-scoring pose is always a step BEHIND, in fully
    mapped territory -- the matcher then cancels the robot's forward motion
-   (error grew at exactly the driving speed on the bench). Unknown-cell
-   endpoints now score a neutral 0.5 instead of 0: advancing into the
-   unknown is no longer penalised, while known-cell evidence still decides.
+   (error grew at exactly the driving speed on the bench).
+
+   The first version of this fix gave unknown-cell endpoints a flat 0.5 and
+   kept the score as a SUM over beams. It did not work, and the reason is
+   worth writing down because it is not the obvious one. Measured over a
+   36 min greenhouse run: the estimate ended 1.20 m behind truth ALONG THE
+   HEADING while the odometry prior it was fed stayed within 0.22 m, so the
+   robot kept driving at depots it had already passed.
+
+   The bias was not the unknown bonus, it was COVERAGE. On the bench, four
+   candidate poses 0.10 m apart down a corridor whose map ends just ahead of
+   the robot put 56, 54, 52 and 50 beam endpoints on mapped surface
+   respectively. A sum over beams therefore pays about three extra matched
+   beams for retreating 0.10 m -- and it pays that whatever the unknown
+   cells are worth, which is why moving 0.5 to 0.0 changed the totals by a
+   constant and moved the optimum not at all.
+
+   The score is now the MEAN weight over the beams that landed on mapped
+   cells, so having more or fewer of them is worth nothing by itself and
+   only the QUALITY of the mapped evidence votes. Same bench: 0.988 / 0.991
+   / 0.994 / 0.993 along the corridor (flat, as an unobservable axis should
+   be) against 0.994 at truth versus 0.688 at 0.10 m across it. A floor of
+   `min_beams` keeps a pose that sees almost nothing from scoring a perfect
+   1.0 off three lucky beams.
 
 3. MATCH QUALITY for the map-update gate (map<->pose feedback fix).
    Integrating scans at a slightly-lagged pose smears surfaces into the map,
@@ -49,13 +70,17 @@ class OnlineScanMatcher(ScanMatcher):
                  resolution: float, arena_size: float,
                  angle_min: float, angle_inc: float,
                  beam_stride: int = 3, sigma_m: float = 0.12,
-                 min_valid_range: float = 0.35) -> None:
+                 min_valid_range: float = 0.35, min_beams: int = 10,
+                 min_gain: float = 0.01) -> None:
         super().__init__(ref_grid, resolution, arena_size, beam_stride, sigma_m)
+        self.min_beams = min_beams    # floor under the mean's denominator
+        self.min_gain = min_gain      # score a correction must beat the prior by
         self.known = known            # bool grid: cell has been observed
         self.angle_min = angle_min
         self.angle_inc = angle_inc
         self.min_valid_range = min_valid_range   # drop lidar self-hits
         self.last_quality = 0.0       # mean weight over known-cell beams
+        self.last_known = 0           # how many beams actually voted
 
     @staticmethod
     def _distance_field(seed: np.ndarray) -> np.ndarray:
@@ -95,17 +120,27 @@ class OnlineScanMatcher(ScanMatcher):
         ok = finite & (col >= 0) & (col < cols) & (row >= 0) & (row < rows)
         if not ok.any():
             self.last_quality = 0.0
+            self.last_known = 0
             return 0.0
         known = np.zeros_like(ok)
         known[ok] = self.known[row[ok], col[ok]]
         use = ok & known
+        n_known = int(use.sum())
+        self.last_known = n_known
+        if n_known == 0:
+            self.last_quality = 0.0
+            return 0.0        # only unexplored space in view -> no opinion
         d = self._dist[row[use], col[use]].astype(float)
         sig = max(1e-6, self.sigma_m / self.resolution)
-        w = float(np.exp(-(d * d) / (2.0 * sig * sig)).sum())
-        self.last_quality = w / max(1, int(use.sum()))
-        return w + 0.5 * float((ok & ~known).sum())
+        total = float(np.exp(-(d * d) / (2.0 * sig * sig)).sum())
+        self.last_quality = total / n_known
+        # MEAN, not sum (see docstring point 2): a candidate pose must not be
+        # able to win by simply putting more beams on mapped ground, which is
+        # what retreating does when the map ends just ahead of the robot.
+        return total / max(n_known, self.min_beams)
 
-    def observable_axes(self, prior, ranges, max_range, probe=0.06, flat=0.01):
+    def observable_axes(self, prior, ranges, max_range,
+                        probe=0.06, flat=0.01, flat_abs=0.005):
         """Which world axes this scan can actually pin down.
 
         Sliding along a straight corridor does not change what the lidar sees,
@@ -117,8 +152,13 @@ class OnlineScanMatcher(ScanMatcher):
         estimate ended 1.04 m off truth while the odometry it was fed was
         only 0.13 m off -- the matcher was actively making X worse."""
         base = self._score(*prior, ranges, 0.0, max_range)
-        if base <= 0.0:
-            return (False, False)
+        if self.last_known == 0:
+            return (False, False)      # nothing mapped in view -> no opinion
+        # The score is a mean in [0, 1] now, so the relative test needs an
+        # absolute floor under it: a hopeless match has base near 0, and 1 %
+        # of near-zero would call pure noise observable. Bench separation is
+        # wide -- curvature 0.003 along the corridor, 0.093 across it.
+        thresh = max(flat_abs, flat * abs(base))
         out = []
         for axis in (0, 1):
             plus, minus = list(prior), list(prior)
@@ -126,7 +166,7 @@ class OnlineScanMatcher(ScanMatcher):
             minus[axis] -= probe
             curv = (self._score(*plus, ranges, 0.0, max_range)
                     + self._score(*minus, ranges, 0.0, max_range) - 2.0 * base)
-            out.append(abs(curv) > flat * abs(base))
+            out.append(abs(curv) > thresh)
         return tuple(out)
 
     def correct_online(self, prior, ranges, max_range):
@@ -142,9 +182,12 @@ class OnlineScanMatcher(ScanMatcher):
         fine, score = self._search(coarse, ranges, 0.0, max_range,
                                    lin_win=0.03, lin_step=0.01,
                                    ang_win=0.015, ang_step=0.005)
-        # 1% margin: a correction must clearly beat the prior, otherwise
-        # score noise random-walks the pose over many near-tie scans.
-        if score > 1.01 * prior_score:
+        # A correction must clearly beat the prior, otherwise score noise
+        # random-walks the pose over many near-tie scans. On the mean scale
+        # 0.01 sits an order of magnitude above the residual ripple along an
+        # unobservable axis (~0.003 on the bench) and an order of magnitude
+        # below a real cross-axis signal (~0.09).
+        if score > prior_score + self.min_gain:
             ox, oy = self.observable_axes(prior, ranges, max_range)
             pose = (fine[0] if ox else prior[0],
                     fine[1] if oy else prior[1],
