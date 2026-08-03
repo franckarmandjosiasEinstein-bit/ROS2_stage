@@ -1,8 +1,156 @@
-%% =====================================================================
-%%  Locomotion: Mecanum Kinematics and Odometry
-%%  SCOPE: base\_test, wheel\_test, odom\_test; the four-wheel mapping.
-%% =====================================================================
+% =====================================================================
+%  Locomotion: Mecanum Kinematics and Odometry
+%  SCOPE: base_test, wheel_test, odom_test; the four-wheel mapping.
+% =====================================================================
 \subsection{Locomotion: Mecanum Kinematics and Odometry}
 \label{sec:phaseA_locomotion}
 
-\emph{[Section in preparation.]}
+\subsubsection{The platform}
+
+The KUKA YouBot base carries four mecanum wheels
+\cite{ilon1975wheel}, each fitted with a ring of passive rollers set at
+$45^\circ$ to the wheel plane. A conventional wheel can exert force only
+along its rolling direction; a mecanum wheel, because its contact patch
+is a roller free to slide along its own axis, exerts force along a
+single diagonal. Four such wheels with alternating roller handedness
+span the full planar velocity space, so the base is
+\emph{holonomic}: it can translate in any direction and rotate,
+independently and simultaneously.
+
+This matters more for this application than it may appear. A greenhouse
+service aisle in the Phase~B twin is \SI{0.80}{m} wide while the base is
+$0.58 \times \SI{0.38}{m}$; a differential-drive robot would have to
+perform a three-point turn to change rows, whereas the YouBot can
+strafe sideways out of a row without changing heading. Sec.~\ref{sec:safety}
+shows that this property became the basis of the escape manoeuvre after
+a rotating recovery was measured to be actively harmful.
+
+\subsubsection{Inverse kinematics}
+
+Let the body frame follow REP-103 \cite{rep103}: $x$ forward, $y$ left,
+$\psi$ yaw counter-clockwise. With wheel radius $r$, longitudinal
+half-spacing $l_x$ and lateral half-spacing $l_y$, and writing
+$L = l_x + l_y$, the four wheel angular velocities
+$\omega_{1..4}$ that realise a commanded body twist
+$(v_x, v_y, \omega_z)$ are
+
+\begin{align}
+\omega_1 &= \tfrac{1}{r}\left( v_x + v_y + L\,\omega_z \right)
+            \quad \text{(front left)} \label{eq:mec1}\\
+\omega_2 &= \tfrac{1}{r}\left( v_x - v_y - L\,\omega_z \right)
+            \quad \text{(front right)} \label{eq:mec2}\\
+\omega_3 &= \tfrac{1}{r}\left( v_x - v_y + L\,\omega_z \right)
+            \quad \text{(rear left)} \label{eq:mec3}\\
+\omega_4 &= \tfrac{1}{r}\left( v_x + v_y - L\,\omega_z \right)
+            \quad \text{(rear right)} \label{eq:mec4}
+\end{align}
+
+with the measured platform constants of Table~\ref{tab:mecanum}. The
+sign pattern is the one published in the Cyberbotics YouBot reference
+implementation, keyed by the \emph{native} device index
+\texttt{wheel1}\dots\texttt{wheel4}. Keying by native index rather than
+by physical corner is a small decision that removed a whole class of
+bug: no remapping table exists, so no remapping table can be wrong.
+
+\begin{table}[!t]
+\caption{Mecanum platform constants (\phaseA{})}
+\label{tab:mecanum}
+\centering\footnotesize
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Value}\\
+\midrule
+$r$   & wheel radius                    & \SI{0.050}{m}\\
+$l_x$ & longitudinal centre-to-wheel    & \SI{0.228}{m}\\
+$l_y$ & lateral centre-to-wheel         & \SI{0.158}{m}\\
+$L$   & $l_x + l_y$                     & \SI{0.386}{m}\\
+$\omega_{\max}$ & commanded wheel ceiling & \SI{14.0}{rad/s}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Saturation that preserves direction}
+
+Equations~(\ref{eq:mec1})--(\ref{eq:mec4}) can demand a wheel speed the
+motor cannot deliver, and the YouBot ceiling is about
+\SI{14.8}{rad/s}. The naive remedy --- clipping each wheel independently
+--- is wrong, and visibly so: clipping one wheel of a diagonal pair
+while leaving the other changes the \emph{direction} of the resulting
+twist, so a robot asked to strafe left while turning drifts forward
+instead. The implementation therefore computes the peak demand and, if
+it exceeds the ceiling, scales \emph{all four} wheels by the same
+factor:
+
+\begin{equation}
+\omega_i \leftarrow \omega_i \cdot
+  \min\!\left(1, \frac{\omega_{\max}}{\max_j |\omega_j|}\right),
+  \qquad i = 1\dots4 .
+\label{eq:saturate}
+\end{equation}
+
+The robot then moves more slowly than asked, but in exactly the
+commanded direction. This is the mecanum analogue of the general
+principle that a saturation should preserve the shape of a command; the
+same principle reappears in \phaseB{}, where the protective stop scales
+the translation by a factor rather than truncating one axis
+(Sec.~\ref{sec:safety}).
+
+\subsubsection{Forward kinematics and odometry}
+
+Odometry inverts the same relation. Given the four measured wheel
+increments $\Delta\theta_i$ over one control period, the body
+displacement is
+
+\begin{align}
+\Delta x     &= \tfrac{r}{4}\left(\Delta\theta_1 + \Delta\theta_2
+                 + \Delta\theta_3 + \Delta\theta_4\right)\\
+\Delta y     &= \tfrac{r}{4}\left(\Delta\theta_1 - \Delta\theta_2
+                 - \Delta\theta_3 + \Delta\theta_4\right)\\
+\Delta \psi  &= \tfrac{r}{4L}\left(\Delta\theta_1 - \Delta\theta_2
+                 + \Delta\theta_3 - \Delta\theta_4\right)
+\end{align}
+
+integrated into the world frame with the mid-point heading
+$\psi + \Delta\psi/2$ to avoid the first-order bias of using the
+heading at the start of the interval.
+
+Two properties of this estimator dominate everything built on top of
+it, and both were measured in \texttt{odom\_test}:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{It is exact in the absence of slip.} Over short,
+        straight motions the estimate tracks the ground-truth GPS to
+        within a few millimetres.
+  \item \textbf{Its error is unbounded and monotone.} Mecanum rollers
+        slip by construction, particularly during rotation, and every
+        slip is integrated and never forgotten. This is not a defect to
+        be tuned away; it is the reason localisation exists, and it is
+        why \phaseB{} devotes an entire subsystem to bounding it
+        (Sec.~\ref{sec:slam}).
+\end{itemize}
+
+\subsubsection{Control flow}
+
+Fig.~\ref{fig:flow_base} gives the base controller as it runs in
+\texttt{base\_test} and, unchanged in substance, inside the mission
+controller. The banding is instructive: everything that can be computed
+once --- device handles, the constant $L$, putting the wheel motors into
+velocity mode by setting their position target to infinity --- is in the
+initialisation band, and the main loop contains nothing but the
+kinematics and the saturation. The termination band exists because a
+Webots controller that exits without zeroing the wheel velocities leaves
+the robot coasting into the next run.
+
+\input{figures/fig_flow_base}
+
+\subsubsection{Validation}
+
+\texttt{wheel\_test} commands each wheel in isolation and verifies sign
+and rate against its position sensor. \texttt{base\_test} commands the
+three canonical twists --- pure forward, pure strafe, pure yaw --- and
+checks that the GPS displacement matches the commanded direction to
+within a tolerance. \texttt{odom\_test} drives a closed rectangle and
+reports the loop-closure error, which is the quantity later used to
+calibrate the systematic component of the error in \phaseB{}
+(Sec.~\ref{sec:slam}). Running the three in order takes under two
+minutes and was repeated after every change to the kinematics.

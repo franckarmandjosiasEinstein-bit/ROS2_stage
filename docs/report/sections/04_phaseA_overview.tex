@@ -1,8 +1,178 @@
-%% =====================================================================
-%%  Phase A --- Webots Prototype: Overview
-%%  SCOPE: Why Webots first; the fifteen controllers and their dependency order.
-%% =====================================================================
-\section{Phase A --- Webots Prototype: Overview}
+% =====================================================================
+%  Phase A --- Webots Prototype: Overview
+%  SCOPE: Why Webots first; the fifteen controllers and their order.
+% =====================================================================
+\section{\phaseA{} --- Webots Prototype: Overview}
 \label{sec:phaseA}
 
-\emph{[Section in preparation.]}
+\subsection{Why a simulator-native prototype first}
+
+The first decision of the project was not which algorithm to use but
+\emph{where to make the first mistake}. Two routes were available:
+start directly in ROS~2, where the target architecture lives, or start
+in Webots \cite{michel2004webots}, where the robot model, the physics
+and the sensors are supplied and a controller is a single Python file
+with direct access to every device.
+
+Webots was chosen, for three reasons that all proved correct in
+hindsight:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{The KUKA YouBot is a first-class Webots model.} Its
+        mecanum base, its five-DOF arm and its two-finger gripper are
+        modelled with the manufacturer's dimensions. No URDF had to be
+        authored, no inertias guessed, no controller plugin written
+        before the first wheel turned.
+  \item \textbf{One process, one debugger, no middleware.} A defect in
+        a ROS~2 stack can be in the algorithm, in a QoS setting, in a
+        remapping, in a transform, or in a launch file. In a Webots
+        controller it can only be in the algorithm. Every hour spent
+        debugging in \phaseA{} was spent on robotics rather than on
+        plumbing.
+  \item \textbf{Middleware is a re-architecture, not a rewrite.} If the
+        algorithms are written without importing the simulator, moving
+        them later is mechanical. Sec.~\ref{sec:architecture} shows that
+        this held: A$^\star$, pure pursuit, the log-odds grid, the
+        mecanum kinematics and the scan matcher were carried into
+        \phaseB{} essentially unmodified.
+\end{enumerate}
+
+The cost of the choice is that \phaseA{} proves nothing about
+distributed execution, message timing, or transform trees --- exactly
+the class of problem that dominated \phaseB{}
+(Sec.~\ref{sec:phaseB}).
+
+\subsection{The \phaseA{} mission}
+
+It is important to state plainly that \phaseA{} and \phaseB{} do not
+solve the same task. \phaseA{} implements a \emph{crate-collection}
+mission in a procedurally generated agricultural scene: the robot
+explores an arena containing six planting basins
+(\texttt{bassin\_1}\dots\texttt{bassin\_6}), discovers red crates with
+its camera, plans a route to each, picks it up with the arm, stows it in
+one of two body-frame slots on its rear plate, and delivers a full load
+to a depot before returning to explore again.
+
+\phaseB{} replaces the payload with strawberries growing on raised
+gutters. The mission logic changes; the navigation, mapping, planning
+and safety layers do not. That is precisely the domain-independence
+requirement stated in Sec.~\ref{sec:phaseA}, and \phaseA{} is where it
+was earned: nothing in \filename{navigation.py}, \filename{planning.py}
+or \filename{mapping.py} mentions a crate.
+
+\subsection{Incremental validation: fifteen controllers}
+
+The distinguishing feature of \phaseA{} is methodological rather than
+algorithmic. Instead of writing one controller and debugging it as a
+whole, \emph{one single-purpose test controller was written per
+subsystem}, in dependency order, and each had to work in isolation
+before the next was started. Table~\ref{tab:phaseA_controllers} lists
+all fifteen with their size.
+
+\begin{table}[!t]
+\caption{\phaseA{} controllers, in the order they were written}
+\label{tab:phaseA_controllers}
+\centering\footnotesize
+\begin{tabular}{@{}p{0.30\columnwidth}rp{0.48\columnwidth}@{}}
+\toprule
+\textbf{Controller} & \textbf{LoC} & \textbf{Question it answers}\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Bring-up}}\\
+\texttt{device\_scan}   &  61 & What devices does this robot expose,
+                               and under what names?\\
+\texttt{wheel\_test}    &  99 & Does each wheel turn, in the direction
+                               and at the rate commanded?\\
+\texttt{base\_test}     & 131 & Do the mecanum equations produce
+                               forward, strafe and yaw correctly?\\
+\texttt{odom\_test}     & 115 & Does wheel-encoder odometry track the
+                               ground-truth pose?\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Perception}}\\
+\texttt{lidar\_test}    & 149 & Does the lidar produce a usable
+                               occupancy grid of a known scene?\\
+\texttt{vision\_test}   & 110 & Are red crates segmented, and does the
+                               ground projection land on them?\\
+\texttt{localize\_test} & 160 & Does scan matching correct a
+                               deliberately drifted odometry?\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Motion}}\\
+\texttt{planner\_test}  & 115 & Does A$^\star$ return a collision-free
+                               path on the inflated grid?\\
+\texttt{nav\_test}      & 108 & Does pure pursuit follow that path
+                               without cutting corners?\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Manipulation}}\\
+\texttt{arm\_test}      & 110 & Does each arm joint reach its commanded
+                               angle?\\
+\texttt{grasp\_test}    & 170 & Does the full pick sequence close on a
+                               crate and lift it?\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Integration}}\\
+\texttt{world\_manager} & 185 & Supervisor: generate the scene, score
+                               the mission, provide ground truth.\\
+\texttt{my\_First\_}    & 603 & The behaviour-tree mission that uses
+\texttt{controller}     &     & every module above.\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ten of the fifteen exist only to answer one question. This is
+deliberate. A test controller that fails tells you which subsystem is
+broken; an integrated controller that fails tells you only that
+something is. The discipline is also what made the port to \phaseB{}
+tractable, because each module arrived at the port already having a
+known-good reference behaviour.
+
+\subsection{Module inventory}
+
+The mission controller itself is thin: it wires together eight modules,
+Table~\ref{tab:phaseA_modules}, none of which imports Webots except
+through a small device-handle interface. The line counts are worth
+noting for what they say about where the difficulty lies: the behaviour
+tree and the localisation estimator are together larger than the
+planner, the mapper and the navigator combined.
+
+\begin{table}[!t]
+\caption{\phaseA{} algorithm modules}
+\label{tab:phaseA_modules}
+\centering\footnotesize
+\begin{tabular}{@{}p{0.26\columnwidth}rp{0.52\columnwidth}@{}}
+\toprule
+\textbf{Module} & \textbf{LoC} & \textbf{Contents}\\
+\midrule
+\texttt{behavior\_trees} & 514 & Blackboard, mission steps, and the
+                                 py\_trees behaviours\\
+\texttt{mapping}         & 260 & Log-odds occupancy grid, Bresenham
+                                 ray casting, inflation\\
+\texttt{localization}    & 252 & Wheel odometry, likelihood-field scan
+                                 matcher, fused estimator\\
+\texttt{navigation}      & 236 & Mecanum kinematics and pure pursuit\\
+\texttt{vision}          & 169 & Red-blob segmentation and ground
+                                 back-projection\\
+\texttt{planning}        & 139 & A$^\star$, octile heuristic, path
+                                 smoothing\\
+\texttt{exploration}     &  96 & Frontier extraction and waypoint
+                                 ordering\\
+\texttt{arm}             &  62 & Joint poses, gripper open/close\\
+\midrule
+\textbf{Total (modules)} & \textbf{1\,728} & \\
+\textbf{Total (\phaseA{})} & \textbf{3\,844} & including all fifteen
+                                              controllers\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Reading order for this chapter}
+
+The subsections that follow take the subsystems in the order they were
+built, which is also the order of Table~\ref{tab:phaseA_controllers}:
+the world and its supervisor (Sec.~\ref{sec:phaseA_world}), locomotion
+and odometry (Sec.~\ref{sec:phaseA_locomotion}), perception
+(Sec.~\ref{sec:phaseA_perception}), mapping and localisation
+(Sec.~\ref{sec:phaseA_mapping}), planning and path following
+(Sec.~\ref{sec:phaseA_planning}), manipulation
+(Sec.~\ref{sec:phaseA_manip}), and finally the behaviour-tree mission
+that binds them (Sec.~\ref{sec:phaseA_mission}).
+Sec.~\ref{sec:phaseA_results} reports what \phaseA{} achieved and,
+more usefully, which of its design decisions had to be undone in
+\phaseB{}.

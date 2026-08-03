@@ -1,0 +1,73 @@
+% =====================================================================
+%  Mecanum base controller -- Phase A (base_test / navigation.py)
+%  Single column: the chain is narrow enough to fit.
+% =====================================================================
+\begin{figure}[!t]
+\centering
+\begin{tikzpicture}[fcchain]
+
+% ---------------- INITIALISATION -------------------------------------
+\node[fcterm] (a0) {controller start};
+\node[fcproc, below=of a0] (a1)
+     {get device handles\\{\tiny \texttt{wheel1..4}, \texttt{wheel1sensor..4}}};
+\node[fcproc, below=of a1] (a2)
+     {set position target $= \infty$\\{\tiny puts motors in velocity mode}};
+\node[fcproc, below=of a2] (a3)
+     {enable position sensors\\{\tiny at the simulation time step}};
+\node[fcproc, below=of a3] (a4)
+     {precompute $L = l_x + l_y = 0.386$};
+
+% ---------------- MAIN LOOP ------------------------------------------
+\node[fcio, below=9mm of a4] (b0) {commanded twist $(v_x, v_y, \omega_z)$};
+\node[fcsub, below=of b0] (b1)
+     {\texttt{body\_to\_wheel\_speeds()}\\{\tiny Eq.~(1)--(4)}};
+\node[fcdec, below=8mm of b1] (b2)
+     {$\max_j |\omega_j| > \omega_{\max}$?};
+\node[fcproc, below=9mm of b2] (b3)
+     {scale ALL four wheels\\by $\omega_{\max}/\max_j|\omega_j|$\\
+      {\tiny Eq.~(5): preserves direction}};
+\node[fcproc, below=of b3] (b4) {write the four wheel velocities};
+\node[fcsub, below=of b4] (b5)
+     {read $\Delta\theta_i$, integrate odometry\\
+      {\tiny mid-point heading}};
+
+% ---------------- TERMINATION ----------------------------------------
+\node[fcproc, below=10mm of b5] (c0) {command zero velocity to all wheels};
+\node[fcterm, below=of c0] (c1) {controller exit};
+
+% ---------------- edges ----------------------------------------------
+\draw[fcline] (a0) -- (a1);
+\draw[fcline] (a1) -- (a2);
+\draw[fcline] (a2) -- (a3);
+\draw[fcline] (a3) -- (a4);
+\draw[fcline] (a4) -- (b0);
+\draw[fcline] (b0) -- (b1);
+\draw[fcline] (b1) -- (b2);
+\draw[fcline] (b2) -- node[fclab,right] {yes} (b3);
+\draw[fcline] (b2.east) -- ++(11mm,0)
+      node[fclab,pos=0.6,above] {no} |- (b4.east);
+\draw[fcline] (b3) -- (b4);
+\draw[fcline] (b4) -- (b5);
+\draw[fcback] (b5.west) -- ++(-13mm,0) |- (b0.west);
+\node[font=\sffamily\tiny\itshape, text=phaseMainLine, rotate=90]
+     at ($(b2.west)+(-16mm,-4mm)$) {every step};
+\draw[fcline] (b5) -- (c0);
+\draw[fcline] (c0) -- (c1);
+
+% ---------------- phase bands ----------------------------------------
+\begin{scope}[on background layer]
+  \phaseband{bandinit}{INITIALISATION}{phaseInitLine}{(a0)(a1)(a2)(a3)(a4)}{ba}
+  \phaseband{bandmain}{MAIN LOOP}{phaseMainLine}{(b0)(b1)(b2)(b3)(b4)(b5)}{bb}
+  \phaseband{bandend}{TERMINATION}{phaseEndLine}{(c0)(c1)}{bc}
+\end{scope}
+
+\end{tikzpicture}
+\caption{Mecanum base controller (\phaseA{}). The initialisation band
+holds everything computable once, including the Webots idiom of setting
+a motor's position target to infinity to obtain velocity control. The
+saturation test is the only branch in the loop, and it scales all four
+wheels together so that a speed limit costs magnitude and never
+direction. The termination band exists because a controller that exits
+without zeroing the wheels leaves the base coasting into the next run.}
+\label{fig:flow_base}
+\end{figure}
