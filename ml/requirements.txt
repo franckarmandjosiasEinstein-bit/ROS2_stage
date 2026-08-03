@@ -1,0 +1,19 @@
+# Offline training only -- none of this is needed on the robot.
+#
+# Install in a virtualenv, NOT into the ROS Python environment: ultralytics
+# pulls a torch build that will fight with whatever ROS packages expect.
+#   python3 -m venv ~/venv-ml && source ~/venv-ml/bin/activate
+#   pip install -r requirements.txt
+
+ultralytics>=8.2          # YOLOv8/v11 training, validation, export
+torch>=2.0                # pulled by ultralytics; pin here if you need CUDA
+                          # a specific way (see pytorch.org for the index URL)
+pillow>=10.0              # image IO
+numpy>=1.24
+pyyaml>=6.0               # data.yaml / classes.yaml
+scipy>=1.10               # connected components for the colour baseline
+                          # (predict_to_labels.py falls back without it)
+
+# Optional, useful:
+# matplotlib               # plotting curves yourself
+# onnx, onnxruntime        # if you export for deployment

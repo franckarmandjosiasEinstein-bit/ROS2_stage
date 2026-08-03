@@ -1,0 +1,58 @@
+# =====================================================================
+#  Class definitions -- the single source of truth for the whole pipeline.
+# =====================================================================
+#  Every script here, and stage8_detector in youbot_commissioning, reads
+#  these ids. Changing the ORDER silently remaps every label file ever
+#  written, so append at the end and never reorder.
+# =====================================================================
+
+names:
+  0: ripe_strawberry
+  1: unripe_strawberry
+  2: strawberry_plant
+  3: glass
+
+# ---------------------------------------------------------------------
+#  What each class is for, and how hard it is. Read this before spending
+#  a week annotating the wrong thing.
+# ---------------------------------------------------------------------
+notes:
+
+  ripe_strawberry:
+    task: detection (bounding box)
+    why: the harvest target. This is the only class the mission acts on.
+    difficulty: moderate. Small objects -- a berry at 2 m is ~15 px in a
+      640 px frame -- so train at imgsz 960 or higher or recall collapses
+      at range.
+    priority: 1
+
+  unripe_strawberry:
+    task: detection (bounding box)
+    why: >
+      Not a harvest target, but essential as a HARD NEGATIVE. Ripeness is a
+      continuum, not a switch; a model trained only on ripe fruit learns
+      "roundish object on a plant" and reports every green berry. Giving
+      unripe fruit its own class forces the decision boundary to be about
+      colour maturity instead of shape.
+    difficulty: moderate, plus genuine label noise at the boundary. Write
+      down your ripeness rule BEFORE annotating and stick to it.
+    priority: 2
+
+  strawberry_plant:
+    task: detection (box) or segmentation (mask)
+    why: >
+      Locates the growing row. Useful for two things: constraining where a
+      berry may plausibly be (a "berry" detected over bare floor is wrong),
+      and as context for the mission's approach.
+    difficulty: easy to detect, hard to box tightly -- foliage has no clean
+      boundary. If you can afford masks, this class is where they pay off.
+    priority: 3
+
+  glass:
+    task: SEGMENTATION, not detection
+    why: >
+      The sim-to-real risk identified in commissioning stage 3: a 2D lidar
+      at glancing incidence on a pane gets no return, so the wall is
+      invisible and the robot drives into it.
+    difficulty: HARD, and read the warning below before investing in it.
+    priority: 4
