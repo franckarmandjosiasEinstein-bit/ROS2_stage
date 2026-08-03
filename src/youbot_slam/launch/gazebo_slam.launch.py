@@ -242,6 +242,13 @@ def generate_launch_description() -> LaunchDescription:
         Node(package="youbot_slam", executable="map_eval",
              name="map_eval", output="screen", parameters=[sim_time]),
 
+        # The third axis of the evaluation, after the pose and the map: TIME.
+        # Lap times, distance, throughput, and the share of the run spent
+        # asked-to-move-but-not-moving. A correct harvester that takes all day
+        # is not a harvester.
+        Node(package="youbot_slam", executable="perf_monitor",
+             name="perf_monitor", output="screen", parameters=[sim_time]),
+
         # --- the UNCHANGED control stack, rewired to the SLAM pose -------------
         control("safety_node", localized=True),   # /cmd_vel_raw -> /cmd_vel
         control("mapping_node", localized=True),

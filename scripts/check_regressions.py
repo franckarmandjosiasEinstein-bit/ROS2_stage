@@ -487,6 +487,47 @@ def check_fruit_projection() -> None:
               f"fruit plane, fx = {fx:.0f} px/rad)")
 
 
+def check_station_realign() -> None:
+    """The station sweep must actually get a second berry.
+
+    MAX_PICKS_PER_STOP is 3, yet all 27 picks of the 2026-08-03 run logged
+    "Station: 1 picked here". The re-align path set four of the six alignment
+    clocks and left `_align_gain_t` and `_align_best_abs` at the previous
+    berry's values, so the stall test fired on the first tick: "next berry at
+    offset +0.42 -> re-aligning" then, half a second of sim later, "Alignment
+    stalled at offset +0.42 for 4s". Every time."""
+    print("\nstation multi-pick")
+    src = read("youbot_control/youbot_control/mission_node.py")
+    tree = ast.parse(src)
+    cls = next(n for n in tree.body
+               if isinstance(n, ast.ClassDef) and n.name == "MissionNode")
+    fns = {m.name: m for m in cls.body if isinstance(m, ast.FunctionDef)}
+
+    check("the alignment clocks are armed in one place", "_arm_align" in fns,
+          "a helper must own them, or a caller will forget one again")
+    if "_arm_align" not in fns:
+        return
+    armed = {n.attr for n in ast.walk(fns["_arm_align"])
+             if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)}
+    needed = {"_align_start", "_align_sign", "_align_check_t",
+              "_align_last_abs", "_align_best_abs", "_align_gain_t"}
+    check("it arms every clock the stall test reads", needed <= armed,
+          "missing: " + ", ".join(sorted(needed - armed)))
+
+    # Both entries into an alignment must go through it: the first berry of a
+    # station, and the re-align onto the next one.
+    for fn in ("_begin_align", "_update_pick"):
+        body = ast.dump(fns[fn])
+        check(f"{fn} arms the clocks through the helper",
+              "'_arm_align'" in body,
+              f"{fn} sets alignment state by hand -- that is the bug")
+        stale = [n.attr for n in ast.walk(fns[fn])
+                 if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)
+                 and n.attr in needed]
+        check(f"{fn} does not set them by hand as well", not stale,
+              "still assigns " + ", ".join(sorted(set(stale))))
+
+
 def check_bumper_clearance() -> None:
     """Distances must be measured from the FOOTPRINT, not from the lidar.
 
@@ -602,6 +643,7 @@ def main() -> int:
     check_slam_scoring()
     check_preventive_fence()
     check_bumper_clearance()
+    check_station_realign()
     check_fruit_projection()
 
     print()

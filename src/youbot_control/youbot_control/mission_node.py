@@ -388,15 +388,31 @@ class MissionNode(Node):
         t.linear.x, t.linear.y, t.angular.z = float(vx), float(vy), float(wz)
         self.cmd_pub.publish(t)
 
-    def _begin_align(self) -> None:
-        """Spotted a fruit: stop, take over the base, creep to centre it."""
-        self._aligning = True
+    def _arm_align(self, offset: float) -> None:
+        """(Re)start the alignment clocks for a target at `offset`.
+
+        ALL of them, every time. The station sweep used to set only four of the
+        six, leaving `_align_gain_t` at the moment the PREVIOUS berry last
+        improved -- ten seconds earlier -- and `_align_best_abs` at that berry's
+        centred value of ~0.05. So the stall test fired on the very first tick
+        of the new alignment: the field log shows "next berry at offset +0.42
+        -> re-aligning" followed 0.5 s of sim later by "Alignment stalled at
+        offset +0.42 for 4s", every single time. MAX_PICKS_PER_STOP is 3 and
+        the log says "Station: 1 picked here" on all 27 picks -- the
+        multi-pick-per-station feature has never once run. That is the single
+        biggest throughput loss in the run: the robot drives to a plant with a
+        dozen ripe berries in frame, takes one, and leaves."""
         self._align_start = self._now()
         self._align_sign = 1.0
         self._align_check_t = self._now()
-        self._align_last_abs = abs(self._ripe_offset)
-        self._align_best_abs = abs(self._ripe_offset)
+        self._align_last_abs = abs(offset)
+        self._align_best_abs = abs(offset)
         self._align_gain_t = self._now()
+
+    def _begin_align(self) -> None:
+        """Spotted a fruit: stop, take over the base, creep to centre it."""
+        self._aligning = True
+        self._arm_align(self._ripe_offset)
         self._picks_at_stop = 0                  # new station
         self._sweep_sign = 0.0
         self._station_target = None              # first target = nearest cluster
@@ -506,10 +522,7 @@ class MissionNode(Node):
                 self._sweep_sign = 1.0 if target > 0.0 else -1.0
                 self._station_target = target
                 self._aligning = True
-                self._align_start = self._now()
-                self._align_sign = 1.0
-                self._align_check_t = self._now()
-                self._align_last_abs = abs(target)
+                self._arm_align(target)
                 self.get_logger().info(
                     f"Station: {self._picks_at_stop} picked here, next berry at "
                     f"offset {target:+.2f} -> re-aligning.")
