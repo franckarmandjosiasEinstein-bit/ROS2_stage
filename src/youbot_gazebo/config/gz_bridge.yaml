@@ -55,7 +55,9 @@
 # Joint states (GZ -> ROS): gives the MEASURED camera pan angle. The detector
 # uses it instead of a constant, and refuses to publish world positions while
 # the head has not settled.
-- ros_topic_name: "/joint_states"
+# NOT /joint_states: arm_node already publishes that one for
+# robot_state_publisher, and two publishers on it interleave partial states.
+- ros_topic_name: "/gz_joint_states"
   gz_topic_name: "/world/greenhouse/model/youbot/joint_state"
   ros_type_name: "sensor_msgs/msg/JointState"
   gz_type_name: "gz.msgs.Model"

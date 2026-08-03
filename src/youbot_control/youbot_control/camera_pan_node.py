@@ -45,6 +45,9 @@ class CameraPanNode(Node):
         super().__init__("camera_pan_node")
 
         self.declare_parameter("joint_name", "j_camera_pan")
+        # Gazebo's joint states, bridged to a name of their own.
+        # NOT /joint_states: arm_node owns that one for RViz.
+        self.declare_parameter("joint_states_topic", "gz_joint_states")
         self.declare_parameter("default_target", math.pi / 2.0)  # look left
         self.declare_parameter("limit", 1.5708)      # matches the URDF limit
         self.declare_parameter("settle_tolerance", 0.02)   # rad, ~1.1 deg
@@ -53,6 +56,8 @@ class CameraPanNode(Node):
         self.declare_parameter("command_period", 0.5)  # s between re-commands
 
         self._joint = str(self.get_parameter("joint_name").value)
+        self._js_topic = str(
+            self.get_parameter("joint_states_topic").value)
         self._limit = abs(float(self.get_parameter("limit").value))
         self._target = self._clamp(
             float(self.get_parameter("default_target").value))
@@ -69,7 +74,7 @@ class CameraPanNode(Node):
 
         self.create_subscription(Float64, "camera_pan_target",
                                  self._on_target, 5)
-        self.create_subscription(JointState, "joint_states",
+        self.create_subscription(JointState, self._js_topic,
                                  self._on_joint_states, 10)
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value),
@@ -125,7 +130,7 @@ class CameraPanNode(Node):
             # measurement and would silently corrupt every fruit position.
             self.settled_pub.publish(Bool(data=False))
             self.get_logger().warn(
-                "no /joint_states for the pan joint -- the head angle is "
+                "no %s for the pan joint" % self._js_topic + " -- the head angle is "
                 "unknown, so no camera pose is published and fruit "
                 "localisation is suppressed", throttle_duration_sec=5.0)
             return

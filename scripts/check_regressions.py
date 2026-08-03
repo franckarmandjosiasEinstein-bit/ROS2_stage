@@ -479,6 +479,34 @@ def check_label_source() -> None:
           cam.visible((0, 0, 0), math.pi / 2, berry, leaf) == [])
 
 
+    # The head angle has to physically arrive. It did not, on the first run
+    # with the pan head: the JointStatePublisher carried <topic>joint_states</topic>
+    # so it published on the gz topic /joint_states, while the bridge listened
+    # on the default /world/<world>/model/<model>/joint_state. Nothing met.
+    # camera_pan_node then did exactly what it was built to do -- refused to
+    # publish a pose rather than guess one -- and fruit localisation went
+    # silent for the whole run with only a warning to show for it.
+    urdf_js = urdf[urdf.find("JointStatePublisher"):]
+    urdf_js = urdf_js[:urdf_js.find("</plugin>")]
+    # Strip XML comments first: the block deliberately EXPLAINS the override
+    # it must not contain, and a naive grep would trip over its own warning.
+    urdf_js = re.sub(r"<!--.*?-->", "", urdf_js, flags=re.S)
+    check("the joint-state plugin does not override its topic",
+          "<topic>" not in urdf_js,
+          "an override desynchronises it from the bridge's gz_topic_name")
+    bridge_txt = read("youbot_gazebo/config/gz_bridge.yaml")
+    check("the bridge listens on the plugin's default joint-state topic",
+          "/world/greenhouse/model/youbot/joint_state" in bridge_txt)
+    check("bridged joint states do not collide with arm_node's",
+          'ros_topic_name: "/gz_joint_states"' in bridge_txt
+          and 'ros_topic_name: "/joint_states"' not in bridge_txt,
+          "arm_node publishes /joint_states for robot_state_publisher; two "
+          "publishers interleave partial states")
+    pan = read("youbot_control/youbot_control/camera_pan_node.py")
+    check("camera_pan_node reads the bridged topic, not /joint_states",
+          '"gz_joint_states"' in pan)
+
+
 def check_drive_model_chain() -> None:
     """The drivetrain model is in the command path, and it is honest.
 

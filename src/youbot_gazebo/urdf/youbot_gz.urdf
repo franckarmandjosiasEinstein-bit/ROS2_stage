@@ -272,7 +272,13 @@
        back-projection in series with the robot yaw. -->
   <gazebo>
     <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
-      <topic>joint_states</topic>
+      <!-- No <topic> override on purpose. With one, the plugin publishes on
+           the gz topic /joint_states while the bridge listens on the default
+           /world/<world>/model/<model>/joint_state, and the two never meet:
+           the head angle never arrives, camera_pan_node correctly refuses to
+           publish a pose, and fruit localisation goes silent. Leaving the
+           default is what makes the bridge entry below correct by
+           construction. -->
     </plugin>
   </gazebo>
 
