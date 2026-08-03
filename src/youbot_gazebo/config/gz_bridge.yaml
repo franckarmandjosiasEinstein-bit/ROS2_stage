@@ -9,7 +9,16 @@
   direction: GZ_TO_ROS
 
 # Velocity command: ROS control stack -> Gazebo VelocityControl.
-- ros_topic_name: "/cmd_vel"
+#
+# The ROS side is /cmd_vel_exec, NOT /cmd_vel. drive_model_node sits between
+# them and models the drivetrain (latency, first-order lag, per-wheel rate and
+# speed limits, slip). With enabled:=false it is a byte-for-byte pass-through,
+# so this indirection costs nothing and the kinematic baseline is unchanged.
+#
+# drive_model_node must therefore ALWAYS be running or the base receives no
+# command at all. check_regressions.py enforces that the launch files start it
+# and that this entry names the topic it publishes.
+- ros_topic_name: "/cmd_vel_exec"
   gz_topic_name: "/cmd_vel"
   ros_type_name: "geometry_msgs/msg/Twist"
   gz_type_name: "gz.msgs.Twist"

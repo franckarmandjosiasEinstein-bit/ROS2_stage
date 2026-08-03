@@ -387,6 +387,93 @@ def check_preventive_fence() -> None:
           f"kept vx = {vx:+.03f}")
 
 
+def check_drive_model_chain() -> None:
+    """The drivetrain model is in the command path, and it is honest.
+
+    Two separate risks, both silent if they happen.
+
+    The chain: the bridge listens on /cmd_vel_exec, which is drive_model_node's
+    output, so if that node is not launched the base receives NOTHING and the
+    robot simply never moves -- with no error anywhere, because every other
+    node is happily publishing. That is exactly the kind of failure that eats
+    an afternoon, so the wiring is asserted here instead of discovered.
+
+    The honesty: the model must apply its limits IN WHEEL SPACE, not to the
+    body twist. Saturating a body twist scales it and keeps its direction;
+    saturating one wheel of a diagonal pair changes the direction, which is
+    what a real base does and the entire reason this node exists. A rewrite
+    that clamps (vx, vy, wz) directly would look equivalent, pass every
+    smoke test, and quietly remove the one behaviour worth modelling."""
+    print("\ndrivetrain model")
+    src = read("youbot_gazebo/youbot_gazebo/drive_model_node.py")
+    bridge = read("youbot_gazebo/config/gz_bridge.yaml")
+
+    check("the bridge takes the drive model's output, not raw /cmd_vel",
+          'ros_topic_name: "/cmd_vel_exec"' in bridge
+          and 'ros_topic_name: "/cmd_vel"' not in bridge,
+          "the ROS side of the velocity bridge must be /cmd_vel_exec")
+
+    for rel in ("youbot_gazebo/launch/gazebo.launch.py",
+                "youbot_slam/launch/gazebo_slam.launch.py",
+                "youbot_slam/launch/gazebo_slam_toolbox.launch.py"):
+        launch = read(rel)
+        check(f"{rel.split('/')[-1]} starts drive_model_node",
+              "drive_model_node" in launch,
+              "without it the bridge has no publisher and the base is deaf")
+
+    check("it is a pass-through by default",
+          re.search(r'declare_parameter\("enabled",\s*False\)', src) is not None,
+          "the measured baseline must stay reproducible without an argument")
+
+    # The limits must be applied per wheel. Both loops live inside _tick.
+    tick = src[src.find("def _tick"):]
+    check("limits are applied in WHEEL space, not to the body twist",
+          "body_to_wheels(*self._want)" in tick
+          and "for i in range(4):" in tick
+          and tick.find("body_to_wheels") < tick.find("for i in range(4):"),
+          "resolve to wheels first, THEN lag/rate/saturate each one")
+    check("the achieved twist comes back through forward kinematics",
+          "wheels_to_body(self._wheels)" in tick,
+          "this is what makes saturation distort rather than scale")
+
+    # And the maths must actually round-trip, or the plant lies about itself.
+    ns = {"math": math}
+    keep = [n for n in ast.parse(src).body
+            if (isinstance(n, ast.FunctionDef)
+                and n.name in ("body_to_wheels", "wheels_to_body"))
+            or (isinstance(n, ast.Assign)
+                and getattr(n.targets[0], "id", "") in
+                ("WHEEL_RADIUS", "LX", "LY", "L"))]
+    exec(compile(ast.fix_missing_locations(
+        ast.Module(body=keep, type_ignores=[])), "<drive>", "exec"), ns)
+    b2w, w2b = ns["body_to_wheels"], ns["wheels_to_body"]
+
+    worst = 0.0
+    for tw in ((0.5, 0.0, 0.0), (0.0, 0.3, 0.0), (0.0, 0.0, 0.8),
+               (0.4, -0.2, 0.5)):
+        worst = max(worst, max(abs(a - b) for a, b in zip(tw, w2b(b2w(*tw)))))
+    check("forward kinematics inverts the inverse kinematics",
+          worst < 1e-9, f"worst round-trip error {worst:.2e}")
+
+    # The distortion claim, asserted rather than believed.
+    cmd = (0.9, 0.0, 1.4)                      # beyond the wheel envelope
+    got = w2b([max(-14.0, min(14.0, w)) for w in b2w(*cmd)])
+    rx = got[0] / cmd[0]
+    rz = got[2] / cmd[2]
+    check("wheel saturation DISTORTS the twist instead of scaling it",
+          abs(rx - rz) > 0.05,
+          f"vx kept {rx:.2f} of its command, wz only {rz:.2f}: "
+          "the robot curves differently from what was asked")
+
+    check("slip is asymmetric across the three axes",
+          all(f'declare_parameter("slip_{k}"' in src
+              for k in ("longitudinal", "lateral", "rotational")),
+          "mecanum rollers do not slip equally sideways and forwards")
+    check("the encoders are published separately from the achieved motion",
+          '"wheel_speeds"' in src and '"cmd_vel_exec"' in src,
+          "their difference IS odometry drift; one topic could not express it")
+
+
 def check_fruit_projection() -> None:
     """The pixel-to-map projection, on the real camera geometry.
 
@@ -792,6 +879,7 @@ def main() -> int:
     check_no_crabbing()
     check_params_match_code()
     check_station_realign()
+    check_drive_model_chain()
     check_fruit_projection()
 
     print()

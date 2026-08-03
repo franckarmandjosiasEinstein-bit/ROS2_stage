@@ -25,5 +25,9 @@ setup(
     description="Gazebo Harmonic digital twin of the strawberry greenhouse for the YouBot.",
     license="MIT",
     tests_require=["pytest"],
-    entry_points={"console_scripts": []},
+    entry_points={
+        "console_scripts": [
+            "drive_model_node = youbot_gazebo.drive_model_node:main",
+        ],
+    },
 )

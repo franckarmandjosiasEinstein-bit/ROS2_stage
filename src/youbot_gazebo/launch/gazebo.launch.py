@@ -133,6 +133,11 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription([
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
+        DeclareLaunchArgument(
+            "drive_model", default_value="false",
+            description="true = give the base a real drivetrain (latency, "
+                        "lag, wheel limits, slip). false = kinematic, as "
+                        "measured in the report."),
         DeclareLaunchArgument("rviz", default_value="true",
                               description="Launch RViz to visualise the stack."),
         DeclareLaunchArgument("gui", default_value="true",
@@ -161,6 +166,17 @@ def generate_launch_description() -> LaunchDescription:
              parameters=[{"config_file": bridge_cfg}, sim_time]),
 
         # The validated control stack (no sim_node -- Gazebo IS the robot now).
+        # THE DRIVETRAIN. Sits between /cmd_vel and Gazebo and models what a
+        # kinematic VelocityControl has none of: command latency, motor lag,
+        # per-wheel acceleration and speed limits (which DISTORT a twist, not
+        # merely scale it), and roller slip. Disabled by default, so this is a
+        # pass-through and the measured baseline is unchanged. It must always
+        # be present: the bridge listens on /cmd_vel_exec, which is its output.
+        Node(package="youbot_gazebo", executable="drive_model_node",
+             name="drive_model_node", output="screen",
+             parameters=[{"enabled": LaunchConfiguration("drive_model")},
+                         sim_time]),
+
         control("odom_tf"),               # /odom -> TF map->base_link (sim time)
         control("safety_node"),      # /cmd_vel_raw -> /cmd_vel
         control("mapping_node"),
