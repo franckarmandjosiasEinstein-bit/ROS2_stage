@@ -7,11 +7,12 @@ Publishes:
     /map      (nav_msgs/OccupancyGrid)  INFLATED grid, for the planner
     /map_raw  (nav_msgs/OccupancyGrid)  the evidence itself, for measuring
 
-Why two. /map is grown by `inflation` (0.32 m) so A* can treat the robot as a
-point -- every wall is 0.32 m thicker than it really is, and unknown cells are
+Why two. /map is grown by `inflation` (0.18 m) so A* can treat the robot as a
+point -- every wall is 0.18 m thicker than it really is, and unknown cells are
 indistinguishable from free ones. Scoring THAT against the world is how the
-last run reported the greenhouse 20 cm too short with 13-17% "clutter": it was
-measuring the safety margin, not the map. /map_raw is the log-odds grid
+run of 2026-08-03 reported the greenhouse 20 cm too short with 13-17%
+"clutter": it was measuring the safety margin, not the map. On /map_raw the
+same greenhouse measures -4 cm / +10 cm with 0.0% clutter. /map_raw is the log-odds grid
 thresholded and nothing else (-1 unknown, 0 free, 100 occupied), which is what
 map_eval compares with the SDF.
 
@@ -48,7 +49,7 @@ class MappingNode(Node):
         super().__init__("mapping_node")
         self.declare_parameter("resolution", 0.10)
         self.declare_parameter("arena_size", 10.0)
-        self.declare_parameter("inflation", 0.32)
+        self.declare_parameter("inflation", 0.18)
         self.declare_parameter("publish_period", 0.5)
 
         res = self.get_parameter("resolution").value

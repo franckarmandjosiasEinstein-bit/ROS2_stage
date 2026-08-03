@@ -47,8 +47,8 @@ def yaw_from_quaternion(q) -> float:
 class NavigationNode(Node):
     def __init__(self) -> None:
         super().__init__("navigation_node")
-        self.declare_parameter("lookahead", 0.4)
-        self.declare_parameter("cruise_speed", 0.5)
+        self.declare_parameter("lookahead", 0.32)
+        self.declare_parameter("cruise_speed", 0.6)
         self.declare_parameter("control_period", 0.05)  # 20 Hz
         # Stuck detector: commanding motion but not moving -> escape manoeuvre.
         # (Braking and the arena fence are safety_node's job -- see the module
@@ -167,18 +167,29 @@ class NavigationNode(Node):
             # is always allowed -- safety_node only ever vetoes translation --
             # and it hands the planner a new view.
             return 0.0, 0.0, 0.6, d, gap
+        # STRAFE ONLY. The first version also turned toward the opening at up
+        # to 0.6 rad/s and held that for the whole recovery: two to six seconds
+        # of spin, 70 to 200 degrees. The robot came out of every escape
+        # crossways in its aisle -- the field log shows it stuck at yaw 17, 29,
+        # 76, 128, 147 degrees in a corridor that runs due east -- so the
+        # swept corridor then pointed at a gutter, the guard braked, and the
+        # next escape turned it further. 58% of the run blocked. A mecanum base
+        # does not need to face where it is going; leave the heading alone and
+        # let pure pursuit re-aim once there is room.
         v = self._escape_speed
-        # Turn toward the opening as we go, so the next pure-pursuit segment
-        # starts pointing somewhere useful. Capped: a hard spin while
-        # strafing sweeps the corners into the wall we are escaping.
-        wz = max(-0.6, min(0.6, math.atan2(math.sin(d), math.cos(d))))
-        return v * math.cos(d), v * math.sin(d), wz, d, gap
+        return v * math.cos(d), v * math.sin(d), 0.0, d, gap
 
     def _update_stuck(self, commanded) -> bool:
         """True while an escape manoeuvre is running. A robot that commands
         motion but does not move is jammed (a corner, a map artefact)."""
         t = self._now()
         if t < self._recover_until:
+            # Re-pick the direction on every tick rather than replaying the
+            # command frozen at the moment we noticed. The robot moves during
+            # the escape, so a command computed once goes stale and can end up
+            # driving into whatever has come round in front of it.
+            vx, vy, wz, _, _ = self._escape(commanded)
+            self._recover_cmd = (vx, vy, wz)
             return True
         x, y, _ = self._pose
         if self._last_pos is None:

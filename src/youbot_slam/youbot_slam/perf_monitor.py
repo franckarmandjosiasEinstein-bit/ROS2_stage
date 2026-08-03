@@ -11,19 +11,19 @@ It answers four questions, all from data the stack already publishes:
              can be recovered. Sim time is the honest unit: it is what the
              robot would take in the field, independent of the machine the
              simulation runs on.
-  HOW FAST   distance covered and mean speed against the 0.50 m/s cruise
-             setting. A mean far below cruise means the robot spends its life
-             braking, not driving.
+  HOW FAST   distance covered and mean speed against the cruise setting. A
+             mean far below cruise means the robot spends its life braking,
+             not driving.
   WHERE IT   every control tick is put in exactly one bucket:
   GOES         driving  -- asked to move, and moving
                BLOCKED  -- asked to move, and not moving (the guard is holding
                            the translation, or the base is jammed)
                working  -- deliberately stopped: aligning on a berry, or the
                            arm is picking
-             The BLOCKED share is the number that matters. In the run of
-             2026-08-03 it was over a third of the harvest phase: 41 "Stuck at"
-             events and two 60 s goal timeouts, all at the two ends of the
-             y = +0.6 aisle.
+             The BLOCKED share is the number that matters, and it earned its
+             keep on the first run it was in: 58% of the whole mission, which
+             is how a YAML file still carrying the pre-bumper thresholds was
+             caught (see check_params_match_code).
   THROUGHPUT berries per sim-minute, and sim-seconds per berry. This is the
              figure a grower would actually be quoted.
 
@@ -51,7 +51,7 @@ class PerfMonitor(Node):
         self.declare_parameter("report_period", 120.0)  # s of sim time
         self.declare_parameter("rate", 10.0)            # Hz of bucketing
         self.declare_parameter("survey_laps", 3)
-        self.declare_parameter("cruise_speed", 0.50)    # m/s, for reference
+        self.declare_parameter("cruise_speed", 0.60)    # m/s, for reference
         # Asked to move but going slower than this = not moving.
         self.declare_parameter("moving_speed", 0.05)    # m/s
         self.declare_parameter("commanded_speed", 0.03) # m/s

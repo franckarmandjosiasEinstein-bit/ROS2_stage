@@ -487,6 +487,63 @@ def check_fruit_projection() -> None:
               f"fruit plane, fx = {fx:.0f} px/rad)")
 
 
+def check_params_match_code() -> None:
+    """The YAML must not silently disagree with the node's own defaults.
+
+    The run of 2026-08-03 14:13. lib/clearance.py changed safety_node's
+    distances from sensor-relative to bumper-relative and moved the defaults
+    from 0.28 / 0.60 / 0.30 down to 0.12 / 0.35 / 0.10 -- but youbot_params.yaml
+    still carried the old numbers, and the YAML wins. 0.28 m in front of the
+    BUMPER is 0.57 m from the centre: every threshold doubled. The robot braked
+    for anything within half a metre, spent 58% of the run blocked (against 6%
+    on the first lap of the previous build), and picked 5 strawberries where it
+    had picked 27. Nothing crashed and nothing looked wrong in the launch.
+
+    So: every parameter that appears in BOTH places must carry the same value.
+    Tuning is still fine -- change it in both, which is the point."""
+    print("\nparameters: YAML vs code")
+    yaml_path = os.path.join(SRC, "youbot_bringup/config/youbot_params.yaml")
+    text = open(yaml_path).read()
+
+    # Tiny reader for the one shape this file has: "node:" / "ros__parameters:"
+    # / "  key: value  # comment". Not a YAML parser, and does not need to be.
+    sections, node = {}, None
+    for line in text.splitlines():
+        if re.match(r"^[a-z_]+:\s*$", line):
+            node = line.rstrip(":").strip()
+            sections[node] = {}
+            continue
+        m = re.match(r"^\s{4}([a-z_]+):\s*(-?[0-9.]+)\s*(#.*)?$", line)
+        if m and node:
+            sections[node][m.group(1)] = float(m.group(2))
+
+    check("the parameter file was parsed", any(sections.values()),
+          f"no key/value pairs found in {yaml_path}")
+
+    pkg = {"mapping_node": "youbot_control", "planning_node": "youbot_control",
+           "navigation_node": "youbot_control", "safety_node": "youbot_control"}
+    total = mismatched = 0
+    for node, params in sections.items():
+        if node not in pkg:
+            continue
+        src = read(f"{pkg[node]}/{pkg[node]}/{node}.py")
+        for name, want in params.items():
+            m = re.search(r'declare_parameter\(\s*"%s"\s*,\s*(-?[0-9.]+)'
+                          % re.escape(name), src)
+            if not m:
+                continue        # declared elsewhere or not a plain number
+            total += 1
+            if abs(float(m.group(1)) - want) > 1e-9:
+                mismatched += 1
+                check(f"{node}.{name} agrees with the code", False,
+                      f"YAML says {want}, {node}.py declares {m.group(1)} -- "
+                      "the YAML wins at runtime, so the code default is a lie")
+    check("every tuned parameter matches its node default", mismatched == 0,
+          f"{mismatched} of {total} disagree")
+    if mismatched == 0:
+        print(f"          ({total} parameters cross-checked)")
+
+
 def check_station_realign() -> None:
     """The station sweep must actually get a second berry.
 
@@ -643,6 +700,7 @@ def main() -> int:
     check_slam_scoring()
     check_preventive_fence()
     check_bumper_clearance()
+    check_params_match_code()
     check_station_realign()
     check_fruit_projection()
 

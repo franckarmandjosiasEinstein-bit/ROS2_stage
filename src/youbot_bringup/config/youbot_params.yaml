@@ -35,11 +35,19 @@ safety_node:
   ros__parameters:
     # The single protective stop: every publisher writes /cmd_vel_raw, only
     # this node writes /cmd_vel.
-    stop_distance: 0.28    # m ahead along the path -> translation cancelled
-    slow_distance: 0.60    # m: start scaling the translation down
+    # BUMPER clearances since lib/clearance.py: measured from the edge of the
+    # footprint along the direction of travel, NOT from the lidar at the centre
+    # of the base. This file kept the old centre-relative 0.28 / 0.60 / 0.30 for
+    # one run after the code changed, which silently doubled every threshold --
+    # 0.28 m in front of the BUMPER is 0.57 m from the centre. The robot braked
+    # for anything within half a metre, spent 58% of that run blocked, and
+    # picked 5 strawberries instead of 27. check_regressions.py now refuses to
+    # start when these disagree with the node's own defaults.
+    stop_distance: 0.12    # m in front of the bumper -> translation cancelled
+    slow_distance: 0.35    # m: start scaling the translation down
     half_width: 0.24       # m: half-width of the corridor the base sweeps
     min_valid_range: 0.30  # m: below this the lidar is seeing our own body
-    side_min: 0.30         # m: flank clearance held while translating
+    side_min: 0.10         # m: clearance kept beside the flank while translating
     side_push: 0.12        # m/s: max recentring correction
     side_band: 0.35        # m: fore/aft extent of the flank measurement
     # The wall the FOOTPRINT must stay inside (inner glass faces 4.95 / 2.45,
