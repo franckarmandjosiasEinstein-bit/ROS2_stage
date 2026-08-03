@@ -35,7 +35,9 @@ from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Point, PoseArray
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Int32
+from std_msgs.msg import Bool, Float64, Int32
+
+from youbot_slam.lib.berry_view import CameraModel
 from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformListener
 
@@ -50,7 +52,10 @@ WHEELS = (("wheel_fl", 0.225, 0.19), ("wheel_fr", 0.225, -0.19),
 CAM_FOV = 1.2
 CAM_VFOV = 2.0 * math.atan(math.tan(CAM_FOV / 2.0) * 480.0 / 640.0)
 CAM_RANGE = 2.2
-CAM_MOUNT = (0.18, 0.14, 0.78)      # in base_link
+CAM_MOUNT = (0.18, 0.00, 0.78)      # in base_link: the PAN AXIS, not the lens
+CAM_ARM = 0.14                      # m from the pan axis out to the lens;
+                                    # at pan = +90 deg the lens lands on
+                                    # (0.18, 0.14, 0.78), the old fixed pose
 CAM_PITCH = 0.28                    # rad, upwards
 # A berry has to be big enough on the sensor to survive min_pixels. At 640 px
 # across 1.2 rad, fx = 468 px, so a 0.032 m berry spans 30/d pixels: a blob of
@@ -92,6 +97,19 @@ class TruthMonitor(Node):
         self._ripe = 0          # clusters vision reports this frame
         self._berries = self._load_catalogue("berries")
         self._foliage = self._load_catalogue("foliage")
+        # One camera model, shared with dataset_capture (see _berries_in_view).
+        self._camera_model = CameraModel(
+            hfov=CAM_FOV, pitch=CAM_PITCH, max_range=CAM_RANGE,
+            min_blob_px=MIN_BLOB_PX, mount_x=CAM_MOUNT[0],
+            mount_y=CAM_MOUNT[1], mount_z=CAM_MOUNT[2], arm=CAM_ARM)
+        # The head angle, measured. None until camera_pan_node reports one:
+        # scoring against an assumed bearing invents misses.
+        self._pan_angle = None
+        self._pan_settled = False
+        self.create_subscription(Float64, "camera_pan_state",
+                                 self._on_pan_state, 5)
+        self.create_subscription(Bool, "camera_pan_settled",
+                                 self._on_pan_settled, 5)
         self._closest = None     # best gripper-to-berry distance this window
         self._fruit_map = []     # [x, y, sightings]: the robot's fruit map
 
@@ -214,6 +232,12 @@ class TruthMonitor(Node):
         return len(confirmed), localised, mean_err, false_pos
 
     # -------------------------------------------------------------- helpers
+    def _on_pan_state(self, msg) -> None:
+        self._pan_angle = float(msg.data)
+
+    def _on_pan_settled(self, msg) -> None:
+        self._pan_settled = bool(msg.data)
+
     def _gripper_tip(self):
         """True gripper position, from the TF chain (forward kinematics)."""
         try:
@@ -223,85 +247,43 @@ class TruthMonitor(Node):
         return (t.transform.translation.x, t.transform.translation.y,
                 t.transform.translation.z)
 
-    def _camera(self):
-        """Camera position and optical axis in world coordinates."""
-        x, y, yaw = self._truth
-        c, s = math.cos(yaw), math.sin(yaw)
-        pos = (x + CAM_MOUNT[0] * c - CAM_MOUNT[1] * s,
-               y + CAM_MOUNT[0] * s + CAM_MOUNT[1] * c,
-               CAM_MOUNT[2])
-        a = yaw + math.pi / 2.0            # the axis looks over the +Y flank
-        axis = (math.cos(a) * math.cos(CAM_PITCH),
-                math.sin(a) * math.cos(CAM_PITCH),
-                math.sin(CAM_PITCH))
-        return pos, axis
+    # --- camera geometry ------------------------------------------------
+    # Delegated to youbot_slam.lib.berry_view, which dataset_capture also
+    # uses. The scorer and the thing that writes training labels MUST agree
+    # about what "visible" means; when they were two copies, a model could be
+    # trained to find one set of berries and marked on another, and the gap
+    # would look like a detector defect that no work on the detector fixes.
 
-    def _occluded(self, cam, berry) -> bool:
-        """True when a leaf sits on the line of sight to this berry.
+    def _pan(self) -> float | None:
+        """The MEASURED head angle, or None when it may not be used.
 
-        Segment-sphere test: a leaf blocks the view if the segment from the
-        camera to the berry passes within the leaf's radius of its centre, and
-        does so BEFORE reaching the berry. The berry's own leaf cluster counts
-        -- that is the point. Roughly half the fruit on a strawberry plant
-        hangs behind its own foliage, and no camera reports those."""
-        cx, cy, cz = cam
-        bx, by, bz, br = berry[0], berry[1], berry[2], berry[3]
-        vx, vy, vz = bx - cx, by - cy, bz - cz
-        seg2 = vx * vx + vy * vy + vz * vz
-        if seg2 < 1e-9:
-            return False
-        # Leaves AND other berries. A berry two metres down the row is behind
-        # every plant in between -- and behind their fruit. Leaving the fruit
-        # out of the occluder set is why the monitor still read "13 visible,
-        # vision reports 1" whenever it was looking along a row: the misses
-        # were all at 1.5 to 2.2 m, the matches all under 0.6 m.
-        for ox, oy, oz, orad in self._foliage + self._berries:
-            wx, wy, wz = ox - cx, oy - cy, oz - cz
-            t = (wx * vx + wy * vy + wz * vz) / seg2
-            # Stop short of the berry itself: a leaf level with the fruit is
-            # what it hangs among, not what hides it, and the target must not
-            # occlude itself.
-            if t <= 0.02 or t >= 0.92:
-                continue
-            px, py, pz = cx + t * vx, cy + t * vy, cz + t * vz
-            if (ox - px) ** 2 + (oy - py) ** 2 + (oz - pz) ** 2 < (orad + br) ** 2:
-                return True
-        return False
+        The camera used to be bolted to the chassis facing left, so this was
+        the constant +pi/2 baked into the old _camera(). With a pan head it
+        varies, and it enters the projection in series with the robot yaw:
+        5 deg of error at 2 m displaces a berry by 17 cm. A scorer that
+        assumed the wrong bearing would report misses the detector never had.
+        """
+        if self._pan_angle is None or not self._pan_settled:
+            return None
+        return self._pan_angle
 
     def _berries_in_view(self):
-        """True berries the camera can ACTUALLY see: inside the frustum
-        (horizontal and vertical), within range, big enough on the sensor to
-        make a blob, and not hidden behind a leaf.
+        """True berries the camera can ACTUALLY see.
 
-        The first version of this only tested range and horizontal angle, and
-        so counted fruit behind foliage, above the frame, and 2 m down the row
-        at a grazing angle. Every run then printed "15 in view, vision reports
-        2 <-- MISSING", which reads as a perception failure and is not one. A
-        reference that overstates what is visible is worse than no reference:
-        it sends you tuning a detector that was never the problem."""
-        if self._truth is None:
+        In the frustum horizontally AND vertically, within range, big enough
+        on the sensor to make a blob, and hidden by neither a leaf nor another
+        berry. A reference that overstates what is visible is worse than none:
+        it prints "15 in view, vision reports 2" and sends you tuning a
+        detector that was never the problem.
+        """
+        pan = self._pan()
+        if self._truth is None or pan is None:
             return []
-        cam, axis = self._camera()
-        seen = []
-        for b in self._berries:
-            bx, by, bz, br = b
-            vx, vy, vz = bx - cam[0], by - cam[1], bz - cam[2]
-            d = math.sqrt(vx * vx + vy * vy + vz * vz)
-            if d > CAM_RANGE or d < 1e-6:
-                continue
-            # Horizontal and vertical angle off the optical axis, separately:
-            # a frustum is a rectangle, not a cone.
-            ah = math.atan2(vy, vx) - math.atan2(axis[1], axis[0])
-            ah = math.atan2(math.sin(ah), math.cos(ah))
-            av = math.asin(max(-1.0, min(1.0, vz / d))) - CAM_PITCH
-            if abs(ah) > CAM_FOV / 2.0 or abs(av) > CAM_VFOV / 2.0:
-                continue
-            if 2.0 * br * CAM_FX / d < MIN_BLOB_PX:
-                continue
-            if self._occluded(cam, b):
-                continue
-            seen.append((bx, by, bz, br, d))
-        return seen
+        return [(v["world"][0], v["world"][1], v["world"][2], v["world"][3],
+                 v["distance"])
+                for v in self._camera_model.visible(
+                    self._truth, pan, self._berries,
+                    self._foliage + self._berries)]
 
     # -------------------------------------------------------------- markers
     def _marker(self, mid, mtype, scale, colour, frame="map"):

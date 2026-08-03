@@ -7,7 +7,7 @@ package_name = "youbot_slam"
 setup(
     name=package_name,
     version="0.1.0",
-    packages=[package_name],
+    packages=[package_name, package_name + ".lib"],
     data_files=[
         ("share/ament_index/resource_index/packages",
          ["resource/" + package_name]),
@@ -31,6 +31,7 @@ setup(
             "truth_monitor = youbot_slam.truth_monitor:main",
             "map_eval = youbot_slam.map_eval:main",
             "perf_monitor = youbot_slam.perf_monitor:main",
+            "dataset_capture = youbot_slam.dataset_capture:main",
         ],
     },
 )

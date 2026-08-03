@@ -387,6 +387,98 @@ def check_preventive_fence() -> None:
           f"kept vx = {vx:+.03f}")
 
 
+def check_label_source() -> None:
+    """The training labels and the score come from ONE visibility model.
+
+    The circularity to avoid: labelling training data with the colour detector
+    would teach its replacement to reproduce its errors exactly, including the
+    two-in-three false positives that motivate replacing it. It is an easy
+    mistake because it is so convenient -- the detector is right there,
+    publishing boxes.
+
+    The divergence to avoid: if the scorer and the label writer had separate
+    copies of "what is visible", a model would be trained to find one set of
+    berries and marked on another, and the gap would look like a detector
+    defect that no amount of work on the detector could close.
+
+    So: labels come from the ground-truth catalogue, both sides import
+    berry_view, and the camera geometry in that library matches the URDF."""
+    print("\ntraining labels")
+    cap = read("youbot_slam/youbot_slam/dataset_capture.py")
+    mon = read("youbot_slam/youbot_slam/truth_monitor.py")
+    lib = read("youbot_slam/youbot_slam/lib/berry_view.py")
+    urdf = read("youbot_gazebo/urdf/youbot_gz.urdf")
+
+    check("labels come from the catalogue, not from the detector",
+          "berry_detections" not in cap and "ripe_count" not in cap
+          and "_load_catalogue" in cap,
+          "training on the detector's own output would bake in its errors")
+    check("the scorer and the labeller share one visibility model",
+          "from youbot_slam.lib.berry_view import CameraModel" in cap
+          and "from youbot_slam.lib.berry_view import CameraModel" in mon)
+    check("neither keeps a private copy of the occlusion test",
+          "def _occluded" not in cap and "def _occluded" not in mon,
+          "it lives in berry_view and nowhere else")
+
+    check("the head angle is measured, never assumed",
+          "camera_pan_state" in cap and "camera_pan_state" in mon
+          and "_pan_settled" in cap and "_pan_settled" in mon,
+          "a frame labelled with a guessed bearing is wrong by tens of cm")
+    check("frames taken while the head moves are dropped",
+          "require_pan_settled" in cap)
+
+    check("empty frames are kept as empty LABEL FILES",
+          "keep_empty_frames" in cap and "empty_frame_ratio" in cap,
+          "negatives are what the model learns 'not a strawberry' from; a "
+          "missing file means unlabelled, an empty one means nothing here")
+    check("labels are placed with TRUE pose, not odometry",
+          "use_truth_pose" in cap,
+          "localisation error baked into a training set can never be removed")
+
+    # The library's optics must match the sensor the images come from.
+    m = re.search(r"<horizontal_fov>([0-9.]+)</horizontal_fov>", urdf)
+    check("the URDF declares a horizontal field of view", m is not None)
+    if m:
+        urdf_fov = float(m.group(1))
+        lib_fov = float(re.search(r"hfov=([0-9.]+)", lib).group(1))
+        check("berry_view's field of view matches the URDF camera",
+              abs(urdf_fov - lib_fov) < 1e-6,
+              f"urdf {urdf_fov}, library {lib_fov}")
+
+    m2 = re.search(r"<pose>([0-9.\-]+) ([0-9.\-]+) ([0-9.\-]+) "
+                   r"([0-9.\-]+) ([0-9.\-]+) ([0-9.\-]+)</pose>\s*\n"
+                   r"\s*<topic>camera</topic>", urdf)
+    check("the camera sensor pose is readable from the URDF", m2 is not None)
+    if m2:
+        arm_urdf = float(m2.group(1))
+        arm_lib = float(re.search(r"arm=([0-9.]+)", lib).group(1))
+        check("berry_view's head arm matches the URDF mount",
+              abs(arm_urdf - arm_lib) < 1e-6,
+              f"urdf {arm_urdf} m out along the head, library {arm_lib}")
+
+    # And the geometry must reproduce the pre-pan-head camera exactly, or
+    # every number measured before today silently stops comparing.
+    ns = {"math": math}
+    exec(compile(lib, "<berry_view>", "exec"), ns)
+    cam = ns["CameraModel"]()
+    pos, _axis, bearing = cam.pose((0.0, 0.0, 0.0), math.pi / 2.0)
+    check("at pan = +90 deg the lens sits where the fixed camera did",
+          abs(pos[0] - 0.18) < 1e-9 and abs(pos[1] - 0.14) < 1e-9
+          and abs(pos[2] - 0.78) < 1e-9,
+          f"got {tuple(round(v, 4) for v in pos)}, expected (0.18, 0.14, 0.78)")
+
+    berry = [(0.18, 1.14, 0.98, 0.032)]      # 1 m to the left, plant height
+    check("a berry in front of the head is seen and centred",
+          len(cam.visible((0, 0, 0), math.pi / 2, berry, [])) == 1
+          and abs(cam.visible((0, 0, 0), math.pi / 2, berry, [])[0]["box"][0]
+                  - 0.5) < 0.05)
+    check("the same berry is NOT seen with the head turned the other way",
+          cam.visible((0, 0, 0), -math.pi / 2, berry, []) == [])
+    leaf = [(0.18, 0.64, 0.98, 0.08)]
+    check("a leaf on the line of sight hides it",
+          cam.visible((0, 0, 0), math.pi / 2, berry, leaf) == [])
+
+
 def check_drive_model_chain() -> None:
     """The drivetrain model is in the command path, and it is honest.
 
@@ -880,6 +972,7 @@ def main() -> int:
     check_params_match_code()
     check_station_realign()
     check_drive_model_chain()
+    check_label_source()
     check_fruit_projection()
 
     print()
