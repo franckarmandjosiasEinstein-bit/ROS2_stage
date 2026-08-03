@@ -1,0 +1,82 @@
+# =====================================================================
+#  Commissioning profiles: every physical number in one place.
+# =====================================================================
+#
+#  WHY THIS FILE EXISTS. This project lost a whole run because
+#  youbot_params.yaml still carried the pre-bumper clearances after the code
+#  had changed: the YAML wins at runtime, so every threshold silently doubled
+#  and the robot spent 58% of the run braked. The lesson was not "be careful"
+#  -- it was "put the numbers in ONE place and check them automatically".
+#
+#  Two profiles. `sim` is permissive because nothing can be damaged. `hardware`
+#  is derived from measurement, not from taste: the stop distances below come
+#  out of ISO 13855 with the stopping time MEASURED in stage 0.
+#
+#      S = K * (t_react + t_stop) + C
+#
+#  with K the approach speed, t_react the sense-to-command latency and t_stop
+#  the mechanical stopping time. The hardware values below assume
+#  t_react = 0.20 s and t_stop = 0.30 s at 0.30 m/s, i.e. S ~ 0.15 + C.
+#  REPLACE THEM with the numbers stage 0 actually measures on your robot.
+#
+#  Usage:
+#    ros2 run youbot_commissioning stage1_wheels --ros-args \
+#      --params-file $(ros2 pkg prefix youbot_commissioning)/share/\
+# youbot_commissioning/config/limits.yaml -p profile:=hardware
+# =====================================================================
+
+/**:
+  ros__parameters:
+    # Geometry is the same on both profiles: it is the robot.
+    base_length: 0.58
+    base_width: 0.38
+
+# ---------------------------------------------------------------- sim
+sim_profile:
+  ros__parameters:
+    profile: "sim"
+    max_linear: 0.60         # m/s -- the simulation cruise speed
+    max_angular: 1.50        # rad/s
+    require_arm: false       # unattended runs are fine when nothing can break
+    protective_distance: 0.12  # m from the bumper (measured, not guessed)
+    use_truth: true          # ground truth is available; use it
+    use_truth_topic: true
+
+# ----------------------------------------------------------- hardware
+hardware_profile:
+  ros__parameters:
+    profile: "hardware"
+    # Bridled for the whole commissioning campaign. Raise it ONLY after
+    # stage 6 has passed twenty round trips at this speed, and then re-run
+    # stages 0 and 6 at the new speed. Speed is not a setting you increase
+    # because the robot "looks fine".
+    max_linear: 0.30         # m/s
+    max_angular: 0.60        # rad/s
+    require_arm: true        # nothing moves without a human arming it
+    # ISO 13855 with t_react = 0.20 s, t_stop = 0.30 s at 0.30 m/s:
+    #   S = 0.30 * 0.50 + C = 0.15 + 0.20 margin = 0.35 m
+    # This is nearly THREE TIMES the simulation value, and the difference is
+    # not conservatism -- it is latency and inertia that the kinematic
+    # Gazebo model does not have.
+    protective_distance: 0.35   # m from the bumper
+    use_truth: false         # there is no ground truth; the operator measures
+    use_truth_topic: false
+
+    # Stage-specific hardware limits.
+    burst_speed: 0.15        # stage 0
+    max_stop_time: 0.60      # stage 0, s -- REPLACE with the measurement
+    max_stop_distance: 0.15  # stage 0, m
+    test_speed: 0.10         # stage 1
+    drive_speed: 0.12        # stage 2
+    turn_rate: 0.30          # stage 2
+    max_emax: 0.20           # stage 2, m -- looser than sim: real floors slip
+    max_random_spread: 0.15  # stage 2, m
+    min_return_rate: 0.85    # stage 3 -- glass will not be perfect
+    max_range_error: 0.06    # stage 3, m
+    dimension_tolerance: 0.15  # stage 4, m
+    max_position_error: 0.30   # stage 5, m
+    max_drift_rate: 0.10     # stage 5, m per 10 min -- the real criterion
+    target_trips: 20         # stage 6
+    target_frames: 500       # stage 7
+    target_attempts: 20      # stage 9
+    min_success_rate: 0.50   # stage 9 -- first contact with a real plant

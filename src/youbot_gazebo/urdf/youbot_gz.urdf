@@ -203,15 +203,46 @@
   </link>
   <joint name="j_mast" type="fixed"><parent link="base_link"/><child link="mast"/><origin xyz="0.22 0 0.16"/></joint>
 
+  <!-- PAN HEAD (+/- 90 deg). Decouples "where I look" from "where I go".
+       Two fixed cameras, one per side, would need no moving part at all and
+       would be mechanically safer in a humid greenhouse; a single pan head
+       was chosen because two cameras cost too much. The consequences are
+       accepted deliberately and written down here so they are not
+       rediscovered in the field:
+
+         * the pan angle enters the fruit back-projection IN SERIES with the
+           robot yaw, so an error in it lands directly in the fruit position
+           -- the same sensitivity as heading, 5 deg at 2 m is 17 cm. The head
+           must therefore be commanded to a HELD position and the image used
+           only once it has settled, never mid-sweep.
+         * motion blur: stop the head, then shoot.
+         * limited to +/- 90 deg on purpose. Continuous rotation would need a
+           slip ring; +/- 90 deg reaches both plant rows from a central aisle,
+           which is the entire reason for having it. -->
+  <link name="camera_pan">
+    <inertial><mass value="0.08"/><inertia ixx="2e-5" ixy="0" ixz="0" iyy="2e-5" iyz="0" izz="2e-5"/></inertial>
+    <visual><geometry><cylinder radius="0.022" length="0.03"/></geometry><material name="grey"/></visual>
+  </link>
+  <!-- Revolute, so sdformat keeps camera_pan as a REAL link instead of
+       lumping it into base_link the way it does with fixed joints. That is
+       what lets the sensor below ride on it and actually move. -->
+  <joint name="j_camera_pan" type="revolute">
+    <parent link="base_link"/><child link="camera_pan"/>
+    <origin xyz="0.18 0 0.78"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="4.0" velocity="1.5"/>
+  </joint>
+
   <link name="camera">
     <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
     <visual><geometry><box size="0.03 0.09 0.03"/></geometry><material name="dark"/></visual>
   </link>
-  <!-- 0.60 m up, yaw +90 deg + pitch up 0.5 rad: looks LEFT (+Y) AND over the
-       0.8 m gutter edge at the fruit on top (a level view only sees the brown
-       gutter wall). The robot stops when a fruit is beside it and the camera
-       watches the arm approach it. -->
-  <joint name="j_camera" type="fixed"><parent link="base_link"/><child link="camera"/><origin xyz="0.18 0.14 0.78" rpy="0 -0.28 1.5708"/></joint>
+  <!-- Pitched up 0.28 rad so the view clears the 0.8 m gutter edge and sees
+       the fruit on top; a level view only shows the brown gutter wall. The
+       yaw that used to be baked in here (+90 deg, permanently looking left)
+       is now the pan joint's job: +1.5708 for the left row, -1.5708 for the
+       right row, 0 to look straight ahead down the aisle. -->
+  <joint name="j_camera" type="fixed"><parent link="camera_pan"/><child link="camera"/><origin xyz="0.04 0 0" rpy="0 -0.28 0"/></joint>
 
   <!-- ==================== Gazebo-specific ==================== -->
 
@@ -298,13 +329,15 @@
   </gazebo>
 
   <!-- RGB camera for ripe-strawberry detection -> /camera/image + camera_info.
-       Attached to base_link with an explicit pose (NOT to the 'camera' link):
-       sdformat drops sensors on fixed-joint links that carry a rotation during
-       lumping, so we mount it here directly, like the working lidar. The pose
-       matches j_camera + j_mast (0.24 forward, 0.55 up, tipped 0.15 rad down). -->
-  <gazebo reference="base_link">
+       Now attached to camera_pan, NOT to base_link. It used to be mounted on
+       base_link with an explicit pose because sdformat drops sensors on
+       fixed-joint links during lumping -- but camera_pan hangs off a REVOLUTE
+       joint, so it survives as a real link and the sensor rides on it. That is
+       precisely what makes the head able to look somewhere the chassis is not
+       pointing. The pose below is j_camera relative to camera_pan. -->
+  <gazebo reference="camera_pan">
     <sensor name="camera" type="camera">
-      <pose>0.18 0.14 0.78 0 -0.28 1.5708</pose>
+      <pose>0.04 0 0 0 -0.28 0</pose>
       <topic>camera</topic>
       <update_rate>15</update_rate>
       <always_on>true</always_on>

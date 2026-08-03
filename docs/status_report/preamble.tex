@@ -1,0 +1,105 @@
+% =====================================================================
+%  preamble.tex -- 8-page IEEE status report
+%  Self-contained on purpose: this document is meant to be sent on its own,
+%  so it must not depend on docs/report/.
+% =====================================================================
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{textcomp}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{caption}
+
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{colortbl}
+
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,backgrounds,calc}
+
+\usepackage{cite}
+\usepackage{url}
+\usepackage{enumitem}
+\usepackage[hidelinks,breaklinks=true]{hyperref}
+
+% --------------------------------------------------------------- colours
+\definecolor{okGreen}{HTML}{1E7B34}
+\definecolor{warnAmber}{HTML}{B7791F}
+\definecolor{badRed}{HTML}{B03A2E}
+\definecolor{okFill}{HTML}{E4F2E4}
+\definecolor{warnFill}{HTML}{FDF3D8}
+\definecolor{badFill}{HTML}{FBE6E4}
+\definecolor{coolFill}{HTML}{E3ECF9}
+\definecolor{coolLine}{HTML}{2E5F9E}
+\definecolor{codeGray}{HTML}{4F4F4F}
+\definecolor{codeBg}{HTML}{F7F7F9}
+\definecolor{codeKey}{HTML}{0B5394}
+\definecolor{codeStr}{HTML}{A31515}
+\definecolor{codeCom}{HTML}{5B7C5B}
+
+% Verdict marks. Used in every status table so the reader can scan a column
+% instead of reading every cell.
+\newcommand{\ok}[1]{\textcolor{okGreen}{\textbf{#1}}}
+\newcommand{\warn}[1]{\textcolor{warnAmber}{\textbf{#1}}}
+\newcommand{\bad}[1]{\textcolor{badRed}{\textbf{#1}}}
+\newcommand{\WORKS}{\cellcolor{okFill}\textcolor{okGreen}{\textbf{WORKS}}}
+\newcommand{\PARTIAL}{\cellcolor{warnFill}\textcolor{warnAmber}{\textbf{PARTIAL}}}
+\newcommand{\BROKEN}{\cellcolor{badFill}\textcolor{badRed}{\textbf{BROKEN}}}
+
+% Every number in this report that came out of a log is marked, so a reader
+% can tell a measurement from an estimate at a glance.
+\newcommand{\measured}[1]{\textbf{#1}}
+
+\newcommand{\SI}[2]{#1\,\text{#2}}
+\newcommand{\topicname}[1]{\texttt{\small /#1}}
+\newcommand{\nodename}[1]{\texttt{\small #1}}
+\newcommand{\filename}[1]{\texttt{\small #1}}
+\newcommand{\param}[1]{\texttt{\small #1}}
+\newcommand{\phaseA}{Phase~A}
+\newcommand{\phaseB}{Phase~B}
+
+% --------------------------------------------------------------- listings
+\lstdefinestyle{base}{
+  basicstyle       = \ttfamily\scriptsize\color{codeGray},
+  keywordstyle     = \color{codeKey}\bfseries,
+  stringstyle      = \color{codeStr},
+  commentstyle     = \color{codeCom}\itshape,
+  backgroundcolor  = \color{codeBg},
+  frame            = single,
+  rulecolor        = \color{gray!40},
+  framesep         = 3pt,
+  xleftmargin      = 4pt,
+  breaklines       = true,
+  postbreak        = \mbox{\textcolor{gray}{$\hookrightarrow$}\space},
+  showstringspaces = false,
+  columns          = fullflexible,
+  keepspaces       = true,
+  upquote          = true,
+}
+\lstdefinestyle{python}{style=base,language=Python}
+\lstdefinestyle{bash}{style=base,language=bash,
+  morekeywords={ros2,colcon,source,gz,rviz2}}
+\lstset{style=base}
+
+% ------------------------------------------------------- bar-chart helper
+% \timebar{width}{driving%}{blocked%}{working%}{label}
+% A single stacked bar for the time-budget figure. Percentages, not seconds:
+% the point of the figure is proportion, and the seconds are in the table.
+\newcommand{\timebar}[5]{%
+  \begin{scope}[yshift=#1]
+    \fill[okFill,draw=okGreen]        (0,0) rectangle (#2/100*60mm, 4mm);
+    \fill[badFill,draw=badRed]        (#2/100*60mm,0)
+        rectangle ({(#2+#3)/100*60mm}, 4mm);
+    \fill[warnFill,draw=warnAmber]    ({(#2+#3)/100*60mm},0)
+        rectangle ({(#2+#3+#4)/100*60mm}, 4mm);
+    \node[anchor=east, font=\sffamily\scriptsize] at (-1mm, 2mm) {#5};
+  \end{scope}}

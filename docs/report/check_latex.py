@@ -23,7 +23,11 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# Directory to check. Defaults to this script's own directory (the main
+# report), but takes a path argument so the same checks run over
+# docs/status_report/ -- two documents, one checker, no second copy to drift.
+ROOT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 \
+    else os.path.dirname(os.path.abspath(__file__))
 
 
 def strip(text: str) -> str:

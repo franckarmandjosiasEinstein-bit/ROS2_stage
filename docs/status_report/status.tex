@@ -1,0 +1,874 @@
+% =====================================================================
+%  Eight-page IEEE status report: what works, what does not, what next.
+%  Compile:  make    (pdflatex + bibtex + 2x pdflatex)
+% =====================================================================
+\documentclass[conference]{IEEEtran}
+
+\input{preamble}
+
+\begin{document}
+
+\title{Autonomous Greenhouse Strawberry Harvesting with a KUKA YouBot:\\
+       A Measured Status Report on What Works,\\
+       What Does Not, and What Comes Next}
+
+\author{%
+  \IEEEauthorblockN{Franck Armand Josias Einstein}
+  \IEEEauthorblockA{%
+    \textit{Projet de Fin d'Ann\'ee --- Smart Agriculture / Digital Twin}\\
+    \textit{ENSA} \\
+    Email: josiasarmand40@gmail.com}
+}
+
+\maketitle
+
+\begin{abstract}
+This report gives the measured state of an autonomous mobile-manipulation
+stack for greenhouse strawberry harvesting, built on a KUKA YouBot and
+developed in two phases: a Webots prototype and a ROS~2 Jazzy / Gazebo
+Harmonic digital twin of a $9.90 \times \SI{4.90}{m}$ greenhouse. Unlike a
+design document, it separates three things that are usually blurred: what has
+been measured to work, what has been measured not to work, and what is planned.
+Every quantitative claim is taken from an instrumented run and is reproducible
+from the repository. The navigation and mapping layer is mature: the greenhouse
+is reconstructed to \measured{$-4$~cm~/~$+6$~cm} in interior dimensions with
+\measured{100\%} coverage and \measured{0.0\%} phantom clutter, in
+\measured{\SI{81}{s}} per survey lap at \measured{\SI{0.50}{m/s}} with
+\measured{1\%} of time spent under protective stop. The harvesting layer is
+not: the colour-threshold fruit detector reaches only \measured{69\%} recall
+with roughly two of every three map estimates spurious, and the harvest phase
+spends \measured{39\%} of its time in visual alignment attempts that end
+without a pick. Three negative results are reported in full, including a
+homemade correlative scan-matching SLAM front-end measured to be worse than the
+odometry prior it was meant to correct. Three defects and their root causes are
+documented, of which one --- a path follower that translated and rotated
+simultaneously --- accounted for a $46\%\!\rightarrow\!1\%$ reduction in
+blocked time when corrected. The report closes with a prioritised improvement
+plan covering perception, control, state estimation and a ten-stage hardware
+commissioning procedure, and states plainly the four assumptions that will
+break on first contact with a real greenhouse.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Agricultural robotics, autonomous mobile manipulation, digital twin, ROS~2,
+Gazebo, mecanum drive, occupancy grid mapping, model predictive control,
+state feedback, sim-to-real transfer, commissioning.
+\end{IEEEkeywords}
+
+% =====================================================================
+\section{Introduction and Purpose of This Report}
+% =====================================================================
+
+The project builds an autonomous robot that surveys a greenhouse, localises
+ripe strawberries and picks them, targeting eventual deployment on real
+hardware in a real greenhouse. Development proceeded in two phases: \phaseA{},
+a self-contained Webots R2025a prototype, and \phaseB{}, a ROS~2 Jazzy stack
+running against a Gazebo Harmonic digital twin.
+
+This document is not a design description; a separate, unbounded technical
+report covers the design. This one answers a narrower question that matters
+more at this point in the schedule: \emph{given what has actually been
+measured, what is finished, what is not, and what is the plan?}
+
+Three commitments shape it.
+
+\textbf{Every number comes from an instrumented run.} The stack carries three
+measurement nodes that score the robot against Gazebo ground truth on every
+run --- \nodename{truth\_monitor} (pose and fruit position), \nodename{map\_eval}
+(reconstructed map against the world description) and \nodename{perf\_monitor}
+(time and throughput). Numbers in bold are logged measurements. Numbers that
+are not bold are estimates or derivations, and are labelled as such.
+
+\textbf{Negative results are reported, not omitted.} Three subsystems were
+built, measured and found wanting. They appear here with their measurements,
+because a subsystem that was tried and failed is a stronger contribution than
+one that was quietly dropped.
+
+\textbf{The distinction between "works in simulation" and "works" is kept
+explicit.} Section~\ref{sec:sim2real} lists the four assumptions the simulation
+makes that a real greenhouse violates, with the measured or derived magnitude
+of each.
+
+% =====================================================================
+\section{System Under Evaluation}
+% =====================================================================
+
+\subsection{The twin and the robot}
+
+The Gazebo world is a $9.90 \times \SI{4.90}{m}$ greenhouse: glass walls, three
+raised growing gutters \SI{0.80}{m} high at $y = -1.2, 0, +1.2$, each
+\SI{8.0}{m} long and \SI{0.40}{m} wide, leaving four driving aisles
+\SI{0.80}{m} wide plus open cross-corridors at both ends. It contains 127
+individually placed berries at known positions, which is what makes fruit
+localisation scoreable rather than merely demonstrable.
+
+The robot is a KUKA YouBot: a $0.58 \times \SI{0.38}{m}$ mecanum base
+\cite{ilon1975wheel} carrying a 2D lidar at base centre (360 bearings over
+\SI{360}{\degree}), an RGB camera on a mast, and a five-degree-of-freedom arm.
+The base is driven kinematically by Gazebo's \texttt{VelocityControl} and has
+no collision geometry, so containment is entirely a software responsibility ---
+a fact that will recur in Section~\ref{sec:defects}.
+
+\subsection{Software architecture}
+
+Table~\ref{tab:stack} lists the running nodes. Two architectural rules govern
+the whole stack and both were adopted after a failure.
+
+\emph{Single ownership of the velocity command.} Every planner writes
+\topicname{cmd\_vel\_raw}; only \nodename{safety\_node} writes
+\topicname{cmd\_vel}. Two guards that disagreed about what "blocked" meant once
+pinned the robot against a wall for an entire run.
+
+\emph{One place for every physical number.} All thresholds live in one
+parameter file, and \filename{scripts/check\_regressions.py} (\measured{199}
+automated checks) refuses to start the stack when the file and the node
+defaults disagree. This check was added after a parameter drift silently
+doubled every clearance threshold and cost a full run.
+
+\begin{table}[!t]
+\caption{Running nodes in \phaseB{}}
+\label{tab:stack}
+\centering\footnotesize
+\begin{tabular}{@{}lp{0.52\columnwidth}@{}}
+\toprule
+\textbf{Node} & \textbf{Responsibility}\\
+\midrule
+\nodename{mapping\_node}    & log-odds occupancy grid from lidar; publishes raw and inflated\\
+\nodename{planning\_node}   & A$^\star$ on the inflated grid, octile heuristic\\
+\nodename{navigation\_node} & pure-pursuit following, stuck detection, escape\\
+\nodename{safety\_node}     & the single protective stop; the only writer of \topicname{cmd\_vel}\\
+\nodename{mission\_node}    & survey $\rightarrow$ harvest state machine, alignment, picking\\
+\nodename{strawberry\_detector} & colour segmentation, ground back-projection\\
+\nodename{arm\_node}        & five-joint pick sequence\\
+\midrule
+\nodename{truth\_monitor}   & pose and fruit error against Gazebo truth\\
+\nodename{map\_eval}        & reconstructed map against the world description\\
+\nodename{perf\_monitor}    & time budget and throughput\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Method of measurement}
+
+A reference run consists of three survey laps of a boustrophedon covering all
+four aisles, followed by a harvesting phase on a patrol route. The measurement
+nodes report at each lap boundary, periodically, and once at shutdown, so an
+interrupted run still yields a report. All timings below are in \emph{simulated}
+time; the observed real-time factor was \measured{0.47}, so wall-clock
+durations are roughly twice the simulated ones.
+
+\subsection{Reproducibility}
+
+Every measurement in this report is reproducible from the repository with the
+commands below on Ubuntu~24.04 with ROS~2 Jazzy and Gazebo Harmonic
+(gz-sim~8.11):
+
+\begin{lstlisting}[style=bash]
+colcon build --symlink-install
+source install/setup.bash
+python3 scripts/check_regressions.py    # 199 pre-flight checks
+ros2 launch youbot_bringup sim.launch.py
+\end{lstlisting}
+
+The pre-flight script is not optional decoration: it refuses to launch when
+the parameter file and the node defaults disagree, which is the failure that
+invalidated an earlier run entirely (Section~\ref{sec:defects}). The three
+measurement nodes start with the stack and print their reports to the same
+console, so a run's evidence is a single log file.
+
+% =====================================================================
+\section{What Works}
+\label{sec:works}
+% =====================================================================
+
+\subsection{Mapping and coverage}
+
+The reconstruction of the greenhouse is the strongest result in the project.
+Table~\ref{tab:map} gives the map evaluation after the first survey lap.
+
+\begin{table}[!t]
+\caption{Map quality after one survey lap (source \topicname{map\_raw})}
+\label{tab:map}
+\centering\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Quantity} & \textbf{Measured} & \textbf{True}\\
+\midrule
+Interior length      & \measured{\SI{9.86}{m}} & \SI{9.90}{m}\\
+Interior width       & \measured{\SI{4.96}{m}} & \SI{4.90}{m}\\
+Dimensional error    & \multicolumn{2}{r}{\measured{$-4$~cm~/~$+6$~cm}}\\
+Floor coverage       & \measured{100\%} & ---\\
+Phantom clutter      & \measured{0.0\%} (0 cells) & ---\\
+Growing rows found   & \measured{3 of 3} & 3\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two points deserve emphasis. First, this quality is reached after
+\emph{one} lap: laps two and three, costing \SI{163}{s} of simulated time
+between them, produced no measurable improvement. That is an actionable
+finding and appears in the plan (Section~\ref{sec:plan}). Second, the map is
+built on wheel odometry alone, with no SLAM correction, which sets the context
+for the negative result of Section~\ref{sec:slam}.
+
+\subsection{Navigation throughput}
+
+Table~\ref{tab:time} gives the time budget. The \nodename{perf\_monitor} node
+classifies every control tick into one of three buckets: \emph{driving} (a
+translation command is being executed), \emph{blocked} (a translation was
+commanded and the protective stop cancelled it) and \emph{working} (stopped on
+purpose --- aligning on a fruit or running an arm cycle).
+
+\begin{table}[!t]
+\caption{Time budget of a complete reference run (simulated time)}
+\label{tab:time}
+\centering\footnotesize
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Phase} & \textbf{Driving} & \textbf{Blocked} & \textbf{Working}\\
+\midrule
+Survey lap 1        & \measured{92\%} & \measured{1\%} & \measured{6\%}\\
+Survey, laps 1--3   & \measured{93\%} & \measured{1\%} & \measured{6\%}\\
+Harvest phase       & \measured{52\%} & \measured{10\%} & \measured{39\%}\\
+\midrule
+Whole mission       & \measured{69\%} & \measured{6\%} & \measured{25\%}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!t]
+\centering
+\begin{tikzpicture}
+  \timebar{0mm}{92}{1}{6}{survey}
+  \timebar{-7mm}{52}{10}{39}{harvest}
+  \timebar{-14mm}{69}{6}{25}{mission}
+  % legend
+  \begin{scope}[yshift=-24mm]
+    \fill[okFill,draw=okGreen] (0,0) rectangle (3mm,3mm);
+    \node[anchor=west,font=\sffamily\scriptsize] at (4mm,1.5mm) {driving};
+    \fill[badFill,draw=badRed] (18mm,0) rectangle (21mm,3mm);
+    \node[anchor=west,font=\sffamily\scriptsize] at (22mm,1.5mm) {blocked};
+    \fill[warnFill,draw=warnAmber] (37mm,0) rectangle (40mm,3mm);
+    \node[anchor=west,font=\sffamily\scriptsize] at (41mm,1.5mm) {working};
+  \end{scope}
+\end{tikzpicture}
+\caption{Where the mission time goes. The survey phase is close to saturated:
+\measured{92\%} of it is productive motion. The harvest phase is not, and the
+\measured{39\%} amber band is the single largest recoverable loss in the
+system --- it is alignment attempts that end without a pick, not picking.}
+\label{fig:timebudget}
+\end{figure}
+
+Survey laps took \measured{\SI{81}{s}}, \measured{\SI{81}{s}} and
+\measured{\SI{82}{s}} --- a spread of \SI{1}{s} over three laps, which is the
+repeatability one wants from a deterministic coverage route. Mean speed over
+the whole mission was \measured{\SI{0.50}{m/s}} against a cruise setting of
+\SI{0.60}{m/s}, with \measured{\SI{40.9}{m}} covered in the first lap.
+
+\subsection{Protective stop}
+
+The guard measures clearance from the \emph{footprint edge} along the
+commanded direction of travel, not from the lidar at the base centre, using a
+rectangular footprint model (half-length \SI{0.29}{m}, half-width
+\SI{0.19}{m}) rather than a circumscribed disc. It is also self-explaining: on
+every intervention it reports what stopped it, in both body and world
+coordinates. A representative log line:
+
+\begin{lstlisting}[style=bash]
+Translation held: heading +0 deg (body), obstacle
+at body (+0.39, +0.24), 0.10 m from the bumper
+ = world (+3.15, +0.01).
+\end{lstlisting}
+
+This is not cosmetic. Two earlier attempts to fix the guard made it worse
+because the log said only "obstacle within 0.12 m", which in a \SI{1.05}{m}
+lane is a puzzle rather than a diagnosis.
+
+\subsection{Manipulation}
+
+Multi-pick per station works: the robot harvests everything within reach
+before moving on, as commercial harvesters do. The reference run logged
+\texttt{Pick done (3 at this stop)} and \texttt{Pick done (2 at this stop)},
+for \measured{16} berries at \measured{2.7} per simulated minute, or
+\measured{\SI{22}{s}} of simulated time each.
+
+\subsection{What transferred from \phaseA{} unchanged}
+
+A secondary result, and one that justifies the two-phase structure: the
+algorithm layer developed in Webots ported to ROS~2 without redesign.
+Mecanum inverse kinematics with direction-preserving saturation, log-odds
+occupancy mapping with exact Bresenham ray casting, A$^\star$ with the octile
+heuristic on an inflated grid, and pure-pursuit following all moved across as
+framework-independent libraries, with only their tuning constants re-derived
+for the narrower greenhouse. Three constants changed and each change was
+traceable to the environment rather than the algorithm: the lookahead distance
+fell from \SI{0.40}{m} to \SI{0.32}{m}, the inflation radius from
+\SI{0.32}{m} to \SI{0.18}{m}, and the footprint model changed from a
+circumscribed disc to a rectangle.
+
+That last change is the interesting one. A disc of radius
+$\sqrt{0.29^2 + 0.19^2} = \SI{0.347}{m}$ is correct for a body that may be
+arbitrarily rotated, and it is what \phaseA{} used in \SI{1.2}{m} aisles. In
+\SI{0.80}{m} aisles it is \SI{16}{cm} too conservative sideways, which is the
+difference between a passable lane and an impassable one. The rectangular
+model, evaluated along the commanded direction as
+$\min(a/|\cos\theta|,\, b/|\sin\theta|)$, restores the margin.
+
+\subsection{Engineering infrastructure}
+
+Table~\ref{tab:infra} lists what exists around the robot code. This is
+reported as a result because it is what makes every other number in this
+document trustworthy.
+
+\begin{table}[!t]
+\caption{Verification and measurement infrastructure}
+\label{tab:infra}
+\centering\footnotesize
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Item} & \textbf{Size}\\
+\midrule
+Automated pre-flight regression checks & \measured{199}\\
+Parameter file / node default cross-checks & \measured{24 parameters}\\
+Ground-truth scoring nodes & 3\\
+Single-subsystem test controllers (\phaseA{}) & 11\\
+Hardware commissioning stages (new) & 10\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\section{What Does Not Work}
+\label{sec:broken}
+% =====================================================================
+
+\subsection{Fruit detection --- the dominant bottleneck}
+
+The detector thresholds redness by channel ratio ($G < 0.33R$ and
+$B < 0.33R$), groups the mask into blobs, and back-projects each centroid onto
+the known plant-top plane. Table~\ref{tab:vision} gives its measured
+performance against the 127 known berry positions.
+
+\begin{table}[!t]
+\caption{Fruit detection and localisation, measured against ground truth}
+\label{tab:vision}
+\centering\footnotesize
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Quantity} & \textbf{Measured}\\
+\midrule
+Recall (real berries reported)      & \measured{$\approx$69\%}\\
+Map estimates matching no real berry & \measured{66 of 111}\\
+Position error of matched estimates & \measured{\SI{0.21}{m}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Roughly \measured{three of every five} map estimates are spurious. The
+consequence is visible one row up, in Fig.~\ref{fig:timebudget}: the robot
+stops beside things that are not fruit, creeps toward them, fails to centre
+anything, and times out. Log evidence is abundant --- \texttt{Alignment
+stalled \ldots resuming patrol}, \texttt{Alignment lost/timed out} --- and it
+accounts for most of the \measured{39\%} amber band.
+
+There is a structural reason the detector cannot be repaired by tuning:
+\textbf{no fruit map exists}. The detector publishes per-frame detections and
+nothing on the robot accumulates them. The 111 estimates counted above are
+tallied by the external scorer, not by the robot. A berry seen once, in one
+frame, is therefore accepted as real, with no possibility of corroboration.
+
+\subsection{Homemade SLAM --- a negative result}
+\label{sec:slam}
+
+A correlative scan matcher \cite{olson2009correlative} with a likelihood-field
+score \cite{thrun2005probabilistic} was implemented as an online SLAM
+front-end, with a coarse-then-fine search and a strictly-better acceptance
+gate. Measured against ground truth, \textbf{it is worse than the odometry
+prior it was meant to correct}. The calibrated odometry holds
+\measured{\SI{0.20}{m}} of position error over a ten-minute mission; the
+scan-matched estimate does not improve on that and degrades it in the long,
+geometrically repetitive aisles, where the score surface has a broad plateau
+and shifting the scan along the aisle explains the map as well as the true
+pose does.
+
+This is reported as a result rather than deleted. It bounds what a naive
+front-end can do in a structured, self-similar environment, and it is the
+measured justification for the localisation plan of
+Section~\ref{sec:plan-localisation}.
+
+\subsection{Map degradation during harvest}
+
+Map quality is \measured{0.0\%} clutter after the survey but degrades to
+\measured{4.2\%} clutter by the end of the harvest phase, with interior
+dimensional error growing to \measured{$-9$~cm}. The degradation tracks
+odometry drift: scans integrated from a progressively wrong pose smear
+obstacle edges. The map is therefore accurate when it is built and slowly
+becomes less so, which is the expected signature of unbounded dead reckoning
+and another argument for the same fix.
+
+\subsection{Recovery latency at the end of a goal}
+
+In the reference run the robot sat at $(+3.51, +0.75)$ for approximately
+\SI{80}{s} of wall time, repeating \texttt{goal explore (+3.80, +0.60) |
+waypoint 1/4}, while \nodename{navigation\_node} had already reported
+\texttt{Goal reached}. The distance to the goal was \SI{0.33}{m} against an
+\param{ARRIVAL\_TOLERANCE} of \SI{0.30}{m}: the follower considered the path
+complete and the mission did not.
+
+The condition is recoverable --- a global watchdog fires after \SI{75}{s} of
+\emph{simulated} time, which at the observed real-time factor is about
+\SI{160}{s} of wall time --- but the run was interrupted before it triggered.
+The defect is therefore one of recovery \emph{latency}, not of deadlock, and
+it is ranked accordingly in the plan.
+
+\subsection{Residual protective-stop conservatism}
+
+Three protective interventions in the reference run all named the same
+geometry: the centre gutter faces at $y = \pm 0.20$ entering the
+\SI{0.24}{m} half-width test corridor while the robot drove the $y \approx
+-0.45$ aisle. The guard is not wrong; it is slightly wider than a
+\SI{0.80}{m} aisle can afford.
+
+\subsection{Summary}
+
+\begin{table}[!t]
+\caption{Subsystem status at the reference run}
+\label{tab:status}
+\centering\footnotesize
+\begin{tabular}{@{}lcp{0.40\columnwidth}@{}}
+\toprule
+\textbf{Subsystem} & \textbf{Status} & \textbf{Limiting measurement}\\
+\midrule
+Simulation \& bridge     & \WORKS   & starts reliably\\
+Odometry (calibrated)    & \WORKS   & \measured{\SI{0.20}{m}} / 10 min\\
+Occupancy mapping        & \WORKS   & \measured{$-4$/$+6$~cm}, \measured{0.0\%} clutter\\
+Path planning \& following & \WORKS & \measured{\SI{0.50}{m/s}}, \measured{1\%} blocked\\
+Protective stop          & \PARTIAL & 3 conservative stops at gutter corners\\
+Harvest patrol           & \PARTIAL & \measured{39\%} in failed alignments\\
+Arm / multi-pick         & \WORKS   & \measured{16} berries, \measured{\SI{22}{s}} each\\
+Fruit detection          & \BROKEN  & \measured{69\%} recall, \measured{66/111} spurious\\
+Fruit map (persistent)   & \BROKEN  & does not exist\\
+Homemade SLAM            & \BROKEN  & worse than the prior\\
+End-of-goal recovery     & \PARTIAL & \SI{75}{s} sim-time watchdog latency\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\section{Defects Diagnosed and Corrected}
+\label{sec:defects}
+% =====================================================================
+
+Three defects were found, root-caused and fixed during this reporting period.
+They are documented because the root causes generalise.
+
+\subsection{Crabbing: the follower translated while rotating}
+
+The pure-pursuit follower resolved the world-frame velocity toward the
+lookahead point into the body frame and issued it \emph{simultaneously} with a
+proportional yaw command. This is legal for a holonomic base and it is what
+\phaseA{} used successfully in \SI{1.2}{m} aisles. In \SI{0.80}{m} aisles it
+has two consequences: the swept width of a $0.58 \times \SI{0.38}{m}$ body
+crossing at $45^\circ$ grows from \SI{0.38}{m} to \SI{0.68}{m}; and the
+protective stop, which tests the corridor swept along the \emph{commanded}
+direction, aims its test rectangle into the gutter beside the robot rather
+than down the lane ahead.
+
+The correction is to face the target first and translate along the body $x$
+axis scaled by $\cos(e_\psi)$, reserving holonomic translation for the two
+manoeuvres that genuinely need it. Table~\ref{tab:crab} gives the measured
+effect.
+
+\begin{table}[!t]
+\caption{Effect of the heading-first correction}
+\label{tab:crab}
+\centering\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Quantity} & \textbf{Before} & \textbf{After}\\
+\midrule
+Time blocked        & \measured{46\%} & \measured{1\%}\\
+Survey lap duration & \measured{\SI{295}{s}} & \measured{\SI{82}{s}}\\
+Mean speed          & \measured{\SI{0.17}{m/s}} & \measured{\SI{0.50}{m/s}}\\
+Berries harvested   & \measured{5} & \measured{16}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\emph{Generalisable lesson:} a design can be correct in one environment and
+wrong in another for reasons no code review surfaces. Only a narrower corridor
+and a time measurement exposed this.
+
+\subsection{Clearance measured from the wrong origin}
+
+The protective stop compared lidar ranges, measured from the sensor at the
+\emph{base centre}, against a \SI{0.28}{m} threshold --- while the body's
+half-length is \SI{0.29}{m}. The brake therefore fired when the wall was
+\SI{1}{cm} \emph{inside} the robot's own nose. Because the base has no
+collision geometry, nothing in the physics stopped it either. The fix was a
+shared clearance library, used by both the guard and the recovery so they
+cannot disagree, in which every distance is measured from the footprint edge
+along the direction of travel.
+
+\subsection{Parameter drift between file and code}
+
+After the clearance semantics changed, the parameter file retained the old
+centre-relative values. The file wins at runtime, so every threshold silently
+doubled: \SI{0.28}{m} from the bumper is \SI{0.57}{m} from the centre. That
+run spent \measured{58\%} of its time blocked and harvested \measured{5}
+berries instead of \measured{27}. The fix was not vigilance but automation:
+a start-up check that cross-references all \measured{24} parameters against
+the node defaults and refuses to launch on disagreement. It immediately caught
+three further silent drifts.
+
+% =====================================================================
+\section{Sim-to-Real Gap}
+\label{sec:sim2real}
+% =====================================================================
+
+Four assumptions hold in the twin and fail in a greenhouse. They are listed
+with magnitudes so they can be planned against rather than discovered.
+
+\textbf{1. Glass is opaque to the lidar.} In Gazebo, walls return every beam.
+A real 2D lidar at glancing incidence on glass receives a weak return or none,
+so the wall becomes invisible. This is the most dangerous of the four, and its
+mitigation is physical: an opaque band at lidar height along every reachable
+pane.
+
+\textbf{2. The floor does not slip.} The base is driven kinematically, so
+mecanum roller slip is unmodelled. On a wet greenhouse floor, slip corrupts
+heading worst, and heading error propagates directly into fruit position: a
+$5^\circ$ heading error at \SI{2}{m} displaces a back-projected estimate by
+\SI{0.17}{m}. Measured drift of \SI{0.20}{m} per ten minutes in simulation is
+not a prediction for hardware.
+
+\textbf{3. Illumination is constant and neutral.} The colour-ratio test is
+invariant to illumination \emph{scaling}, which is why it survives shade, but
+not to colour \emph{temperature}. Late-afternoon light through glass lowers
+$G/R$ for the entire scene, at which point everything passes the fruit test.
+
+\textbf{4. Stopping is instantaneous.} The protective distance of
+\SI{0.12}{m} is correct for a kinematic model. For hardware, ISO~13855 gives
+\begin{equation}
+S = K\,(t_{\text{react}} + t_{\text{stop}}) + C ,
+\label{eq:iso13855}
+\end{equation}
+and with a scan age plus control period plus drive latency of
+$t_{\text{react}} \approx \SI{0.20}{s}$, a mechanical stop of
+$t_{\text{stop}} \approx \SI{0.30}{s}$ and a margin $C = \SI{0.20}{m}$ at
+$K = \SI{0.30}{m/s}$, the required distance is \SI{0.35}{m} --- close to three
+times the simulation value. This is arithmetic, not caution.
+
+% =====================================================================
+\section{Improvement Plan}
+\label{sec:plan}
+% =====================================================================
+
+Table~\ref{tab:plan} ranks the planned work by measured benefit against
+effort. The ordering is deliberate: items are sequenced so that each one is
+verifiable by an existing measurement before the next begins.
+
+\begin{table}[!t]
+\caption{Prioritised improvement plan}
+\label{tab:plan}
+\centering\footnotesize
+\begin{tabular}{@{}clp{0.30\columnwidth}c@{}}
+\toprule
+\textbf{\#} & \textbf{Action} & \textbf{Targets} & \textbf{Effort}\\
+\midrule
+1 & Mission restructure: 1 survey lap, 2 scouting laps, then harvest & \SI{163}{s} of wasted survey; no fruit map & low\\
+2 & Persistent fruit map with two-pass confirmation & \measured{66/111} spurious & low\\
+3 & Arrival-tolerance reconciliation & \SI{75}{s} recovery latency & low\\
+4 & Narrow the corridor half-width & 3 conservative stops & low\\
+5 & Synthetic dataset with domain randomisation & no training data & medium\\
+6 & Learned detector, evaluated offline & \measured{69\%} recall & medium\\
+7 & State feedback on the alignment loop & \measured{39\%} working time & medium\\
+8 & IMU + EKF + AMCL localisation & \measured{\SI{0.20}{m}} drift; map decay & medium\\
+9 & Pan head, $\pm 90^\circ$ & coverage per lap & medium\\
+10 & MPC as a comparison to pure pursuit & constraint handling & high\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Mission restructure and the fruit map}
+
+Map quality saturates after lap one (Section~\ref{sec:works}), so two of the
+three survey laps are pure cost. They are replaced by two \emph{scouting}
+laps, during which the robot detects but does not pick, and a persistent fruit
+map accumulates observations, merging detections within a fusion radius as the
+crate discovery of \phaseA{} already does.
+
+The value is not the time saved. It is that two spatially distinct passes
+provide a \textbf{corroboration criterion}: a candidate seen from only one
+pass is rejected. This is the direct structural attack on the
+\measured{66 of 111} spurious estimates and, through them, on the
+\measured{39\%} of harvest time spent aligning on nothing. The target mission
+becomes \texttt{SURVEY $\times$1 $\rightarrow$ SCOUT $\times$2 $\rightarrow$
+HARVEST}.
+
+\subsection{Perception: data first, model second}
+
+The site is not accessible for photography, so the training set will be
+generated from the digital twin with domain randomisation over the nuisance
+variables that break the current detector: colour temperature and intensity,
+sun direction and shadows, ripeness as a continuum rather than a binary,
+occlusion by foliage, and deliberately included red distractors. The simulator
+supplies the annotations, which is the one thing a twin gives that a
+photographer does not.
+
+The limitation is stated plainly: a model trained only on rendered images will
+transfer imperfectly. The plan is synthetic data plus public strawberry
+datasets \cite{sa2016deepfruits} now, with fine-tuning on a few hundred real
+annotated images once the site is reachable. Evaluation is offline, against
+human annotations, and \textbf{against the current colour threshold on the
+same images} --- otherwise the comparison proves nothing.
+
+\subsection{Control: state feedback where it is measurable}
+
+The visual alignment loop is currently proportional with a dead zone and a
+saturation, and its logged failure signature is a steady-state error: an offset
+that sits at $+0.04$ to $+0.08$ and never centres. That is precisely the
+condition a proportional law with a dead zone cannot remove.
+
+The loop is recast in discrete state-space form. With $\delta$ the lateral
+offset of the target in the image and $v_y$ the commanded lateral velocity,
+\begin{equation}
+X(k) = \begin{pmatrix} \delta(k) \\ \textstyle\sum \delta \end{pmatrix},
+\qquad
+X(k{+}1) = A\,X(k) + B\,e(k),
+\label{eq:statespace}
+\end{equation}
+under the state-feedback law
+\begin{equation}
+e(k) = -R\,X(k) + Q\,C ,
+\label{eq:feedback}
+\end{equation}
+with $R$ obtained by pole placement for a settling time of about \SI{1.5}{s}
+without overshoot, and $Q$ chosen for unity static gain so the steady-state
+error vanishes. The image gain depends on range, which the fixed proportional
+gain ignores; the model makes that explicit.
+
+Model predictive control is planned as a \emph{comparison} rather than a
+replacement. Its attraction is that three things currently handled separately
+--- velocity and acceleration limits, obstacle clearance, and the penalty on
+lateral velocity that suppresses crabbing --- become constraints and cost
+terms of one optimisation over a horizon $H$. Its cost is a quadratic-program
+solver at \SI{20}{Hz}, error-frame linearisation, and infeasibility handling,
+against an incumbent that already achieves \measured{\SI{0.50}{m/s}} with
+\measured{1\%} blocked time. It is therefore a chapter and a benchmark, not a
+substitution.
+
+\subsection{State estimation}
+\label{sec:plan-localisation}
+
+The homemade SLAM front-end failed; the response is not to tune it but to
+change the architecture, in ascending order of cost:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item An \textbf{IMU}. Mecanum slip corrupts heading worst, and heading is
+        what corrupts fruit localisation. A gyroscope bounds it at negligible
+        cost, and is the highest benefit-to-cost item in this section.
+  \item \textbf{EKF fusion} of wheel odometry and IMU. This is the stochastic
+        form of the Luenberger observer, $\hat{X}(k{+}1) = A\hat{X}(k) + Be(k)
+        + L(y(k) - C\hat{X}(k))$, with $L$ obtained from noise covariances
+        rather than placed by hand.
+  \item \textbf{AMCL} against the map built in a dedicated mapping run. This
+        supplies the \emph{absolute} correction the scan matcher failed to
+        provide, and turns drift from cumulative into bounded.
+  \item \textbf{Surveyed fiducials} at gutter ends, giving centimetre-accurate
+        absolute fixes and global localisation from an unknown start pose.
+\end{enumerate}
+
+\subsection{Sensing geometry}
+
+A pan head of $\pm 90^\circ$ is being added, decoupling where the robot looks
+from where it drives, so both plant rows are observable from one aisle. Two
+fixed cameras would achieve the same with no moving part and are mechanically
+preferable in a humid environment; the pan head was chosen on cost. The
+trade-off is recorded explicitly: the pan angle enters the fruit
+back-projection in series with the robot yaw, so images must be taken with the
+head settled, never mid-sweep.
+
+\subsection{Hardware commissioning}
+
+A ten-stage commissioning package has been built, each stage a runnable node
+with a written procedure, a numeric pass/fail criterion and an archived JSON
+and Markdown report. Stages run in order and a stage that has not passed
+blocks those after it. The sequence is: emergency stop and speed bridle;
+wheel command; UMBmark odometry calibration \cite{borenstein1996umbmark} on
+the real floor; lidar validation against real glass; manual mapping; bounded
+localisation over thirty minutes; autonomous navigation in an empty
+greenhouse; dataset collection; offline detector evaluation; and supervised
+single-fruit picking.
+
+Two stages are expected to fail first, and both change the plan rather than
+the tuning: lidar-versus-glass, whose remedy is to modify the greenhouse, and
+the thirty-minute localisation bound, whose remedy is the estimator stack
+above. Every physical constant lives in one profile file with \texttt{sim} and
+\texttt{hardware} variants, so the protective distance moves from
+\SI{0.12}{m} to the \SI{0.35}{m} of \eqref{eq:iso13855} by selecting a
+profile rather than by editing code.
+
+\begin{figure}[!t]
+\centering
+\begin{tikzpicture}[
+  st/.style={rectangle, rounded corners=1pt, draw=coolLine, fill=coolFill,
+             minimum width=52mm, minimum height=5.2mm, align=left,
+             font=\sffamily\scriptsize, inner sep=2pt},
+  hi/.style={st, fill=badFill, draw=badRed},
+  ar/.style={-{Stealth[length=1.6mm]}, draw=coolLine}]
+  \node[st] (s0) {\textbf{0} E-stop + speed bridle};
+  \node[st, below=1.6mm of s0] (s1) {\textbf{1} Wheel command, three twists};
+  \node[st, below=1.6mm of s1] (s2) {\textbf{2} UMBmark on the real floor};
+  \node[hi, below=1.6mm of s2] (s3) {\textbf{3} Lidar vs.\ glass \ \bad{$\leftarrow$ expect to fail}};
+  \node[st, below=1.6mm of s3] (s4) {\textbf{4} Manual mapping (robot pushed)};
+  \node[hi, below=1.6mm of s4] (s5) {\textbf{5} 30-min bounded localisation \ \bad{$\leftarrow$}};
+  \node[st, below=1.6mm of s5] (s6) {\textbf{6} Autonomous nav, empty greenhouse};
+  \node[st, below=1.6mm of s6] (s7) {\textbf{7} Dataset collection};
+  \node[st, below=1.6mm of s7] (s8) {\textbf{8} Offline detector evaluation};
+  \node[st, below=1.6mm of s8] (s9) {\textbf{9} Supervised single-fruit pick};
+  \foreach \a/\b in {s0/s1,s1/s2,s2/s3,s3/s4,s4/s5,s5/s6,s6/s7,s7/s8,s8/s9}
+    \draw[ar] (\a) -- (\b);
+\end{tikzpicture}
+\caption{The ten commissioning stages. Each removes exactly one unknown, and a
+stage that has not passed blocks every stage after it. The two highlighted
+stages are the ones expected to fail first; in both cases the remedy changes
+the plan --- modify the greenhouse, or change the estimator architecture ---
+rather than the tuning.}
+\label{fig:commissioning}
+\end{figure}
+
+\subsection{Sequencing}
+
+Table~\ref{tab:schedule} groups the plan into three blocks, ordered so that
+each block is verifiable by instruments that already exist before the next
+begins. The first block requires no new hardware, no new data and no new
+theory, and it addresses the two largest measured losses in the system.
+
+\begin{table}[!t]
+\caption{Work sequencing and the measurement that closes each block}
+\label{tab:schedule}
+\centering\footnotesize
+\begin{tabular}{@{}lp{0.32\columnwidth}p{0.30\columnwidth}@{}}
+\toprule
+\textbf{Block} & \textbf{Contents} & \textbf{Closed when}\\
+\midrule
+A --- software only
+  & items 1--4: mission restructure, fruit map, arrival tolerance, corridor width
+  & harvest \emph{working} time below 20\%; spurious estimates below one in five\\
+\addlinespace
+B --- perception
+  & items 5--7: synthetic dataset, learned detector, alignment state feedback
+  & stage-8 precision and recall above target and above the colour baseline\\
+\addlinespace
+C --- hardware readiness
+  & items 8--10 plus commissioning stages 0--9
+  & stage 5 shows a flat drift slope over 30 min\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Block~A is the only one whose benefit is already quantified by an existing
+measurement, which is why it is first: the \measured{39\%} of harvest time and
+the \measured{66 of 111} spurious estimates are both instrumented today, so
+the effect of the change will be visible on the next run without building
+anything new to see it.
+
+Finally, and separately from all of the above: the speed clamp and arming
+interface in that package are \emph{functional} safety only. They are Python
+in a non-real-time process. Protection of people requires a hardware emergency
+stop that cuts motor power without the computer's participation, a bridled
+speed, and --- for operation alongside workers --- a certified safety scanner
+independent of ROS \cite{iso36914}.
+
+% =====================================================================
+\section{Threats to the Validity of These Measurements}
+% =====================================================================
+
+The numbers above are only as good as the way they were obtained, and four
+limitations should be stated by the author rather than found by the reader.
+
+\textbf{Single-run reporting.} The reference run is one run. Survey lap times
+were repeatable to \SI{1}{s} across three laps, which supports the navigation
+figures, but the harvest figures --- \measured{16} berries, \measured{39\%}
+working time --- come from one harvest phase and carry no variance estimate.
+A statistically defensible claim needs the run repeated with different random
+seeds, which is planned alongside block~A.
+
+\textbf{The scorer shares a world model with the robot.}
+\nodename{map\_eval} compares the reconstructed map against the same world
+description the simulator was built from, so it validates the mapper but
+cannot detect an error in the world description itself. The same holds for
+fruit positions. This is unavoidable in simulation and disappears on hardware,
+where the tape measure is genuinely independent.
+
+\textbf{Recall is measured against berries in the world, not berries that were
+visible.} The \measured{69\%} figure counts all 127 berries, including those
+the camera never had a viewpoint on. It therefore conflates detector recall
+with route coverage and understates the detector. Separating the two requires
+per-frame visibility ground truth, which the offline evaluation of stage~8
+will provide.
+
+\textbf{Sim time versus wall time.} All durations are simulated. At a
+real-time factor of \measured{0.47}, a mission reported as \SI{9}{min}
+\SI{54}{s} took \SI{21}{min} \SI{13}{s} on the wall. Timeouts specified in
+simulated time behave differently in wall-clock terms, which is exactly what
+produced the apparent deadlock of Section~\ref{sec:broken}: a \SI{75}{s}
+watchdog is a \SI{160}{s} wait for the person watching.
+
+% =====================================================================
+\section{Conclusion}
+% =====================================================================
+
+The navigation half of this system is finished to a standard that can be
+defended with measurements: a greenhouse reconstructed to
+\measured{$-4$~cm~/~$+6$~cm} with \measured{100\%} coverage and
+\measured{0.0\%} clutter, surveyed in \measured{\SI{81}{s}} per lap at
+\measured{\SI{0.50}{m/s}} with \measured{1\%} of time under protective stop,
+and a harvesting arm that picks multiple fruits per station.
+
+The perception half is not, and the bottleneck is identified rather than
+suspected: a colour-threshold detector at \measured{69\%} recall with
+\measured{66 of 111} map estimates spurious, feeding a mission that has no
+persistent fruit map and therefore no way to disbelieve a single observation.
+That one structural gap explains the \measured{39\%} of harvest time spent in
+alignments that end without a pick, and it is the first item of the plan.
+
+Three subsystems were measured and found wanting, and are reported as such.
+Three defects were root-caused and corrected, one of which --- a path follower
+that translated while rotating --- accounted for a $46\% \rightarrow 1\%$
+reduction in blocked time. The remaining work is ordered so that each step is
+verifiable by an instrument that already exists, and hardware deployment is
+gated behind ten commissioning stages whose criteria are written before the
+robot is switched on rather than after.
+
+\begin{thebibliography}{9}
+\bibitem{ilon1975wheel}
+B.~E. Ilon, ``Wheels for a course stable self-propelling vehicle movable in
+any desired direction on the ground or some other base,'' U.S. Patent
+3\,876\,255, 1975.
+
+\bibitem{olson2009correlative}
+E.~B. Olson, ``Real-time correlative scan matching,'' in \emph{Proc. IEEE Int.
+Conf. Robotics and Automation}, 2009, pp. 4387--4393.
+
+\bibitem{thrun2005probabilistic}
+S.~Thrun, W.~Burgard, and D.~Fox, \emph{Probabilistic Robotics}. Cambridge,
+MA: MIT Press, 2005.
+
+\bibitem{sa2016deepfruits}
+I.~Sa, Z.~Ge, F.~Dayoub, B.~Upcroft, T.~Perez, and C.~McCool, ``DeepFruits: A
+fruit detection system using deep neural networks,'' \emph{Sensors}, vol. 16,
+no. 8, p. 1222, 2016.
+
+\bibitem{borenstein1996umbmark}
+J.~Borenstein and L.~Feng, ``Measurement and correction of systematic odometry
+errors in mobile robots,'' \emph{IEEE Trans. Robotics and Automation},
+vol. 12, no. 6, pp. 869--880, 1996.
+
+\bibitem{iso36914}
+\emph{Industrial trucks --- Safety requirements and verification --- Part 4:
+Driverless industrial trucks and their systems}, ISO 3691-4, 2020.
+\end{thebibliography}
+
+\end{document}
