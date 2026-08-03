@@ -61,6 +61,8 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool
 
+from youbot_control.lib.clearance import corridor_clearance
+
 
 def yaw_from_quaternion(q) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -70,8 +72,15 @@ def yaw_from_quaternion(q) -> float:
 class SafetyNode(Node):
     def __init__(self) -> None:
         super().__init__("safety_node")
-        self.declare_parameter("stop_distance", 0.28)   # m: hard stop this close
-        self.declare_parameter("slow_distance", 0.60)   # m: start scaling down
+        # BUMPER clearances, not sensor ranges. Both are measured from the edge
+        # of the footprint along the direction of travel (lib/clearance.py) --
+        # they used to be measured from the lidar, which sits at the centre of
+        # a 0.58 m-long base, so "stop at 0.28 m" meant stopping when the wall
+        # was 1 cm inside the robot's own nose. That is the wedge in the field
+        # photo. 0.12 m in front of the bumper is the same brake, applied
+        # somewhere the robot can actually still stop.
+        self.declare_parameter("stop_distance", 0.12)   # m from the bumper
+        self.declare_parameter("slow_distance", 0.35)   # m: start scaling down
         # Half-width of the swept corridor: the base is 0.38 m wide (0.19 half)
         # and the wheels stand a little proud, so 0.24 covers the body with a
         # small margin. Wider than that and the robot brakes for walls it is
@@ -100,7 +109,7 @@ class SafetyNode(Node):
         # turns that into sideways drift nobody was watching. Keeping a
         # minimum clearance on both flanks is what holds it in the aisle --
         # sensor-based, so it works in any corridor, not just this greenhouse.
-        self.declare_parameter("side_min", 0.30)        # m: closest flank allowed
+        self.declare_parameter("side_min", 0.10)        # m from the flank edge
         self.declare_parameter("side_push", 0.12)       # m/s max correction
         self.declare_parameter("side_band", 0.35)       # m: fore/aft extent measured
         self.declare_parameter("cmd_timeout", 1.0)      # s without a command
@@ -162,18 +171,11 @@ class SafetyNode(Node):
 
     # ------------------------------------------------------------- layers
     def _corridor_clearance(self, direction: float) -> float:
-        """Distance ALONG `direction` (body frame) to the nearest return that
-        falls inside the rectangle the base will sweep going that way.
-        inf when the corridor is clear."""
-        ux, uy = math.cos(direction), math.sin(direction)
-        best = float("inf")
-        for px, py in self._pts:
-            along = px * ux + py * uy
-            if along <= 0.0 or along >= best:
-                continue
-            if abs(-px * uy + py * ux) <= self._half_w:   # inside our width
-                best = along
-        return best
+        """Free distance in front of the FOOTPRINT along `direction` (body
+        frame). inf when the corridor is clear. See lib/clearance.py for why
+        this is measured from the bumper and not from the sensor."""
+        return corridor_clearance(self._pts, direction, self._half_w,
+                                  self._hl, self._hw)
 
     def _brake(self, vx, vy):
         """Scale translation by how far the swept corridor is clear."""
@@ -189,15 +191,20 @@ class SafetyNode(Node):
         return vx * f, vy * f, False
 
     def _flank(self, sign: float) -> float:
-        """Perpendicular clearance on one side (+1 left, -1 right), measured
-        over a band level with the base rather than a cone -- a cone at 90 deg
-        picks up whatever is diagonally ahead and calls it a wall."""
+        """Perpendicular clearance from the FLANK of the base on one side
+        (+1 left, -1 right), measured over a band level with the base rather
+        than a cone -- a cone at 90 deg picks up whatever is diagonally ahead
+        and calls it a wall. Edge-relative for the same reason as the brake:
+        `side_min` should read as room beside the robot, not as a lidar range
+        that happens to include half its own width."""
         best = float("inf")
         for px, py in self._pts:
             side = sign * py
             if 0.0 < side < best and abs(px) <= self._side_band:
                 best = side
-        return best
+        if best == float("inf"):
+            return best
+        return max(0.0, best - self._hw)
 
     def _recentre(self, translating: bool) -> float:
         """Body-frame vy that pushes off whichever flank is too close.
@@ -212,7 +219,11 @@ class SafetyNode(Node):
         if not translating:
             return 0.0
         left, right = self._flank(1.0), self._flank(-1.0)
-        room = self._side_min + 0.08
+        # Room needed on the far side before pushing that way. Kept just above
+        # side_min, not far above: an 0.8 m aisle leaves 0.21 m beside a
+        # centred base, so a generous margin here would mean "never recentre
+        # in the only corridor we have".
+        room = self._side_min + 0.06
         if left < self._side_min and right > room:
             return -self._side_push * min(1.0, (self._side_min - left) / self._side_min)
         if right < self._side_min and left > room:

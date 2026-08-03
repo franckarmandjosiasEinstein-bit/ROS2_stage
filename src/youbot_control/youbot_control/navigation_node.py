@@ -31,8 +31,10 @@ from rclpy.node import Node
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry, Path
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool
 
+from youbot_control.lib.clearance import best_escape
 from youbot_control.lib.pure_pursuit import PurePursuit
 
 
@@ -55,6 +57,18 @@ class NavigationNode(Node):
         self.declare_parameter("stuck_speed", 0.03)      # m/s: below this = not moving
         self.declare_parameter("stuck_time", 4.0)        # s before declaring stuck
         self.declare_parameter("recover_time", 2.0)      # s of escape manoeuvre
+        self.declare_parameter("escape_speed", 0.18)     # m/s during the escape
+        # Footprint, so the escape scores directions the same way the guard
+        # brakes them (lib/clearance.py). A recovery that reverses into a
+        # direction safety_node then cancels is the loop the field log shows:
+        # "Stuck at (+3.70, +0.61)" ten times in nine minutes, same spot.
+        self.declare_parameter("half_width", 0.24)
+        self.declare_parameter("base_length", 0.58)
+        self.declare_parameter("base_width", 0.38)
+        self.declare_parameter("min_valid_range", 0.30)
+        # Repeated stucks within this radius = the same trap, not bad luck.
+        self.declare_parameter("trap_radius", 0.40)      # m
+        self.declare_parameter("trap_count", 3)          # then give the goal up
 
         self.controller = PurePursuit(
             lookahead=self.get_parameter("lookahead").value,
@@ -63,6 +77,13 @@ class NavigationNode(Node):
         self._stuck_speed = float(self.get_parameter("stuck_speed").value)
         self._stuck_time = float(self.get_parameter("stuck_time").value)
         self._recover_time = float(self.get_parameter("recover_time").value)
+        self._escape_speed = float(self.get_parameter("escape_speed").value)
+        self._half_w = float(self.get_parameter("half_width").value)
+        self._hl = float(self.get_parameter("base_length").value) / 2.0
+        self._hw = float(self.get_parameter("base_width").value) / 2.0
+        self._min_range = float(self.get_parameter("min_valid_range").value)
+        self._trap_r = float(self.get_parameter("trap_radius").value)
+        self._trap_n = int(self.get_parameter("trap_count").value)
         self._pose = None
         self._last_wp = None
         self._reached_logged = False
@@ -72,10 +93,18 @@ class NavigationNode(Node):
         self._last_pos = None
         self._recover_until = 0.0
         self._recover_cmd = (0.0, 0.0, 0.0)
+        self._pts = []            # body-frame lidar returns (escape direction)
+        self._trap_xy = None      # where the last stuck happened
+        self._trap_hits = 0       # consecutive stucks in the same place
         self.create_subscription(Path, "plan", self._on_plan, 1)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(Bool, "pick_hold", self._on_hold, 5)
+        self.create_subscription(LaserScan, "scan", self._on_scan, 5)
         self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
+        # "This goal is not reachable from here." mission_node abandons on it
+        # immediately instead of burning its 60 s timeout twice over, which is
+        # what the field log spent nine minutes doing.
+        self.blocked_pub = self.create_publisher(Bool, "goal_blocked", 5)
         self.create_timer(self.get_parameter("control_period").value, self._control)
         self.get_logger().info(
             "navigation_node up: /plan + /odom -> /cmd_vel_raw (safety_node guards)")
@@ -83,6 +112,15 @@ class NavigationNode(Node):
     def _on_odom(self, msg: Odometry) -> None:
         p = msg.pose.pose
         self._pose = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
+
+    def _on_scan(self, msg: LaserScan) -> None:
+        pts = []
+        a = msg.angle_min
+        for r in msg.ranges:
+            if math.isfinite(r) and self._min_range < r < msg.range_max:
+                pts.append((r * math.cos(a), r * math.sin(a)))
+            a += msg.angle_increment
+        self._pts = pts
 
     def _on_hold(self, msg: Bool) -> None:
         held = bool(msg.data)
@@ -103,10 +141,42 @@ class NavigationNode(Node):
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
+    def _escape(self, commanded):
+        """Body-frame (vx, vy, wz) that drives out of wherever we are wedged.
+
+        The old manoeuvre was the constant (-0.15, 0, 0.6): reverse along the
+        current heading and spin. In the greenhouse that is often the one
+        direction with no room -- at the end of an aisle the way out is
+        sideways -- so it fired, achieved nothing, and fired again ten times
+        over nine minutes at the same coordinates.
+
+        Now the lidar picks the direction: the free space in front of the
+        FOOTPRINT is scored all the way around (lib/clearance.py, the same
+        function safety_node brakes with, so the guard cannot veto the escape
+        it just chose), headings near the one already failing are excluded,
+        and the base strafes toward the winner while turning to face it. The
+        mecanum base can do that without turning first, which is exactly what
+        it is for.
+        """
+        want = math.atan2(commanded[1], commanded[0]) \
+            if math.hypot(*commanded) > 1e-6 else None
+        d, gap = best_escape(self._pts, self._half_w, self._hl, self._hw,
+                             avoid=want)
+        if d is None or gap < 0.05:
+            # Boxed in on every heading (or no scan yet): rotate in place. It
+            # is always allowed -- safety_node only ever vetoes translation --
+            # and it hands the planner a new view.
+            return 0.0, 0.0, 0.6, d, gap
+        v = self._escape_speed
+        # Turn toward the opening as we go, so the next pure-pursuit segment
+        # starts pointing somewhere useful. Capped: a hard spin while
+        # strafing sweeps the corners into the wall we are escaping.
+        wz = max(-0.6, min(0.6, math.atan2(math.sin(d), math.cos(d))))
+        return v * math.cos(d), v * math.sin(d), wz, d, gap
+
     def _update_stuck(self, commanded) -> bool:
         """True while an escape manoeuvre is running. A robot that commands
-        motion but does not move is jammed (a corner, a map artefact): back
-        off along its own heading and rotate so the planner gets a new view."""
+        motion but does not move is jammed (a corner, a map artefact)."""
         t = self._now()
         if t < self._recover_until:
             return True
@@ -122,11 +192,34 @@ class NavigationNode(Node):
             return False
         if t - self._moved_at < self._stuck_time:
             return False
-        self._recover_until = t + self._recover_time
-        self._recover_cmd = (-0.15, 0.0, 0.6)      # reverse + turn away
+
+        # Same place as last time? Then the escape is not working and no
+        # amount of repeating it will help -- this goal is unreachable from
+        # here. Tell the mission so it advances now rather than at the 60 s
+        # timeout, twice.
+        if self._trap_xy is not None and \
+                math.hypot(x - self._trap_xy[0], y - self._trap_xy[1]) < self._trap_r:
+            self._trap_hits += 1
+        else:
+            self._trap_hits = 1
+        self._trap_xy = (x, y)
+
+        vx, vy, wz, d, gap = self._escape(commanded)
+        # Escalate: a trap that survived one escape gets a longer one.
+        self._recover_until = t + self._recover_time * min(3, self._trap_hits)
+        self._recover_cmd = (vx, vy, wz)
         self._moved_at = t
+        where = "no opening" if d is None else \
+            f"escaping toward {math.degrees(d):+.0f} deg ({gap:.2f} m free)"
         self.get_logger().warn(
-            f"Stuck at ({x:+.2f}, {y:+.2f}) -- backing off and turning.")
+            f"Stuck at ({x:+.2f}, {y:+.2f}) [{self._trap_hits}] -- {where}.")
+        if self._trap_hits >= self._trap_n:
+            self.get_logger().warn(
+                f"Stuck {self._trap_hits} times inside {self._trap_r:.2f} m "
+                "-- reporting the goal as blocked.")
+            self.blocked_pub.publish(Bool(data=True))
+            self._trap_hits = 0
+            self._trap_xy = None
         return True
 
     def _control(self) -> None:

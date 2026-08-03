@@ -47,12 +47,16 @@ class MapEval(Node):
         self._grid = None
         self._source = None
         self._walls, self._rows = self._load_world()
-        # /map_slam is the raw SLAM belief; /map is the PLANNING grid and is
-        # inflated by the robot radius, which fattens every wall by ~0.36 m and
-        # would report the greenhouse as a third smaller than it is. Take the
-        # raw one whenever it exists and never fall back once it has appeared.
+        # Preference order, best evidence first. /map_slam is the SLAM belief;
+        # /map_raw is the mapper's log-odds evidence; /map is the PLANNING grid,
+        # inflated by the robot radius -- that fattens every wall by ~0.36 m and
+        # reports the greenhouse ~20 cm short with 15% phantom clutter, which is
+        # exactly what the last run measured because it was the only topic
+        # available with SLAM off. Never fall back once a better one appears.
         self.create_subscription(
             OccupancyGrid, "map_slam", lambda m: self._on_map(m, "map_slam"), 1)
+        self.create_subscription(
+            OccupancyGrid, "map_raw", lambda m: self._on_map(m, "map_raw"), 1)
         self.create_subscription(
             OccupancyGrid, "map", lambda m: self._on_map(m, "map (inflated)"), 1)
         self.create_subscription(Int32, "survey_lap", self._on_lap, 5)
@@ -112,8 +116,11 @@ class MapEval(Node):
         return (x0, x1, y0, y1), sorted(rows)
 
     # ---------------------------------------------------------------- inputs
+    RANK = {"map_slam": 2, "map_raw": 1, "map (inflated)": 0}
+
     def _on_map(self, msg: OccupancyGrid, source: str) -> None:
-        if self._source == "map_slam" and source != "map_slam":
+        if self._source is not None and \
+                self.RANK[source] < self.RANK[self._source]:
             return
         if self._source != source:
             self._source = source

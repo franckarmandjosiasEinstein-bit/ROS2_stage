@@ -487,6 +487,108 @@ def check_fruit_projection() -> None:
               f"fruit plane, fx = {fx:.0f} px/rad)")
 
 
+def check_bumper_clearance() -> None:
+    """Distances must be measured from the FOOTPRINT, not from the lidar.
+
+    The run of 2026-08-03: the robot buried its nose in the east wall and the
+    stuck detector fired ten times at (+3.70, +0.61) over nine minutes.
+    stop_distance was 0.28 m measured from the lidar, which sits at the centre
+    of a 0.58 m base -- so the brake fired when the wall was 1 cm INSIDE the
+    front bumper. The base has no collision geometry, so nothing else was ever
+    going to stop it."""
+    print("\nbumper-relative clearance")
+    sys.path.insert(0, os.path.join(SRC, "youbot_control"))
+    from youbot_control.lib.clearance import (best_escape, corridor_clearance,
+                                              footprint_reach)
+
+    HL, HW, BAND = 0.29, 0.19, 0.24
+
+    check("footprint reach forward is half the length",
+          abs(footprint_reach(0.0, HL, HW) - 0.29) < 1e-9,
+          f"got {footprint_reach(0.0, HL, HW):.3f}")
+    check("footprint reach sideways is half the width",
+          abs(footprint_reach(math.pi / 2, HL, HW) - 0.19) < 1e-9,
+          f"got {footprint_reach(math.pi / 2, HL, HW):.3f}")
+    # A rectangle, not the 0.347 m circumscribed circle: braking on that would
+    # stop the robot for a wall it is merely driving alongside.
+    check("reach at 45 deg is the rectangle, not the circle",
+          footprint_reach(math.pi / 4, HL, HW) < 0.28,
+          f"got {footprint_reach(math.pi / 4, HL, HW):.3f}")
+
+    # The wedge itself: a wall 0.30 m ahead of the SENSOR is 0.01 m ahead of
+    # the bumper. The old code called that "0.30 m of room" and kept driving.
+    wall = [(0.30, y * 0.05) for y in range(-10, 11)]
+    gap = corridor_clearance(wall, 0.0, BAND, HL, HW)
+    check("a wall 0.30 m from the lidar reads as 0.01 m from the bumper",
+          abs(gap - 0.01) < 1e-6, f"read {gap:.3f} m")
+
+    # And the guard must actually be using this. safety_node had its own copy
+    # measuring raw beam range; one number in two places is how they drift.
+    safety = read("youbot_control/youbot_control/safety_node.py")
+    check("safety_node brakes on the shared bumper clearance",
+          "from youbot_control.lib.clearance import corridor_clearance" in safety
+          and "corridor_clearance(self._pts" in safety,
+          "safety_node must not re-implement the clearance")
+    stop = re.search(r'"stop_distance", ([0-9.]+)', safety)
+    check("stop_distance is a bumper clearance, not a sensor range",
+          stop is not None and float(stop.group(1)) < HL,
+          f"found {stop.group(1) if stop else 'nothing'} -- anything >= {HL} "
+          "would mean the number is being read as a range from the lidar")
+
+    # Open aisle: 0.8 m wide, robot centred. It must NOT brake -- an earlier
+    # version spent a whole lap crawling down a clear corridor.
+    aisle = [(x * 0.05, 0.40) for x in range(-80, 81)] + \
+            [(x * 0.05, -0.40) for x in range(-80, 81)]
+    check("centred in an 0.8 m aisle, the corridor ahead is clear",
+          corridor_clearance(aisle, 0.0, BAND, HL, HW) == float("inf"),
+          "the robot would brake in open corridor")
+
+    # The escape. A pocket: wall ahead, wall behind, gutter to the left, the
+    # only way out is a sideways strafe. The old fixed manoeuvre was always
+    # (-0.15, 0, 0.6) -- straight back, into 0.05 m of room, which the guard
+    # then braked to nothing. That is the ten-times loop.
+    pocket = [(0.34, y * 0.05) for y in range(-12, 13)] + \
+             [(-0.34, y * 0.05) for y in range(-12, 13)] + \
+             [(x * 0.05, 0.42) for x in range(-12, 13)]
+    back = corridor_clearance(pocket, math.pi, BAND, HL, HW)
+    check("in the pocket, reversing really is blocked",
+          back < 0.10, f"reverse clearance {back:.3f} m")
+    d, gap = best_escape(pocket, BAND, HL, HW, avoid=0.0)
+    check("the escape finds the open side instead", d is not None and gap > 1.0,
+          f"chose {math.degrees(d) if d is not None else None} deg, "
+          f"{gap:.2f} m free")
+    check("the escape strafes sideways, not backwards",
+          d is not None and abs(abs(math.degrees(d)) - 90.0) < 31.0,
+          f"chose {math.degrees(d) if d is not None else None} deg")
+    delta = abs(math.atan2(math.sin(d), math.cos(d)))
+    check("the escape never repeats the heading that is already failing",
+          delta > math.radians(59.0), f"only {math.degrees(delta):.0f} deg away")
+
+    # Fully boxed in: no direction has room. It must say so rather than
+    # returning a confident answer -- the caller then rotates in place.
+    box = [(0.34 * math.cos(a * 0.05), 0.34 * math.sin(a * 0.05))
+           for a in range(0, 126)]
+    _, gap = best_escape(box, BAND, HL, HW, avoid=None)
+    check("boxed in on every heading, no direction is oversold", gap < 0.20,
+          f"claimed {gap:.2f} m of room")
+
+    # And the loop has to terminate somewhere: the follower reports a goal it
+    # cannot reach, the mission drops it. Without that the only exit was the
+    # 60 s timeout, twice, for nine minutes of log.
+    nav = read("youbot_control/youbot_control/navigation_node.py")
+    mission = read("youbot_control/youbot_control/mission_node.py")
+    check("the follower reports a goal it cannot escape toward",
+          'create_publisher(Bool, "goal_blocked"' in nav,
+          "navigation_node must publish goal_blocked")
+    check("the mission abandons a goal reported blocked",
+          'create_subscription(Bool, "goal_blocked"' in mission
+          and "_abandon_goal()" in mission,
+          "mission_node must subscribe to goal_blocked")
+    check("the escape uses the same clearance the guard brakes with",
+          "from youbot_control.lib.clearance import best_escape" in nav,
+          "or the guard will veto the direction the escape just chose")
+
+
 def main() -> int:
     print("pre-flight regression checks")
     check_xml_wellformed()
@@ -499,6 +601,7 @@ def main() -> int:
     check_vision_thresholds()
     check_slam_scoring()
     check_preventive_fence()
+    check_bumper_clearance()
     check_fruit_projection()
 
     print()

@@ -4,7 +4,16 @@ Subscribes:
     /scan  (sensor_msgs/LaserScan)   the 360 deg lidar
     /odom  (nav_msgs/Odometry)       robot pose (from the Webots driver)
 Publishes:
-    /map   (nav_msgs/OccupancyGrid)  inflated occupancy grid for planning
+    /map      (nav_msgs/OccupancyGrid)  INFLATED grid, for the planner
+    /map_raw  (nav_msgs/OccupancyGrid)  the evidence itself, for measuring
+
+Why two. /map is grown by `inflation` (0.32 m) so A* can treat the robot as a
+point -- every wall is 0.32 m thicker than it really is, and unknown cells are
+indistinguishable from free ones. Scoring THAT against the world is how the
+last run reported the greenhouse 20 cm too short with 13-17% "clutter": it was
+measuring the safety margin, not the map. /map_raw is the log-odds grid
+thresholded and nothing else (-1 unknown, 0 free, 100 occupied), which is what
+map_eval compares with the SDF.
 
 The heavy lifting lives in `lib/occupancy_grid.py` (ported and validated in
 Webots). This node is just the ROS 2 "glue": convert messages in, run the
@@ -15,6 +24,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
 
@@ -50,8 +60,10 @@ class MappingNode(Node):
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "scan", self._on_scan, 10)
         self.map_pub = self.create_publisher(OccupancyGridMsg, "map", 1)
+        self.raw_pub = self.create_publisher(OccupancyGridMsg, "map_raw", 1)
         self.create_timer(self.get_parameter("publish_period").value, self._publish_map)
-        self.get_logger().info("mapping_node up: /scan + /odom -> /map")
+        self.get_logger().info("mapping_node up: /scan + /odom -> /map "
+                               "(inflated, for planning) + /map_raw (evidence)")
 
     def _on_odom(self, msg: Odometry) -> None:
         p = msg.pose.pose
@@ -62,22 +74,36 @@ class MappingNode(Node):
         self.grid.integrate_scan(list(msg.ranges), x, y, yaw,
                                  msg.angle_min, msg.angle_increment, msg.range_max)
 
-    def _publish_map(self) -> None:
-        self.grid.update_binary()
+    def _header(self, rows: int, cols: int) -> OccupancyGridMsg:
         msg = OccupancyGridMsg()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
         msg.info.resolution = self.grid.resolution
-        rows, cols = self.grid.shape
         msg.info.width = cols
         msg.info.height = rows
         msg.info.origin.position.x = -self.grid.arena_size / 2.0
         msg.info.origin.position.y = -self.grid.arena_size / 2.0
+        return msg
+
+    def _publish_map(self) -> None:
+        self.grid.update_binary()
+        rows, cols = self.grid.shape
+        msg = self._header(rows, cols)
         # ROS OccupancyGrid: row 0 is the bottom (y = origin). Our grid has
         # row 0 at the top, so flip vertically. 0 = free, 100 = occupied.
-        data = (self.grid.grid[::-1, :] * 100).astype("int8").flatten()
-        msg.data = data.tolist()
+        msg.data = (self.grid.grid[::-1, :] * 100).astype("int8").flatten().tolist()
         self.map_pub.publish(msg)
+
+        # The evidence, ungrown and with unknown kept distinct from free --
+        # "we never looked there" and "we looked and it was empty" are not the
+        # same claim, and coverage is only meaningful if they differ.
+        lo = self.grid.log_odds[::-1, :]
+        raw = np.full(lo.shape, -1, dtype="int8")
+        raw[lo < -0.2] = 0
+        raw[lo > 0.2] = 100
+        m = self._header(rows, cols)
+        m.data = raw.flatten().tolist()
+        self.raw_pub.publish(m)
 
 
 def main(args=None) -> None:

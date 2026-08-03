@@ -154,6 +154,7 @@ class MissionNode(Node):
         self.create_subscription(Float32, "ripe_offset", self._on_ripe_offset, 10)
         self.create_subscription(Float32MultiArray, "ripe_offsets", self._on_ripe_offsets, 10)
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
+        self.create_subscription(Bool, "goal_blocked", self._on_blocked, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
         self.lap_pub = self.create_publisher(Int32, "survey_lap", 5)
         self.pick_pub = self.create_publisher(Empty, "do_pick", 5)
@@ -177,6 +178,19 @@ class MissionNode(Node):
                 self.get_logger().info(
                     f"Vision: new crate at ({c[0]:+.2f}, {c[1]:+.2f}) "
                     f"[{len(self._known)} known].")
+
+    def _on_blocked(self, msg: Bool) -> None:
+        """navigation_node has tried and failed to escape the same spot
+        several times: this goal is not reachable from where we are. Advance
+        immediately. Waiting out GOAL_TIMEOUT instead is what turned one bad
+        corner into nine minutes of the log, twice."""
+        if not msg.data or self._goal is None or self._picking or self._aligning:
+            return
+        self.get_logger().warn(
+            f"[{self._phase}] goal {self._goal_kind} "
+            f"({self._goal[0]:+.2f}, {self._goal[1]:+.2f}) reported blocked by "
+            "the follower -- abandoning, advancing.")
+        self._abandon_goal()
 
     def _on_override(self, msg: Bool) -> None:
         """The guard is overriding us. Nothing we command is reaching the
