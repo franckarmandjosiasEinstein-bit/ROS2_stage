@@ -167,6 +167,10 @@ def generate_launch_description() -> LaunchDescription:
         control("planning_node"),
         control("navigation_node"),
         control("mission_node"),
+        # Owns the +/- 90 deg camera head. Must start WITH the detector: the
+        # detector refuses to publish fruit positions until this node reports
+        # a measured, settled angle, so without it perception is silent.
+        control("camera_pan_node"),
         control("strawberry_detector"),   # camera -> /camera/detections + /ripe_count
         control("arm_node"),              # /do_pick -> pick sequence + /joint_states
 

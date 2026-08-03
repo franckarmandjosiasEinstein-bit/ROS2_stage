@@ -170,6 +170,10 @@ def generate_launch_description() -> LaunchDescription:
         control("planning_node", localized=True),
         control("navigation_node", localized=True),
         control("mission_node", localized=True),
+        # The camera head. Not localized=True: it only reads /joint_states and
+        # writes the head angle, so it needs no pose. But it MUST be present --
+        # the detector publishes no fruit positions without a settled angle.
+        control("camera_pan_node"),
         control("strawberry_detector", localized=True),  # needs the pose
                                                        # to place fruit on the map
         control("arm_node", localized=True),   # workspace limit uses the estimate

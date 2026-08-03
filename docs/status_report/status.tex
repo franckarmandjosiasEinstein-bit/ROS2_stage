@@ -120,7 +120,7 @@ the whole stack and both were adopted after a failure.
 pinned the robot against a wall for an entire run.
 
 \emph{One place for every physical number.} All thresholds live in one
-parameter file, and \filename{scripts/check\_regressions.py} (\measured{199}
+parameter file, and \filename{scripts/check\_regressions.py} (\measured{242}
 automated checks) refuses to start the stack when the file and the node
 defaults disagree. This check was added after a parameter drift silently
 doubled every clearance threshold and cost a full run.
@@ -138,6 +138,7 @@ doubled every clearance threshold and cost a full run.
 \nodename{navigation\_node} & pure-pursuit following, stuck detection, escape\\
 \nodename{safety\_node}     & the single protective stop; the only writer of \topicname{cmd\_vel}\\
 \nodename{mission\_node}    & survey $\rightarrow$ harvest state machine, alignment, picking\\
+\nodename{camera\_pan\_node} & owns the $\pm 90^\circ$ camera head; publishes the measured angle and a settled flag\\
 \nodename{strawberry\_detector} & colour segmentation, ground back-projection\\
 \nodename{arm\_node}        & five-joint pick sequence\\
 \midrule
@@ -166,7 +167,8 @@ commands below on Ubuntu~24.04 with ROS~2 Jazzy and Gazebo Harmonic
 \begin{lstlisting}[style=bash]
 colcon build --symlink-install
 source install/setup.bash
-python3 scripts/check_regressions.py    # 199 pre-flight checks
+python3 scripts/check_regressions.py    # 0
+242 pre-flight checks
 ros2 launch youbot_bringup sim.launch.py
 \end{lstlisting}
 
@@ -328,7 +330,7 @@ document trustworthy.
 \toprule
 \textbf{Item} & \textbf{Size}\\
 \midrule
-Automated pre-flight regression checks & \measured{199}\\
+Automated pre-flight regression checks & \measured{242}\\
 Parameter file / node default cross-checks & \measured{24 parameters}\\
 Ground-truth scoring nodes & 3\\
 Single-subsystem test controllers (\phaseA{}) & 11\\

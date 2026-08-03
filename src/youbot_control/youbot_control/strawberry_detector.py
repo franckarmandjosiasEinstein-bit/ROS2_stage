@@ -35,7 +35,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Pose, PoseArray
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
-from std_msgs.msg import Int32, Float32, Float32MultiArray
+from std_msgs.msg import Bool, Float32, Float32MultiArray, Float64, Int32
 
 from youbot_control.lib.vision import red_mask, close_mask, blob_centroids
 
@@ -73,11 +73,22 @@ class StrawberryDetector(Node):
         # berry catalogue and the error read off directly, instead of judging
         # a detector by a count that says nothing about WHERE it looked.
         # Mount and optics must match the URDF sensor block.
-        self.declare_parameter("cam_x", 0.18)      # m, base frame
-        self.declare_parameter("cam_y", 0.14)
+        # The head is a PAN JOINT now, not a bracket. cam_yaw is only the
+        # fallback used before the first /camera_pan_state arrives; the live
+        # measured angle replaces it, and the camera POSITION swings with it
+        # too -- the optical centre sits cam_arm metres out along the head, so
+        # at the default +90 deg it lands on body (0.18, 0.14, 0.78), exactly
+        # the pose this projection was validated against.
+        self.declare_parameter("cam_x", 0.18)      # m, base frame: pan axis
+        self.declare_parameter("cam_y", 0.0)       # pan axis is on the centreline
+        self.declare_parameter("cam_arm", 0.14)    # m from the pan axis to the lens
         self.declare_parameter("cam_z", 0.78)
         self.declare_parameter("cam_pitch", 0.28)  # rad, positive = tilted up
-        self.declare_parameter("cam_yaw", math.pi / 2.0)   # rad from the heading
+        self.declare_parameter("cam_yaw", math.pi / 2.0)   # fallback only
+        # Refuse to publish map positions while the head is moving. An angle
+        # that is 10 deg stale puts a fruit at 2 m 35 cm away from where it is,
+        # and nothing downstream could tell that estimate from a good one.
+        self.declare_parameter("require_pan_settled", True)
         self.declare_parameter("cam_fov", 1.2)     # rad, horizontal
         self.declare_parameter("berry_z", 0.97)    # m: the fruit plane
         self.declare_parameter("max_range", 2.5)   # m: refuse distant guesses
@@ -105,6 +116,12 @@ class StrawberryDetector(Node):
         self.world_pub = self.create_publisher(PoseArray, "berry_detections", 5)
         self._pose = None            # robot (x, y, yaw); no pose -> no map fix
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
+        # Live head angle and settle flag, owned by camera_pan_node.
+        self._pan = None             # rad, measured; None -> use the fallback
+        self._pan_settled = False
+        self.create_subscription(Float64, "camera_pan_state", self._on_pan, 5)
+        self.create_subscription(Bool, "camera_pan_settled",
+                                 self._on_pan_settled, 5)
         self.get_logger().info(
             f"strawberry_detector up: {topic} -> /camera/detections + /ripe_count "
             "+ /ripe_offset + /berry_detections (map positions)")
@@ -137,6 +154,29 @@ class StrawberryDetector(Node):
             return None
         return p
 
+    def _on_pan(self, msg) -> None:
+        self._pan = float(msg.data)
+
+    def _on_pan_settled(self, msg) -> None:
+        self._pan_settled = bool(msg.data)
+
+    def _pan_angle(self):
+        """The head angle to project with, or None when it may not be used.
+
+        None is returned in two cases and both are refusals, not defaults:
+        the head has never reported an angle, or it is still moving. Guessing
+        here would put a wrong number into the fruit map with no way for
+        anything downstream to notice.
+        """
+        if self._pan is None:
+            if bool(self.get_parameter("require_pan_settled").value):
+                return None
+            return float(self.get_parameter("cam_yaw").value)
+        if (bool(self.get_parameter("require_pan_settled").value)
+                and not self._pan_settled):
+            return None
+        return self._pan
+
     def _ray_hit(self, u, v, width, height):
         """Where this pixel's ray crosses the fruit plane, in map coordinates,
         or None if it never does (pointing away) or lands beyond max_range."""
@@ -145,7 +185,10 @@ class StrawberryDetector(Node):
         rx, ry, ryaw = self._pose
         g = self.get_parameter
         pitch = float(g("cam_pitch").value)
-        a = ryaw + float(g("cam_yaw").value)
+        pan = self._pan_angle()
+        if pan is None:
+            return None                                # head unknown or moving
+        a = ryaw + pan
         fov = float(g("cam_fov").value)
         fx = (width / 2.0) / math.tan(fov / 2.0)      # square pixels
 
@@ -161,10 +204,14 @@ class StrawberryDetector(Node):
         yc = (v - height / 2.0) / fx
         d = tuple(f[i] + xc * right[i] + yc * down[i] for i in range(3))
 
-        cam = (rx + float(g("cam_x").value) * math.cos(ryaw)
-               - float(g("cam_y").value) * math.sin(ryaw),
-               ry + float(g("cam_x").value) * math.sin(ryaw)
-               + float(g("cam_y").value) * math.cos(ryaw),
+        # The lens rides the head: its body-frame offset is the pan axis plus
+        # cam_arm rotated by the pan angle. Leaving this as a constant while
+        # the head turned would have moved every estimate by up to 0.28 m.
+        arm = float(g("cam_arm").value)
+        bx = float(g("cam_x").value) + arm * math.cos(pan)
+        by = float(g("cam_y").value) + arm * math.sin(pan)
+        cam = (rx + bx * math.cos(ryaw) - by * math.sin(ryaw),
+               ry + bx * math.sin(ryaw) + by * math.cos(ryaw),
                float(g("cam_z").value))
         if abs(d[2]) < 1e-3:
             return None                                # ray parallel to the plane

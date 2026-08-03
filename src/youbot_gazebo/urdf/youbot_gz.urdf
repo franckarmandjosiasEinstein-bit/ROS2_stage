@@ -212,7 +212,7 @@
 
          * the pan angle enters the fruit back-projection IN SERIES with the
            robot yaw, so an error in it lands directly in the fruit position
-           -- the same sensitivity as heading, 5 deg at 2 m is 17 cm. The head
+           — the same sensitivity as heading, 5 deg at 2 m is 17 cm. The head
            must therefore be commanded to a HELD position and the image used
            only once it has settled, never mid-sweep.
          * motion blur: stop the head, then shoot.
@@ -242,7 +242,7 @@
        yaw that used to be baked in here (+90 deg, permanently looking left)
        is now the pan joint's job: +1.5708 for the left row, -1.5708 for the
        right row, 0 to look straight ahead down the aisle. -->
-  <joint name="j_camera" type="fixed"><parent link="camera_pan"/><child link="camera"/><origin xyz="0.04 0 0" rpy="0 -0.28 0"/></joint>
+  <joint name="j_camera" type="fixed"><parent link="camera_pan"/><child link="camera"/><origin xyz="0.14 0 0" rpy="0 -0.28 0"/></joint>
 
   <!-- ==================== Gazebo-specific ==================== -->
 
@@ -264,9 +264,30 @@
   <gazebo reference="finger_left"><gravity>false</gravity></gazebo>
   <gazebo reference="finger_right"><gravity>false</gravity></gazebo>
 
+  <gazebo reference="camera_pan"><gravity>false</gravity></gazebo>
+
+  <!-- Joint states, so the pan angle can be read back instead of trusted.
+       A commanded angle is not a measured one: the head has to settle, and the
+       detector must know the difference, because this angle enters the fruit
+       back-projection in series with the robot yaw. -->
+  <gazebo>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+    </plugin>
+  </gazebo>
+
   <!-- One position controller per joint. Each subscribes to a gz Double on
        <joint>_cmd (bridged from a ROS Float64); arm_node drives the sequence. -->
   <gazebo>
+    <!-- Camera pan head. Softer gains than the arm on purpose: the head
+         carries 80 g and a stiff loop makes it ring, and a ringing camera is
+         a blurred camera. What matters here is that it SETTLES, not that it
+         gets there fast — an image taken mid-sweep has a pan angle nobody
+         knows, and that angle goes straight into the fruit position. -->
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>j_camera_pan</joint_name><topic>camera_pan_cmd</topic>
+      <p_gain>6</p_gain><i_gain>0.0</i_gain><d_gain>1.2</d_gain>
+    </plugin>
     <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
       <joint_name>arm_joint_1</joint_name><topic>arm_joint_1_cmd</topic>
       <p_gain>18</p_gain><i_gain>0.0</i_gain><d_gain>2.0</d_gain>
@@ -331,13 +352,13 @@
   <!-- RGB camera for ripe-strawberry detection -> /camera/image + camera_info.
        Now attached to camera_pan, NOT to base_link. It used to be mounted on
        base_link with an explicit pose because sdformat drops sensors on
-       fixed-joint links during lumping -- but camera_pan hangs off a REVOLUTE
+       fixed-joint links during lumping — but camera_pan hangs off a REVOLUTE
        joint, so it survives as a real link and the sensor rides on it. That is
        precisely what makes the head able to look somewhere the chassis is not
        pointing. The pose below is j_camera relative to camera_pan. -->
   <gazebo reference="camera_pan">
     <sensor name="camera" type="camera">
-      <pose>0.04 0 0 0 -0.28 0</pose>
+      <pose>0.14 0 0 0 -0.28 0</pose>
       <topic>camera</topic>
       <update_rate>15</update_rate>
       <always_on>true</always_on>

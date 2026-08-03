@@ -400,7 +400,7 @@ def check_fruit_projection() -> None:
     tree = ast.parse(src)
     cls = next(n for n in tree.body
                if isinstance(n, ast.ClassDef) and n.name == "StrawberryDetector")
-    wanted = ("_project", "_ray_hit")
+    wanted = ("_project", "_ray_hit", "_pan_angle")
     ns = {"math": math}
     geom = ast.ClassDef(name="Proj", bases=[], keywords=[], decorator_list=[],
                         body=[m for m in cls.body
@@ -420,13 +420,45 @@ def check_fruit_projection() -> None:
 
     p = ns["Proj"]()
     p.get_parameter = lambda n: P(params[n])
+    # The head is a pan joint now. Pin it to the default +90 deg and mark it
+    # settled, so this test measures the OPTICS -- which is what it is for --
+    # against exactly the geometry the original fixed mount had. The head's own
+    # refusal behaviour is checked separately, below.
+    p._pan = math.pi / 2.0
+    p._pan_settled = True
+    p._pose = (0.0, 0.0, 0.0)      # robot at the origin, facing +X
+    params.setdefault("require_pan_settled", 1.0)
+    params.setdefault("cam_arm", 0.14)
     W, H = 640, 480
     fx = (W / 2.0) / math.tan(params["cam_fov"] / 2.0)
 
     check("the detector's parameters were all found",
-          {"cam_x", "cam_y", "cam_z", "cam_pitch", "cam_fov", "berry_z",
-           "max_range", "max_pixel_shift"} <= set(params),
+          {"cam_x", "cam_y", "cam_z", "cam_arm", "cam_pitch", "cam_fov",
+           "berry_z", "max_range", "max_pixel_shift"} <= set(params),
           f"found {sorted(params)}")
+
+    # The pan head must not be allowed to guess. These two are the whole
+    # reason the head is safe to add: an unknown or moving head produces NO
+    # position rather than a plausible wrong one.
+    p._pan, p._pan_settled = None, False
+    check("an unknown head angle refuses to produce a fruit position",
+          p._ray_hit(W / 2.0, H / 2.0, W, H) is None)
+    p._pan, p._pan_settled = math.pi / 2.0, False
+    check("a moving head refuses to produce a fruit position",
+          p._ray_hit(W / 2.0, H / 2.0, W, H) is None)
+    p._pan, p._pan_settled = math.pi / 2.0, True
+    settled_hit = p._ray_hit(W / 2.0, H / 2.0, W, H)
+    check("a settled head at +90 deg does produce one", settled_hit is not None)
+
+    # And the lens must swing with the head. If cam_arm were ignored, these
+    # two would be identical, which is the silent 0.28 m error this guards.
+    p._pan = -math.pi / 2.0
+    right_hit = p._ray_hit(W / 2.0, H / 2.0, W, H)
+    check("the camera position follows the head, not just its bearing",
+          settled_hit is not None and right_hit is not None
+          and math.dist(settled_hit[:2], right_hit[:2]) > 0.5,
+          "looking left and looking right must not land in the same place")
+    p._pan = math.pi / 2.0
 
     # Robot in the aisle at y = -0.6 facing +x: its camera looks at the row on
     # its left, the gutter at y = 0. A berry dead centre in the frame must be

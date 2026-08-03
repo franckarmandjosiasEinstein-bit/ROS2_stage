@@ -26,6 +26,7 @@ setup(
             "mission_node = youbot_control.mission_node:main",
             "vision_node = youbot_control.vision_node:main",
             "strawberry_detector = youbot_control.strawberry_detector:main",
+            "camera_pan_node = youbot_control.camera_pan_node:main",
             "odom_tf = youbot_control.odom_tf:main",
             "safety_node = youbot_control.safety_node:main",
             "arm_node = youbot_control.arm_node:main",

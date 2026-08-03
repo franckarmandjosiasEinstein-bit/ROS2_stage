@@ -43,6 +43,26 @@
   gz_type_name: "gz.msgs.CameraInfo"
   direction: GZ_TO_ROS
 
+# Joint states (GZ -> ROS): gives the MEASURED camera pan angle. The detector
+# uses it instead of a constant, and refuses to publish world positions while
+# the head has not settled.
+- ros_topic_name: "/joint_states"
+  gz_topic_name: "/world/greenhouse/model/youbot/joint_state"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS
+
+# Camera pan head command: ROS Float64 -> gz Double, radians, clamped to
+# +/- 1.5708 by the joint limit in the URDF. Publish a HELD target and wait for
+# the head to settle before using an image: the pan angle enters the fruit
+# back-projection in series with the robot yaw, so a frame grabbed mid-sweep
+# carries an unknown angle straight into the estimated fruit position.
+- ros_topic_name: "/camera_pan_cmd"
+  gz_topic_name: "/camera_pan_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
 # Arm + gripper joint position commands: ROS Float64 -> gz Double, one per
 # JointPositionController. arm_node publishes the pick-sequence targets here.
 - ros_topic_name: "/arm_joint_1_cmd"
