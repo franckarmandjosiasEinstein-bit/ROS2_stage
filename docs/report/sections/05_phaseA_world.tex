@@ -1,8 +1,127 @@
-%% =====================================================================
-%%  World Modelling and the Procedural Greenhouse
-%%  SCOPE: smart\_agriculture.wbt, greenhouse.wbt, world\_manager supervisor.
-%% =====================================================================
+% =====================================================================
+%  World Modelling and the Procedural Greenhouse
+%  SCOPE: smart_agriculture.wbt, greenhouse.wbt, world_manager.
+% =====================================================================
 \subsection{World Modelling and the Procedural Greenhouse}
 \label{sec:phaseA_world}
 
-\emph{[Section in preparation.]}
+\subsubsection{Two worlds, two purposes}
+
+\phaseA{} uses two Webots worlds. \filename{smart\_agriculture.wbt}
+(258 lines) is the working scene: a \SI{10}{m} square arena with a
+rectangular floor, four rows of planting basins, a robot start corner
+and a depot corner. \filename{greenhouse.wbt} (100 lines) is a reduced
+scene used by the single-subsystem test controllers, where a smaller and
+fully deterministic layout makes a failure easier to attribute.
+
+\subsubsection{Why the scene is generated, not authored}
+
+The decisive design choice in \phaseA{} was to make the working scene
+\emph{procedural}. A supervisor controller,
+\filename{world\_manager.py} (185 lines), rebuilds the arena at the
+start of every run from a fresh random seed, which it prints so that any
+run can be replayed:
+
+\begin{lstlisting}[style=python]
+seed = random.randrange(1_000_000_000)
+random.seed(seed)
+print(f"[world_manager] Greenhouse seed = {seed}")
+\end{lstlisting}
+
+The alternative --- one hand-authored scene --- is faster to build and
+much more dangerous. A controller developed against a fixed layout
+learns the layout. Waypoints get tuned until they happen to thread
+between two particular basins; a planner inflation radius gets reduced
+until one particular gap becomes passable. None of that survives contact
+with a different arrangement, and none of it is visible while the scene
+never changes. Randomising the scene makes overfitting fail loudly and
+early, on the developer's own machine.
+
+\subsubsection{What is randomised}
+
+Table~\ref{tab:worldgen} lists the generation parameters. Three of them
+carry most of the variability:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \param{POT\_SKIP\_PROB} $= 0.25$ deletes a quarter of the
+        planting basins at random. The rows therefore have gaps, and
+        those gaps change every run --- so the planner must actually
+        search rather than follow a memorised corridor.
+  \item \param{N\_CRATES} $\in [2,5]$ makes even the number of mission
+        objectives unknown at start-up, which is what forced the mission
+        layer to be a discovery loop instead of a fixed sequence
+        (Sec.~\ref{sec:phaseA_mission}).
+  \item \param{N\_WORKERS} $= 2$ adds moving obstacles that wander
+        between random aisle points at \SI{0.30}{m/s}. They are the only
+        dynamic elements in \phaseA{}, and they are what justifies
+        re-running the mapper during navigation instead of mapping once
+        and planning on a frozen grid.
+\end{itemize}
+
+\begin{table}[!t]
+\caption{Procedural scene parameters (\filename{world\_manager.py})}
+\label{tab:worldgen}
+\centering\footnotesize
+\begin{tabular}{@{}lp{0.40\columnwidth}r@{}}
+\toprule
+\textbf{Parameter} & \textbf{Meaning} & \textbf{Value}\\
+\midrule
+\param{ARENA\_HALF}    & arena half-extent        & \SI{5.0}{m}\\
+\param{ROW\_YS}        & basin row centre lines   & $\pm 1.0, \pm 3.0$\\
+\param{POT\_XS}        & basin positions per row  & 7 at \SI{1.2}{m}\\
+\param{POT\_SKIP\_PROB}& probability a basin is omitted & $0.25$\\
+\param{AISLE\_YS}      & free corridors           & $-2.0, 0.0, 2.0$\\
+\param{N\_CRATES}      & mission objectives       & 2--5\\
+\param{N\_WORKERS}     & moving obstacles         & 2\\
+\param{WORKER\_SPEED}  & obstacle speed           & \SI{0.30}{m/s}\\
+\param{KEEP\_CLEAR}    & protected zones          & start, depot\\
+\param{CLEAR\_RADIUS}  & protected radius         & \SI{1.0}{m}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The \param{KEEP\_CLEAR} mechanism deserves a note because it is the kind
+of detail that is invisible until it bites. Nothing is spawned within
+\SI{1.0}{m} of the robot's start corner $(-4.5, 4.5)$ or the depot
+$(4.5, -4.5)$. Without it, roughly one run in ten began with a crate
+spawned underneath the robot or a basin blocking the depot, and the
+resulting mission failure looked like a planner defect rather than a
+scene-generation artefact. A generator that can produce an impossible
+scene will eventually produce one, on the run being demonstrated.
+
+\subsubsection{The supervisor's second role: ground truth}
+
+A Webots supervisor can read the true pose of any node in the scene
+graph. \filename{world\_manager.py} uses this for two things that a
+robot may not do:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{Scoring.} It knows how many crates it created and where
+        they are, so it can report how many the robot found, how many it
+        delivered, and how many it missed --- an objective mission score
+        that does not depend on the robot's own beliefs.
+  \item \textbf{Reference data for perception.} It can answer
+        ``what is really there?'' for a detection, which is how the
+        vision module's false-positive rate was measured rather than
+        estimated.
+\end{enumerate}
+
+This separation --- the robot's belief on one side, the simulator's
+truth on the other, compared by a third party that participates in
+neither --- is the single most valuable idea \phaseA{} contributed to
+\phaseB{}. It reappears there, considerably expanded, as the
+instrumentation layer of Sec.~\ref{sec:instrumentation}: three nodes
+that continuously score pose, map and throughput against Gazebo ground
+truth. The measurement discipline of this project starts here.
+
+\subsubsection{Coordinate conventions}
+
+The world frame is the XY plane with its origin at the arena centre,
+$+x$ east and $+y$ north, following REP-103 \cite{rep103}. Body-frame
+twists use $x$ forward, $y$ left, $\psi$ counter-clockwise. The
+occupancy grid uses image conventions --- row indexes $y$, column
+indexes $x$, origin at the top-left --- so a vertical flip is applied
+whenever a grid is published or drawn. Getting that flip wrong produces
+a map that is a perfect mirror of reality and looks entirely plausible
+until a path is planned on it; it is checked explicitly in
+\phaseB{}'s regression suite (Sec.~\ref{sec:regression}).
