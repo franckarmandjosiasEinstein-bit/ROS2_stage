@@ -220,3 +220,22 @@ for the exact failure this project has: illumination *colour* shifting over the
 day. `train.py` raises it to 0.05 and explains why in the file. If you only
 have midday images, this augmentation is what stands between you and a model
 that fails at 17 h — the same way the colour threshold does.
+
+---
+
+## Handover PDF
+
+`ml/training_handover.pdf` is a self-contained document for whoever does the
+training: the four classes and why each exists, the data specification, where
+to get data, the glass warning, the full workflow, the two settings that
+matter, how the result is judged, and verbatim listings of every script here.
+
+It is **generated from these sources**, so the code in it is by construction
+the code in the tree:
+
+```bash
+pip install reportlab
+python3 ml/make_handover_pdf.py     # -> ml/training_handover.pdf
+```
+
+Regenerate it after any change to `ml/` before handing it over.
