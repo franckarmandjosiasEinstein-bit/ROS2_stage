@@ -542,6 +542,80 @@ def check_latex_builds() -> None:
               bad[0] if bad else "clean")
 
 
+def check_fruit_map() -> None:
+    """The robot must be able to DISBELIEVE a single sighting.
+
+    Measured before this existed: 66 of 111 map estimates matched no real
+    berry, and the harvest phase spent 39% of its time creeping toward them
+    and timing out. Nothing about the detector fixes that -- one observation is
+    one observation however good the classifier is. What was missing was
+    memory, and a rule for what memory admits.
+
+    The rule is two DISTINCT passes AND a viewpoint baseline, and each half
+    rejects something the other cannot. These checks assert exactly that,
+    because a later 'simplification' to a plain observation counter would look
+    equivalent and would quietly restore the old behaviour: a detector at 15 Hz
+    gives thirty sightings of one artefact from effectively one place."""
+    print("\nfruit map")
+    src = read("youbot_control/youbot_control/lib/fruit_map.py")
+    ns = {"math": math}
+    exec(compile(src, "<fruit_map>", "exec"), ns)
+    FruitMap = ns["FruitMap"]
+
+    m = FruitMap()
+    for pid, vx in ((1, -0.6), (2, 0.6)):          # two passes, 1.2 m apart
+        for _ in range(5):
+            m.observe(2.0, 1.2, pid, (vx, 0.5), 0.0)
+    for _ in range(30):                            # one place, thirty times
+        m.observe(-1.0, 0.4, 1, (-1.0, 0.5), 0.0)
+    for k in range(20):                            # one pass, long baseline
+        m.observe(3.0, -1.0, 1, (3.0 - 0.1 * k, -0.5), 0.0)
+    m.observe(12.0, 0.0, 1, (0.0, 0.0), 0.0)       # outside the greenhouse
+
+    check("a cluster seen from two passes is confirmed",
+          m.is_confirmed_at(2.0, 1.2))
+    check("thirty sightings from ONE viewpoint are still one datum",
+          not m.is_confirmed_at(-1.0, 0.4),
+          "this is the specular-highlight case, and a plain observation "
+          "counter would have admitted it")
+    check("a long baseline within ONE pass is not corroboration",
+          not m.is_confirmed_at(3.0, -1.0),
+          "this is the red-pipe case: it looks right all along one drive-by")
+    check("a position outside the greenhouse is discarded",
+          m.rejected_outside == 1)
+    check("exactly one of the four survived", len(m.confirmed()) == 1)
+
+    # Picking must retire the cluster, or the gate keeps reopening for fruit
+    # that is already in the basket.
+    m.mark_picked(2.0, 1.2)
+    check("a picked cluster stops being a target",
+          not m.is_confirmed_at(2.0, 1.2))
+
+    # Fusion radius has to sit between the two scales, and the code must say
+    # which one it is resolving.
+    check("fusion radius is at CLUSTER scale, not berry scale",
+          0.21 < m.fusion_radius < 0.9,
+          f"{m.fusion_radius} m: above the 0.21 m fruit position error, below "
+          "the 0.9 m plant spacing")
+
+    mis = read("youbot_control/youbot_control/mission_node.py")
+    check("the mission scouts before it harvests",
+          "SCOUT_LAPS" in mis and 'self._phase = "scout"' in mis)
+    check("one survey lap, not three", "SURVEY_LAPS = 1" in mis,
+          "map_eval measured -4/+6 cm and 0.0% clutter after lap one")
+    check("detections are folded into the map, never acted on directly",
+          "_on_berry_detections" in mis and "self._fruit.observe(" in mis)
+    check("the harvest gate consults the map",
+          "_fruit_here_is_real()" in mis
+          and "_begin_align()" in mis.split("_fruit_here_is_real()")[1][:200])
+    check("picking retires the cluster in the mission too",
+          "_fruit.mark_picked(" in mis)
+    check("an empty map fails OPEN and says so",
+          "the fruit map is EMPTY" in mis,
+          "a robot that silently never picks is a worse failure than the one "
+          "being fixed")
+
+
 def check_align_state_feedback() -> None:
     """The alignment loop is a designed controller, and it converges.
 
@@ -1112,6 +1186,7 @@ def main() -> int:
     check_no_crabbing()
     check_params_match_code()
     check_station_realign()
+    check_fruit_map()
     check_align_state_feedback()
     check_latex_builds()
     check_drive_model_chain()

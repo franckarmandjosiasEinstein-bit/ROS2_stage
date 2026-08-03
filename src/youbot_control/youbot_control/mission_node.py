@@ -22,6 +22,7 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty, Int32, Float32, Float32MultiArray, Bool
 
 from youbot_control.lib.align_lqr import AlignController
+from youbot_control.lib.fruit_map import FruitMap
 
 # Coverage patrol: only the two central 0.8 m aisles (Y = +/-0.6). The robot
 # turns to face its heading, so its left (+Y, where the camera and arm are)
@@ -63,7 +64,22 @@ SURVEY = [
     (-4.25, 0.60), (4.25, 0.60),      # aisle 3, west -> east
     (4.25, 1.78), (-4.25, 1.78),      # north margin, east -> west
 ]
-SURVEY_LAPS = 3            # laps of the circuit before harvesting begins
+SURVEY_LAPS = 1            # laps of the circuit before scouting begins.
+                           # Was 3. map_eval measured the greenhouse at
+                           # -4 cm / +6 cm with 100% coverage and 0.0% clutter
+                           # after lap ONE; laps 2 and 3 cost 163 s of sim time
+                           # between them and improved nothing measurable. That
+                           # time now buys corroborated fruit instead.
+SCOUT_LAPS = 2             # laps of PATROL that LOOK but never pick.
+                           # Two, because that is the minimum that can supply a
+                           # second, independent viewpoint -- see lib/fruit_map.
+FRUIT_FUSION = 0.25        # m: detections closer than this are one cluster.
+                           # Fruit position error is 0.21 m and berries on one
+                           # plant sit 0.05-0.20 m apart, so the map resolves
+                           # CLUSTERS, not berries. Pretending otherwise would
+                           # split one berry into ghosts at every observation.
+FRUIT_MIN_PASSES = 2       # distinct scouting passes before a cluster is real
+FRUIT_MIN_BASELINE = 0.40  # m between the viewpoints of those passes
 
 DEPOT = (4.3, 1.9)         # east end of the wide top corridor. (4.6, 0.0) sat
                            # in the pinch between the inflated gutter ends and
@@ -119,6 +135,15 @@ class MissionNode(Node):
         self._patrol_i = 0
         self._survey_i = 0       # waypoint index within the survey circuit
         self._survey_lap = 0     # completed survey laps
+        self._scout_lap = 0      # completed scouting laps
+        # The memory the robot did not have. Until now nothing accumulated the
+        # detector's per-frame world positions, so a red pixel seen once was
+        # acted upon as if it were fruit: truth_monitor measured 66 of 111 map
+        # estimates matching no real berry, and the harvest spent 39% of its
+        # time creeping toward them and timing out. Those are the same number.
+        self._fruit = FruitMap(fusion_radius=FRUIT_FUSION,
+                               min_passes=FRUIT_MIN_PASSES,
+                               min_baseline=FRUIT_MIN_BASELINE)
         # survey -> explore -> collect -> deliver -> done. Mapping first: the
         # harvest is only as good as the map the planner is driving on.
         self._phase = "survey"
@@ -164,6 +189,10 @@ class MissionNode(Node):
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
         self.create_subscription(Bool, "goal_blocked", self._on_blocked, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
+        # World positions of the fruit seen this frame, from the detector.
+        # They are only ever FOLDED INTO THE MAP -- never acted on directly.
+        self.create_subscription(PoseArray, "berry_detections",
+                                 self._on_berry_detections, 5)
         self.lap_pub = self.create_publisher(Int32, "survey_lap", 5)
         self.pick_pub = self.create_publisher(Empty, "do_pick", 5)
         self.hold_pub = self.create_publisher(Bool, "pick_hold", 5)
@@ -171,8 +200,9 @@ class MissionNode(Node):
         self.create_timer(0.5, self._tick)
         self.create_timer(HEARTBEAT, self._heartbeat)
         self.get_logger().info(
-            f"mission_node up: {SURVEY_LAPS} mapping laps of the whole "
-            "greenhouse first, then patrol -> see fruit -> pick -> resume.")
+            f"mission_node up: {SURVEY_LAPS} mapping lap, then {SCOUT_LAPS} "
+            "SCOUTING passes that look but never pick, then harvesting only "
+            "the clusters corroborated from two viewpoints.")
 
     # --- perception -------------------------------------------------
     def _on_odom(self, msg: Odometry) -> None:
@@ -204,6 +234,31 @@ class MissionNode(Node):
         """The guard is overriding us. Nothing we command is reaching the
         wheels, so alignment cannot converge -- stop asking."""
         self._overridden = bool(msg.data)
+
+    def _pass_id(self) -> int:
+        """Which scouting pass we are in. Survey counts as pass 0.
+
+        The pass number is what makes a second sighting INDEPENDENT: two
+        observations from the same drive-by are one piece of evidence however
+        many frames they span.
+        """
+        return self._scout_lap + 1 if self._phase == "scout" else 0
+
+    def _on_berry_detections(self, msg: PoseArray) -> None:
+        """Fold this frame's world positions into the map. Never act on them.
+
+        Acting on a single frame is exactly what produced 66 spurious map
+        estimates out of 111. The map decides what is real; this callback only
+        supplies evidence to it.
+        """
+        if self._pose is None or self._phase not in ("scout", "explore"):
+            return
+        t = self._now()
+        view = (self._pose[0], self._pose[1])
+        pid = self._pass_id()
+        for pose in msg.poses:
+            self._fruit.observe(pose.position.x, pose.position.y,
+                                pid, view, t)
 
     def _on_ripe(self, msg: Int32) -> None:
         self._ripe = int(msg.data)
@@ -238,11 +293,20 @@ class MissionNode(Node):
         if self._phase == "survey":
             where = (f"waypoint {self._survey_i}/{len(SURVEY)} "
                      f"lap {self._survey_lap + 1}/{SURVEY_LAPS}")
+        elif self._phase == "scout":
+            where = (f"waypoint {self._patrol_i}/{len(PATROL)} "
+                     f"pass {self._scout_lap + 1}/{SCOUT_LAPS}")
         else:
             where = f"waypoint {self._patrol_i}/{len(PATROL)}"
+        # The map's state belongs in the heartbeat: "1 ripe in view" says
+        # nothing about whether the robot BELIEVES it, and that belief is now
+        # what decides whether it stops.
+        fm = (f" | map {len(self._fruit.unpicked())} confirmed/"
+              f"{len(self._fruit.clusters)} proposed"
+              if self._fruit.clusters else " | map empty")
         self.get_logger().info(
             f"[state] {self._phase}/{state} at {pos} -> goal {goal} "
-            f"| {where} | {self._ripe} ripe in view")
+            f"| {where} | {self._ripe} ripe in view{fm}")
 
     def _check_watchdog(self) -> None:
         sig, t = self._signature(), self._now()
@@ -291,7 +355,8 @@ class MissionNode(Node):
         # (spaced out so one cluster isn't picked repeatedly).
         if (self._phase == "explore" and self._ripe >= RIPE_MIN
                 and abs(self._ripe_offset) <= COMMIT_OFFSET
-                and self._far_from_last_pick()):
+                and self._far_from_last_pick()
+                and self._fruit_here_is_real()):
             self._begin_align()
             return
         if math.hypot(self._goal[0] - self._pose[0], self._goal[1] - self._pose[1]) < ARRIVAL_TOLERANCE:
@@ -303,6 +368,44 @@ class MissionNode(Node):
                 f"({self._goal[0]:+.2f}, {self._goal[1]:+.2f}) timed out "
                 f"after {GOAL_TIMEOUT:.0f}s -- abandoning, advancing.")
             self._abandon_goal()
+
+    def _fruit_here_is_real(self) -> bool:
+        """Has the map corroborated fruit anywhere the robot could reach?
+
+        THIS IS THE GATE THE WHOLE FRUIT MAP EXISTS FOR. Without it the mission
+        stops for whatever the current frame shows, which is how it came to
+        spend 39% of the harvest phase creeping toward things that were not
+        fruit and then timing out.
+
+        The test is deliberately POSITIONAL rather than per-detection: the
+        detector says "there is something red at this bearing", the map says
+        "there is corroborated fruit at this place". Matching them by position
+        means a spurious detection standing where a real cluster is still gets
+        acted on -- which is correct, there IS fruit there -- while the same
+        detection over bare gutter does not.
+
+        Fails OPEN when the map is empty. If scouting produced nothing at all,
+        something is broken upstream and a silent robot that never picks is a
+        worse failure than the one being fixed; it says so instead.
+        """
+        if not self._fruit.clusters:
+            if not getattr(self, "_warned_empty_map", False):
+                self._warned_empty_map = True
+                self.get_logger().warn(
+                    "the fruit map is EMPTY after scouting -- no detections "
+                    "reached it. Falling back to reacting per frame, which is "
+                    "the old behaviour and its old false-positive rate. Check "
+                    "that /berry_detections is publishing and that the camera "
+                    "head reports a settled angle.")
+            return True
+        # The camera looks along the robot's left flank, so a berry in frame is
+        # roughly abeam. Search a generous radius around the robot rather than
+        # trying to invert the bearing: the map's job is to veto places, not to
+        # localise this particular blob.
+        for c in self._fruit.unpicked():
+            if math.hypot(c.x - self._pose[0], c.y - self._pose[1]) <= 1.6:
+                return True
+        return False
 
     def _far_from_last_pick(self) -> bool:
         if self._last_pick_xy is None:
@@ -325,8 +428,31 @@ class MissionNode(Node):
                 self._set_goal(SURVEY[0], "survey")
                 return
             self.get_logger().info(
-                f"[survey] {SURVEY_LAPS} laps done, the greenhouse is mapped "
-                "-- switching to harvesting.")
+                f"[survey] {SURVEY_LAPS} lap(s) done, the greenhouse is mapped "
+                f"-- switching to {SCOUT_LAPS} SCOUTING laps (look, do not "
+                "pick).")
+            self._phase = "scout"
+            self._patrol_i = 0
+        if self._phase == "scout":
+            if self._patrol_i < len(PATROL):
+                self._set_goal(PATROL[self._patrol_i], "scout")
+                return
+            self._scout_lap += 1
+            self._patrol_i = 0
+            if self._scout_lap < SCOUT_LAPS:
+                self.get_logger().info(
+                    f"[scout] pass {self._scout_lap}/{SCOUT_LAPS} done, "
+                    f"{len(self._fruit.clusters)} clusters proposed so far "
+                    "-- going round again for a second viewpoint.")
+                self._set_goal(PATROL[0], "scout")
+                return
+            for line in self._fruit.report_lines():
+                self.get_logger().info("[fruit] " + line)
+            self.get_logger().info(
+                f"[scout] {SCOUT_LAPS} passes done -- harvesting "
+                f"{len(self._fruit.unpicked())} CORROBORATED clusters. "
+                "Detections that never got a second viewpoint are ignored "
+                "from here on.")
             self._phase = "explore"
         if self._phase == "explore":
             if self._patrol_i < len(PATROL):
@@ -541,6 +667,10 @@ class MissionNode(Node):
             return
         self._picks_at_stop += 1
         self._picking = False
+        # Tell the map. Without this the same cluster stays "unpicked" and the
+        # gate keeps opening for it long after the fruit is in the basket.
+        if self._pose is not None:
+            self._fruit.mark_picked(self._pose[0], self._pose[1])
         # Station sweep: anything else within reach? Pick it before moving --
         # driving costs time, so harvest everything reachable from this stop.
         # One sweep direction only, so picked berries (now behind) are never
