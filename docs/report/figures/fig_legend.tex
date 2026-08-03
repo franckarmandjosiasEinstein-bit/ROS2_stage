@@ -1,0 +1,100 @@
+% =====================================================================
+%  Fig. 1 -- the flowchart alphabet, defined once for the whole report.
+%  Spans both columns (figure*) because it is a reference the reader
+%  comes back to.
+% =====================================================================
+\begin{figure*}[!t]
+\centering
+\begin{tikzpicture}[fcchain]
+
+% ---------------------------------------------------------------------
+%  LEFT BLOCK : the six node shapes
+% ---------------------------------------------------------------------
+\node[fcterm] (s1) {START / STOP};
+\node[fcproc, below=of s1] (s2) {Process\\{\tiny a computation}};
+\node[fcdec,  below=of s2] (s3) {Decision?};
+\node[fcio,   below=8mm of s3] (s4) {ROS topic in / out};
+\node[fcsub,  below=of s4] (s5) {lib/ call\\{\tiny framework-independent}};
+\node[fcfail, below=of s5] (s6) {Recovery / degraded\\{\tiny branch taken on failure}};
+
+\node[font=\sffamily\footnotesize\bfseries, above=3mm of s1] (shapeshdr)
+     {(a) Shapes};
+
+% shape annotations, to the right of each
+\node[anchor=west, font=\sffamily\scriptsize, right=3mm of s1]
+     {Entry and exit points of the node.};
+\node[anchor=west, font=\sffamily\scriptsize, right=3mm of s2]
+     {Ordinary computation, no I/O.};
+\node[anchor=west, font=\sffamily\scriptsize, right=3mm of s3]
+     {Test; both exits are labelled \textsf{yes}/\textsf{no}.};
+\node[anchor=west, font=\sffamily\scriptsize, right=3mm of s4]
+     {A message published or received.};
+\node[anchor=west, font=\sffamily\scriptsize, right=3mm of s5]
+     {Call into \filename{lib/}: no ROS, no simulator.};
+\node[anchor=west, font=\sffamily\scriptsize, right=3mm of s6]
+     {Fallback path: brake, escape, abandon goal.};
+
+% ---------------------------------------------------------------------
+%  RIGHT BLOCK : the three phase bands
+% ---------------------------------------------------------------------
+\node[fcterm, right=78mm of s1] (p0) {node start};
+\node[fcproc, below=of p0] (p1) {declare parameters,\\open publishers \& subscribers};
+\node[fcproc, below=of p1] (p2) {arm timers, seed state};
+
+\node[fcio,   below=9mm of p2] (p3) {wait for next message / tick};
+\node[fcproc, below=of p3] (p4) {read inputs, run the algorithm};
+\node[fcdec,  below=of p4] (p5) {shutdown\\requested?};
+\node[fcio,   below=9mm of p5] (p6) {publish command};
+
+\node[fcproc, below=10mm of p6] (p7) {stop the base, release the arm};
+\node[fcproc, below=of p7] (p8) {emit final report};
+\node[fcterm, below=of p8] (p9) {destroy node, rclpy.shutdown()};
+
+\draw[fcline] (p0) -- (p1);
+\draw[fcline] (p1) -- (p2);
+\draw[fcline] (p2) -- (p3);
+\draw[fcline] (p3) -- (p4);
+\draw[fcline] (p4) -- (p5);
+\draw[fcline] (p5) -- node[fclab,right] {no} (p6);
+\draw[fcback] (p6.east) -- ++(14mm,0) |- (p3.east);
+\node[font=\sffamily\tiny\itshape, text=phaseMainLine]
+     at ($(p6.east)+(20mm,7mm)$) {loop};
+\draw[fcline] (p5.west) -- ++(-13mm,0) |- node[fclab,pos=0.25] {yes} (p7.west);
+
+\node[font=\sffamily\footnotesize\bfseries, above=3mm of p0] {(b) Phase bands};
+
+% ---- the bands themselves, on the background layer -------------------
+\begin{scope}[on background layer]
+  \phaseband{bandinit}{INITIALISATION}{phaseInitLine}{(p0)(p1)(p2)}{bi}
+  \phaseband{bandmain}{MAIN LOOP}{phaseMainLine}{(p3)(p4)(p5)(p6)}{bm}
+  \phaseband{bandend}{TERMINATION / DESTRUCTION}{phaseEndLine}{(p7)(p8)(p9)}{be}
+\end{scope}
+
+% ---- band annotations ------------------------------------------------
+\node[fcnote, right=6mm of bi.east, anchor=west, text width=44mm]
+     {\textbf{Executed once.} Everything whose value must survive the
+      whole run. Parameters are declared here so a YAML file can
+      override them --- the source of one of the regressions reported in
+      Sec.~\ref{sec:regression}.};
+\node[fcnote, right=6mm of bm.east, anchor=west, text width=44mm]
+     {\textbf{Executed at a fixed rate.} One tick, one decision. State
+      that must be re-armed per cycle belongs here and not above: a
+      counter armed once in initialisation is exactly the defect that
+      disabled multi-pick harvesting (Sec.~\ref{sec:phaseB_mission}).};
+\node[fcnote, right=6mm of be.east, anchor=west, text width=44mm]
+     {\textbf{Executed once, on the way out.} Must run even on
+      \texttt{SIGINT}: the performance monitor prints its final report
+      from this band, because every run of this project ends with
+      Ctrl\,+\,C.};
+
+\end{tikzpicture}
+\caption{The flowchart language used throughout this report, defined
+once. (a) The six node shapes: two are specific to a robotics stack ---
+a \emph{ROS topic} shape, so the boundary with the middleware is
+visible, and a \emph{library call} shape, so the boundary with the
+framework-independent algorithm layer is visible. (b) The three phase
+bands into which every later flowchart is partitioned. The banding is
+functional rather than decorative: two of the defects analysed in this
+report are cases of code placed in the wrong band.}
+\label{fig:legend}
+\end{figure*}

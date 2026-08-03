@@ -1,0 +1,180 @@
+% =====================================================================
+\section{Introduction}
+% =====================================================================
+
+\subsection{Context and motivation}
+
+Strawberry production is among the most labour-intensive branches of
+horticulture. Harvesting alone accounts for a large share of the
+operating cost of a table-top greenhouse, it must be repeated every two
+to three days through the season, and it is increasingly constrained by
+the availability of seasonal labour. The task is also unusually hard to
+automate: the fruit is soft, it grows in clusters where ripe and unripe
+berries touch, it is partly hidden by leaves, and the picking window is
+short. These properties have made strawberry harvesting a recurring
+benchmark for agricultural robotics rather than a solved problem
+\cite{bac2014harvesting,vanhenten2002cucumber}.
+
+A greenhouse, on the other hand, is a far friendlier environment for a
+mobile robot than an open field. It is flat, indoor, geometrically
+regular, free of weather, and its layout --- parallel raised gutters
+separated by service aisles --- is known in advance and does not change
+between seasons. That combination is what makes a \emph{digital twin}
+attractive: because the physical structure is stable and measurable, a
+simulated greenhouse can be made dimensionally faithful, and a control
+stack developed against it has a realistic chance of transferring to the
+real installation.
+
+\subsection{Objective of this work}
+
+The objective of this Projet de Fin d'Ann\'ee is to build, from nothing,
+a complete autonomous stack that lets a KUKA YouBot omnidirectional
+mobile manipulator:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item build a metric map of an unknown greenhouse from a 2D lidar;
+  \item localise itself in that map while it moves;
+  \item plan and follow collision-free paths along the service aisles;
+  \item detect ripe strawberries with an on-board colour camera and
+        place them on the map;
+  \item drive its five-DOF arm to pick them; and
+  \item repeat the cycle autonomously, delivering the fruit to a depot.
+\end{enumerate}
+
+A secondary objective, imposed by the intended reuse of the platform in
+healthcare logistics and indoor transport, is that the navigation,
+mapping and safety layers must be \emph{domain-independent}: nothing in
+them may assume strawberries, gutters, or this particular greenhouse.
+
+\subsection{Two phases, and why}
+
+The work is presented chronologically because it was carried out
+chronologically, and because the second phase is only intelligible as a
+consequence of the first.
+
+\textbf{\phaseA{} (Webots).} A complete prototype was first written for
+Webots R2025a, in plain Python, with no middleware. This was deliberate:
+Webots supplies the robot model, the physics and the sensors out of the
+box, so the entire effort could go into the algorithms themselves ---
+mecanum kinematics, odometry, occupancy mapping, A$^\star$, pure
+pursuit, colour vision, arm sequencing, and a behaviour-tree mission
+supervisor. Fifteen controllers were written, ten of them single-purpose
+test controllers used to validate one subsystem at a time. Phase~A
+produced 3\,844 lines of Python and, more importantly, an algorithm
+layer that had been exercised against a working simulator.
+
+\textbf{\phaseB{} (ROS~2 / Gazebo).} The validated algorithms were then
+lifted, essentially unmodified, into a framework-independent library
+(\filename{youbot\_control/lib/}) and wrapped in ROS~2 Jazzy nodes, with
+the scene rebuilt as a Gazebo Harmonic digital twin measured against the
+real greenhouse. Phase~B is therefore not a rewrite but a
+\emph{re-architecture}: the same A$^\star$, the same pure pursuit, the
+same log-odds grid, now distributed across processes, with the problems
+that distribution creates --- and with a measurement layer added so that
+those problems become visible instead of being guessed at.
+
+\subsection{What this report claims, and what it does not}
+
+This report is written to be checked. Every quantitative statement in it
+is traceable to a specific line of a specific simulation log, and the
+procedure to regenerate those logs is given in Appendix~\ref{app:reproduce}.
+Where a subsystem does not work, that is stated with the same emphasis
+as where one does. In particular:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item The mapping subsystem works well. The reconstructed interior is
+        accurate to \measured{$-4$~cm~/~$+10$~cm} against a
+        $9.90 \times 4.90$~m reference, with \measured{100\%} of the
+        free floor observed and \measured{0.0\%} of it wrongly marked as
+        obstacle (Sec.~\ref{sec:results}).
+  \item Odometry calibration works. A one-off UMBmark-style calibration
+        \cite{borenstein1996umbmark} holds position error at
+        \measured{0.20~m} over a full mission, where the uncalibrated
+        odometry diverges past \measured{10~m}.
+  \item \emph{The homemade SLAM module does not work.} Incremental
+        correlative scan matching without loop closure was implemented,
+        instrumented, and measured to be \emph{worse} than the odometry
+        prior it corrects. Sec.~\ref{sec:slam} explains why this is a
+        property of the algorithm class and not a coding defect, and the
+        production configuration disables it.
+  \item \emph{The fruit detector is not accurate enough.} Colour
+        thresholding reaches \measured{77\%} recall but only about one
+        correct estimate in three, at \measured{0.22~m} localisation
+        error --- roughly a quarter of the plant spacing, which means it
+        identifies the right plant but not the right berry.
+\end{itemize}
+
+Reporting the negative results in full is not modesty. The instrumented
+comparison between a homemade SLAM front-end and a calibrated dead-reckoning
+baseline is one of the more useful outcomes of the project, and it only
+exists because the measurement layer was built before the conclusions
+were drawn.
+
+\subsection{Contributions}
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item A complete, documented, reproducible two-phase implementation of
+        an autonomous greenhouse harvester, from world modelling to
+        mission supervision, with every algorithm re-implemented rather
+        than imported from a navigation stack.
+  \item A framework-independent algorithm library validated in one
+        simulator (Webots) and reused unchanged in another
+        (Gazebo/ROS~2), demonstrating a practical portability pattern.
+  \item A three-axis measurement layer --- pose accuracy, map accuracy,
+        and time/throughput --- that scores the running system against
+        simulator ground truth continuously, and which caught two
+        regressions that no test and no visual inspection had caught.
+  \item A pre-flight regression suite of 191 pure-Python checks, each
+        one encoding a failure the project actually suffered, that runs
+        in about one second before every simulation.
+  \item An explicit SWOT analysis of every algorithm and architectural
+        decision (Sec.~\ref{sec:swot}), including the ones that were
+        abandoned.
+\end{enumerate}
+
+\subsection{How to read the flowcharts}
+
+Every control-flow structure in this report is given as a flowchart
+using one fixed visual language, defined once in
+Fig.~\ref{fig:legend} and never redefined afterwards. Two conventions
+matter:
+
+\textbf{Shapes} follow classic flowchart practice, with two additions
+specific to a robotics stack: a distinct shape for a \emph{message
+read or written on a ROS topic}, and a distinct shape for a \emph{call
+into the framework-independent algorithm library}. Being able to see, at
+a glance, where a diagram touches the middleware and where it touches
+the algorithms is the whole point of the split described in
+Sec.~\ref{sec:architecture}.
+
+\textbf{Phase bands} partition every diagram into three coloured
+regions: \textcolor{phaseInitLine}{\textbf{INITIALISATION}} (executed
+once, before any data arrives), \textcolor{phaseMainLine}{\textbf{MAIN
+LOOP}} (the periodic callback, executed at a fixed rate for the whole
+run), and \textcolor{phaseEndLine}{\textbf{TERMINATION / DESTRUCTION}}
+(shutdown, resource release, final reporting). The banding is not
+decoration: a recurring source of defects in this project was code
+placed in the wrong band --- state armed once that should have been
+re-armed per cycle, and cleanup that never ran because it was inside the
+loop it was meant to end.
+
+\input{figures/fig_legend}
+
+\subsection{Report structure}
+
+Sec.~\ref{sec:related} reviews the literature each algorithm is drawn
+from. Sec.~\ref{sec:environment} specifies the toolchain, the exact
+software versions, and the installation procedure.
+Sections~\ref{sec:phaseA}--\ref{sec:phaseA_results} present \phaseA{}
+(Webots) in full, subsystem by subsystem.
+Sections~\ref{sec:phaseB}--\ref{sec:regression} present \phaseB{}
+(ROS~2 / Gazebo) in the same order, so the two phases can be read side
+by side. Sec.~\ref{sec:swot} gives the SWOT analysis of every method.
+Sec.~\ref{sec:results} reports the measured results,
+Sec.~\ref{sec:discussion} discusses the limitations and what they imply
+for a physical deployment, and Sec.~\ref{sec:conclusion} concludes.
+Appendix~\ref{app:reproduce} gives the commands to reproduce every
+experiment; Appendix~\ref{app:parameters} tabulates every tuned
+parameter with its justification; Appendix~\ref{app:topics} gives the
+full topic contract; Appendix~\ref{app:troubleshooting} collects the
+failure modes encountered and their diagnosis.

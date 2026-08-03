@@ -1,0 +1,282 @@
+% =====================================================================
+%  Development Environment and Toolchain
+%  SCOPE: Exact versions, installation, build and launch procedures.
+% =====================================================================
+\section{Development Environment and Toolchain}
+\label{sec:environment}
+
+This section specifies the software environment precisely enough that
+every result in this report can be regenerated on a clean machine. It is
+placed before the technical chapters deliberately: several of the
+defects analysed later are consequences of version-specific behaviour
+(a deprecated Gazebo service, a build mode that resolves entry points
+through a symbolic link), and those are not intelligible without knowing
+exactly what was running.
+
+\subsection{Hardware and operating system}
+
+All development and all reported experiments were carried out on a
+single workstation, Table~\ref{tab:hardware}. No GPU-accelerated
+inference is used anywhere in the stack; the only GPU consumer is the
+simulator's rendering pipeline, which also serves the simulated lidar
+(Sec.~\ref{sec:phaseB_twin} explains why that matters).
+
+\begin{table}[!t]
+\caption{Development and experiment platform}
+\label{tab:hardware}
+\centering\footnotesize
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Item} & \textbf{Value}\\
+\midrule
+Machine            & HP EliteBook laptop\\
+Operating system   & Ubuntu 24.04 LTS (Noble Numbat)\\
+Display server     & Wayland, with Qt forced to XCB\\
+Python             & 3.12 (system interpreter)\\
+Project storage    & external volume, mounted under \filename{/mnt}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The display server is worth recording. Gazebo's GUI detects Wayland and
+falls back to the XCB Qt platform plugin, printing
+\texttt{Detected Wayland. Setting Qt to use the xcb plugin} at every
+start. This is benign in itself, but it is one reason the GUI
+camera-tracking behaviour differs from the documented default, which
+motivated the camera watchdog described in Sec.~\ref{sec:phaseB_twin}.
+
+\subsection{Software versions}
+
+Table~\ref{tab:versions} lists every component whose version affects the
+results. Two entries are load-bearing:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{Gazebo Harmonic (gz-sim 8.11.0)} deprecated the
+        \topicname{gui/follow} service in favour of the
+        \topicname{gui/track} topic. Code written against the older API
+        fails silently --- the camera simply never locks onto the robot
+        --- which cost one full debugging cycle
+        (Appendix~\ref{app:troubleshooting}).
+  \item \textbf{\texttt{colcon build -{}-symlink-install}} resolves
+        console-script entry points through an egg-link back into
+        \filename{src/}. When that metadata goes missing, every node
+        dies at import with \texttt{PackageNotFoundError} --- fifteen
+        identical tracebacks that name the symptom and not the cause.
+        The launch wrapper tests for this explicitly before starting
+        anything.
+\end{itemize}
+
+\begin{table}[!t]
+\caption{Software components and versions}
+\label{tab:versions}
+\centering\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Component} & \textbf{Version} & \textbf{Role}\\
+\midrule
+Webots                        & R2025a          & \phaseA{} simulator\\
+ROS~2                         & Jazzy Jalisco   & \phaseB{} middleware\\
+Gazebo Sim                    & Harmonic 8.11.0 & \phaseB{} simulator\\
+\texttt{ros\_gz\_sim}         & Jazzy           & spawn, world launch\\
+\texttt{ros\_gz\_bridge}      & Jazzy           & topic bridging\\
+\texttt{webots\_ros2\_driver} & Jazzy           & \phaseA{}$\rightarrow$ROS\\
+RViz~2                        & Jazzy           & visualisation\\
+NumPy                         & system package  & grids, scan matching\\
+colcon                        & system package  & build tool\\
+Physics engine                & DART (default)  & 1\,ms step\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Installation}
+
+Listing~\ref{lst:install} gives the complete installation from a clean
+Ubuntu 24.04. The ROS~2 and Gazebo repositories are added first; the
+\texttt{ros-jazzy-ros-gz} metapackage pulls in both the bridge and the
+simulator integration.
+
+\begin{lstlisting}[style=bash,caption={Full installation on a clean
+Ubuntu 24.04.},label={lst:install}]
+# --- 1. ROS 2 Jazzy -------------------------------------
+sudo apt update && sudo apt install -y \
+     software-properties-common curl
+sudo add-apt-repository universe
+sudo curl -sSL -o /usr/share/keyrings/ros-archive-keyring.gpg \
+  https://raw.githubusercontent.com/ros/rosdistro/master/ros.key
+echo "deb [signed-by=/usr/share/keyrings/\
+ros-archive-keyring.gpg] \
+http://packages.ros.org/ros2/ubuntu noble main" \
+     | sudo tee /etc/apt/sources.list.d/ros2.list
+sudo apt update
+sudo apt install -y ros-jazzy-desktop
+
+# --- 2. Gazebo Harmonic + the ROS 2 bridge --------------
+sudo apt install -y ros-jazzy-ros-gz \
+                    ros-jazzy-ros-gz-sim \
+                    ros-jazzy-ros-gz-bridge
+
+# --- 3. Webots R2025a (Phase A) -------------------------
+sudo apt install -y ros-jazzy-webots-ros2
+# plus the Webots R2025a .deb from cyberbotics.com
+
+# --- 4. Build tooling and Python dependencies -----------
+sudo apt install -y python3-colcon-common-extensions \
+                    python3-numpy python3-opencv
+
+# --- 5. The report toolchain (optional) -----------------
+sudo apt install -y texlive-latex-extra texlive-publishers \
+                    texlive-science
+\end{lstlisting}
+
+\subsection{Workspace layout and build}
+
+The ROS~2 workspace contains five packages, Table~\ref{tab:packages}.
+The split is not cosmetic: \texttt{youbot\_control} holds the algorithms
+and the control nodes and depends on \emph{no} simulator, while
+\texttt{youbot\_gazebo} and \texttt{youbot\_webots} are thin,
+simulator-specific shells. This is what allowed \phaseA{} to be reused
+in \phaseB{} rather than rewritten (Sec.~\ref{sec:architecture}).
+
+\begin{table}[!t]
+\caption{ROS~2 workspace packages and their dependencies}
+\label{tab:packages}
+\centering\footnotesize
+\begin{tabular}{@{}p{0.24\columnwidth}p{0.66\columnwidth}@{}}
+\toprule
+\textbf{Package} & \textbf{Depends on}\\
+\midrule
+\texttt{youbot\_control} &
+  \texttt{rclpy}, \texttt{geometry\_msgs}, \texttt{sensor\_msgs},
+  \texttt{nav\_msgs}, \texttt{tf2\_ros},
+  \texttt{visualization\_msgs}, \texttt{numpy}\\
+\texttt{youbot\_slam} &
+  \texttt{rclpy}, \texttt{nav\_msgs}, \texttt{sensor\_msgs},
+  \texttt{geometry\_msgs}, \texttt{tf2\_ros},
+  \texttt{youbot\_control}\\
+\texttt{youbot\_gazebo} &
+  \texttt{youbot\_control}, \texttt{youbot\_bringup},
+  \texttt{ros\_gz\_sim}, \texttt{ros\_gz\_bridge},
+  \texttt{robot\_state\_publisher}, \texttt{rviz2}\\
+\texttt{youbot\_bringup} &
+  \texttt{youbot\_control}, \texttt{launch}, \texttt{launch\_ros},
+  \texttt{rviz2}, \texttt{robot\_state\_publisher}\\
+\texttt{youbot\_webots} &
+  \texttt{webots\_ros2\_driver}, \texttt{youbot\_control},
+  \texttt{rclpy}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Note the direction of the arrows: no package containing an algorithm
+depends on a simulator, and no simulator package is depended upon by
+another. \texttt{youbot\_slam} depends on \texttt{youbot\_control} only
+to reuse the occupancy-grid and scan-matching libraries.
+
+\begin{lstlisting}[style=bash,caption={Cloning and building.},
+label={lst:build}]
+git clone https://github.com/\
+franckarmandjosiasEinstein-bit/ROS2_stage.git
+cd ROS2_stage
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+\end{lstlisting}
+
+\texttt{-{}-symlink-install} is used so that editing a Python node takes
+effect without a rebuild, which matters when one simulation run costs
+half an hour of wall time. Its price is the entry-point fragility
+described above; if that appears, a plain \texttt{colcon build} writes
+real distribution metadata and removes the dependency on
+\filename{src/} entirely.
+
+\subsection{Running a simulation}
+
+Every experiment is launched through one wrapper script,
+\filename{src/youbot\_gazebo/scripts/run.sh}, rather than through
+\texttt{ros2 launch} directly. The wrapper exists because of three
+concrete failures, each of which cost at least one run:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{Gazebo does not die on Ctrl\,+\,C.} A surviving
+        \texttt{gz sim} keeps publishing an old \topicname{clock}; the
+        next run then has two clocks, RViz thrashes, and the GUI can
+        attach to a ghost world with no robot in it. The wrapper
+        installs a cleanup trap and afterwards \emph{verifies} that
+        nothing survived, printing the command line of any process it
+        could not match rather than leaving it to be inferred from the
+        next run misbehaving.
+  \item \textbf{Gazebo rewrites its GUI configuration on every exit}
+        with wherever the camera was left, and reads it back in
+        preference to the world's \texttt{<gui>} pose. A run started
+        after the camera was parked on empty space opens blind. The
+        wrapper deletes \filename{\textasciitilde/.gz/sim/8/gui.config}
+        before starting.
+  \item \textbf{Silent build breakage}, via the entry-point check
+        described above.
+\end{enumerate}
+
+The wrapper then runs the pre-flight regression suite
+(Sec.~\ref{sec:regression}) and refuses to start if any check fails:
+about one second of pure Python weighed against thirty minutes of
+simulation.
+
+\begin{lstlisting}[style=bash,caption={The supported launch
+configurations.},label={lst:run}]
+# Level 2 -- ground-truth pose, no SLAM (baseline)
+./src/youbot_gazebo/scripts/run.sh
+
+# Level 3 -- homemade SLAM in the loop
+./src/youbot_gazebo/scripts/run.sh slam
+
+# Level 3 -- calibrated dead reckoning, SLAM disabled
+#            (the production configuration, Sec. V-E)
+./src/youbot_gazebo/scripts/run.sh slam \
+      slam:=false pose_topic:=odom_calibrated
+
+# Headless, for batch runs
+./src/youbot_gazebo/scripts/run.sh slam gui:=false
+\end{lstlisting}
+
+A correct start prints three markers, in this order. Their absence is
+the fastest way to detect that a stale build is being run --- a mistake
+made twice during this project, both times producing a log that looked
+plausible and was measuring the wrong binary:
+
+\begin{lstlisting}[style=bash]
+[run.sh] pre-flight: all 191 checks passed.
+[mapping_node] mapping_node up: /scan + /odom -> /map
+               (inflated, for planning) + /map_raw (evidence)
+[perf_monitor] perf_monitor up: timing, throughput and
+               where the time goes.
+\end{lstlisting}
+
+\subsection{Running \phaseA{} (Webots)}
+
+\phaseA{} is self-contained and does not require ROS. Webots is opened
+on one of the two worlds and the \texttt{controller} field of the YouBot
+node selects which of the fifteen controllers runs
+(Sec.~\ref{sec:phaseA}). The \texttt{youbot\_webots} package exists only
+to expose the same robot to ROS~2 through
+\texttt{webots\_ros2\_driver}; it was used to confirm that the algorithm
+layer behaved identically under both simulators before the Gazebo twin
+was built.
+
+\begin{lstlisting}[style=bash,caption={Launching \phaseA{}.},
+label={lst:webots}]
+# Standalone Webots (no ROS): open the world, then choose
+# the controller in the scene tree.
+webots worlds/smart_agriculture.wbt
+webots worlds/greenhouse.wbt
+
+# The same robot exposed to ROS 2 (bridge validation)
+ros2 launch youbot_webots webots.launch.py
+\end{lstlisting}
+
+\subsection{Version control and reproducibility}
+
+The two phases live in two repositories: the Webots prototype in
+\texttt{Projet}, and the ROS~2 stack in \texttt{ROS2\_stage}. Every
+result quoted in Sec.~\ref{sec:results} names the commit it was produced
+from, because two of the analyses in this report compare runs that
+differ by a single parameter file. Appendix~\ref{app:reproduce} lists
+those commits alongside the exact command and the expected output.

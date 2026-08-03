@@ -1,0 +1,134 @@
+% =====================================================================
+%  An Autonomous Mobile-Manipulation Stack for Greenhouse Strawberry
+%  Harvesting: from a Webots Prototype to a ROS 2 / Gazebo Digital Twin
+%
+%  PFA (Projet de Fin d'Annee) technical report
+%  Compile:  make        -> report.pdf     (pdflatex + bibtex + 2x pdflatex)
+% =====================================================================
+\documentclass[conference]{IEEEtran}
+
+\input{preamble}
+
+% ---------------------------------------------------------------------
+%  Document-wide switches. Set DRAFT to true to get a faster build with
+%  figure placeholders instead of the full TikZ flowcharts.
+% ---------------------------------------------------------------------
+\newboolean{DRAFT}
+\setboolean{DRAFT}{false}
+
+\begin{document}
+
+% =====================================================================
+%  TITLE
+% =====================================================================
+\title{An Autonomous Mobile-Manipulation Stack for\\
+       Greenhouse Strawberry Harvesting:\\
+       from a Webots Prototype to a ROS~2 / Gazebo Digital Twin}
+
+\author{%
+  \IEEEauthorblockN{Franck Armand Josias Einstein}
+  \IEEEauthorblockA{%
+    \textit{Projet de Fin d'Ann\'ee (PFA)}\\
+    \textit{Smart Agriculture --- Digital Twin}\\
+    Email: josiasarmand40@gmail.com}
+}
+
+\maketitle
+
+% =====================================================================
+%  ABSTRACT
+% =====================================================================
+\begin{abstract}
+This report documents the complete design, implementation and
+experimental evaluation of an autonomous mobile-manipulation stack for
+strawberry harvesting in a greenhouse, built around a KUKA YouBot
+omnidirectional platform. The work is presented chronologically in two
+phases. \phaseA{} develops a self-contained prototype in Webots
+R2025a: mecanum kinematics, wheel odometry, log-odds occupancy mapping
+from a 2D lidar, A$^\star$ path planning, pure-pursuit path following,
+colour-based crate detection with ground-plane back-projection, a
+five-degree-of-freedom arm sequence, and a behaviour-tree mission
+supervisor, totalling 3\,844 lines across fifteen controllers.
+\phaseB{} ports the validated algorithm layer to ROS~2 Jazzy and
+rebuilds the scene as a Gazebo Harmonic digital twin of a
+$9.90 \times 4.90$~m greenhouse containing three raised gutters and
+127 individually placed berries. Phase~B adds a single-owner protective
+stop, an offline UMBmark odometry calibration, a homemade correlative
+scan-matching SLAM module, a camera-to-map fruit localiser, a
+three-lap coverage survey preceding harvesting, and a measurement layer
+that scores pose, map and throughput against simulator ground truth on
+every run. Measured results are reported in full, including negative
+ones: the reconstructed map is accurate to
+\measured{$-4$~cm~/~$+10$~cm} in interior dimensions with
+\measured{100\%} floor coverage and \measured{0.0\%} phantom clutter,
+calibrated odometry holds \measured{0.20~m} of position error where raw
+odometry diverges past 10~m, while the homemade SLAM front-end is shown
+to be worse than the odometry prior it was meant to correct, and the
+colour-threshold fruit detector reaches only \measured{77\%} recall at
+\measured{0.22~m} localisation error with roughly two of every three map
+estimates spurious. Each algorithm and design decision is analysed with
+a SWOT table, and every control-flow structure is given as a colour-coded
+flowchart partitioned into initialisation, main loop and termination.
+The report also specifies the exact toolchain versions, installation
+procedure and launch commands required to reproduce every experiment.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Autonomous mobile manipulation, precision agriculture, digital twin,
+ROS~2, Gazebo, Webots, KUKA YouBot, mecanum drive, occupancy grid
+mapping, SLAM, A$^\star$, pure pursuit, odometry calibration,
+functional safety, agricultural robotics.
+\end{IEEEkeywords}
+
+% =====================================================================
+%  BODY
+% =====================================================================
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_environment}
+
+% ---- PHASE A : Webots -------------------------------------------------
+\input{sections/04_phaseA_overview}
+\input{sections/05_phaseA_world}
+\input{sections/06_phaseA_locomotion}
+\input{sections/07_phaseA_perception}
+\input{sections/08_phaseA_mapping}
+\input{sections/09_phaseA_planning}
+\input{sections/10_phaseA_manipulation}
+\input{sections/11_phaseA_mission}
+\input{sections/12_phaseA_results}
+
+% ---- PHASE B : ROS 2 / Gazebo ----------------------------------------
+\input{sections/13_phaseB_overview}
+\input{sections/14_phaseB_twin}
+\input{sections/15_phaseB_architecture}
+\input{sections/16_phaseB_safety}
+\input{sections/17_phaseB_localisation}
+\input{sections/18_phaseB_vision}
+\input{sections/19_phaseB_mission}
+\input{sections/20_phaseB_instrumentation}
+\input{sections/21_phaseB_regression}
+
+% ---- Cross-cutting analysis ------------------------------------------
+\input{sections/22_swot}
+\input{sections/23_results}
+\input{sections/24_discussion}
+\input{sections/25_conclusion}
+
+% =====================================================================
+%  BIBLIOGRAPHY  (IEEE style, numbered in order of citation)
+% =====================================================================
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+% =====================================================================
+%  APPENDICES
+% =====================================================================
+\appendices
+\input{sections/A1_reproduce}
+\input{sections/A2_parameters}
+\input{sections/A3_topics}
+\input{sections/A4_troubleshooting}
+
+\end{document}

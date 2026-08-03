@@ -1,0 +1,287 @@
+% =====================================================================
+%  preamble.tex -- packages, styles and the flowchart visual language
+%  Smart Agriculture Digital Twin -- KUKA YouBot -- PFA technical report
+% =====================================================================
+%
+%  Everything that is not prose lives here so the section files stay
+%  readable. Three things are defined below and used everywhere else:
+%
+%    1. IEEE-conformant typography (IEEEtran, Times, two columns).
+%    2. A code-listing style per language (bash / python / xml / yaml).
+%    3. THE FLOWCHART LANGUAGE: a fixed set of coloured node shapes and
+%       three phase bands -- INITIALISATION, MAIN LOOP, TERMINATION --
+%       so that every flowchart in this report reads the same way.
+%
+%  Compile with:  make        (see Makefile, uses pdflatex + bibtex)
+% =====================================================================
+
+% ------------------------------------------------------- encoding, fonts
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{textcomp}
+
+% ------------------------------------------------------- maths
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{bm}
+
+% ------------------------------------------------------- tables & figures
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+
+% ------------------------------------------------------- code listings
+\usepackage{listings}
+\usepackage{xcolor}
+
+% ------------------------------------------------------- pseudocode
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% ------------------------------------------------------- drawings
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,shapes.misc,shapes.symbols,arrows.meta,
+                positioning,fit,backgrounds,calc,decorations.pathreplacing,
+                patterns}
+
+% ------------------------------------------------------- IEEE citations
+\usepackage{cite}
+\usepackage{url}
+
+% ------------------------------------------------------- misc
+\usepackage{enumitem}
+\usepackage{ifthen}
+
+% hyperref must come last
+\usepackage[hidelinks,breaklinks=true]{hyperref}
+
+% =====================================================================
+%  1. COLOUR PALETTE
+% =====================================================================
+%  One palette for the whole document. The three phase colours are the
+%  spine of every flowchart; the accent colours are for emphasis inside
+%  tables and listings. Chosen to stay legible when printed in grey.
+% ---------------------------------------------------------------------
+
+% --- flowchart phase bands (light fills, saturated borders)
+\definecolor{phaseInitFill}{HTML}{DCE9F7}   % blue   -- INITIALISATION
+\definecolor{phaseInitLine}{HTML}{2E5F9E}
+\definecolor{phaseMainFill}{HTML}{E2F3E4}   % green  -- MAIN LOOP
+\definecolor{phaseMainLine}{HTML}{2E7D32}
+\definecolor{phaseEndFill}{HTML}{FBE4DC}    % red    -- TERMINATION
+\definecolor{phaseEndLine}{HTML}{C0392B}
+
+% --- flowchart node fills
+\definecolor{nodeTerm}{HTML}{FFD9A0}        % terminal  (start / stop)
+\definecolor{nodeTermLine}{HTML}{B26B00}
+\definecolor{nodeProc}{HTML}{FFFFFF}        % process
+\definecolor{nodeProcLine}{HTML}{37474F}
+\definecolor{nodeDec}{HTML}{FFF6C2}         % decision
+\definecolor{nodeDecLine}{HTML}{B8860B}
+\definecolor{nodeIO}{HTML}{DDE6FA}          % input / output (ROS topic)
+\definecolor{nodeIOLine}{HTML}{3F51B5}
+\definecolor{nodeSub}{HTML}{E8DAF5}         % subroutine / library call
+\definecolor{nodeSubLine}{HTML}{6A1B9A}
+\definecolor{nodeNote}{HTML}{F5F5F5}        % annotation
+\definecolor{nodeFail}{HTML}{FADBD8}        % failure / recovery branch
+\definecolor{nodeFailLine}{HTML}{922B21}
+
+% --- semantic accents used in prose and tables
+\definecolor{okGreen}{HTML}{1E7B34}
+\definecolor{warnAmber}{HTML}{B7791F}
+\definecolor{badRed}{HTML}{B03A2E}
+\definecolor{codeGray}{HTML}{4F4F4F}
+\definecolor{codeBg}{HTML}{F7F7F9}
+\definecolor{codeKey}{HTML}{0B5394}
+\definecolor{codeStr}{HTML}{A31515}
+\definecolor{codeCom}{HTML}{5B7C5B}
+
+% shorthand for verdict marks in SWOT and results tables
+\newcommand{\ok}[1]{\textcolor{okGreen}{\textbf{#1}}}
+\newcommand{\warn}[1]{\textcolor{warnAmber}{\textbf{#1}}}
+\newcommand{\bad}[1]{\textcolor{badRed}{\textbf{#1}}}
+
+% =====================================================================
+%  2. CODE LISTINGS
+% =====================================================================
+%  Two columns are narrow, so listings default to \footnotesize and
+%  break long lines with a visible arrow. Wide listings go in a
+%  figure*/table* float instead of being shrunk further.
+% ---------------------------------------------------------------------
+\lstdefinestyle{base}{
+  basicstyle       = \ttfamily\footnotesize\color{codeGray},
+  keywordstyle     = \color{codeKey}\bfseries,
+  stringstyle      = \color{codeStr},
+  commentstyle     = \color{codeCom}\itshape,
+  numberstyle      = \tiny\color{gray},
+  backgroundcolor  = \color{codeBg},
+  frame            = single,
+  rulecolor        = \color{gray!40},
+  framesep         = 3pt,
+  xleftmargin      = 6pt,
+  xrightmargin     = 2pt,
+  breaklines       = true,
+  breakatwhitespace= false,
+  postbreak        = \mbox{\textcolor{gray}{$\hookrightarrow$}\space},
+  showstringspaces = false,
+  tabsize          = 2,
+  columns          = fullflexible,
+  keepspaces       = true,
+  upquote          = true,
+  captionpos       = b,
+}
+\lstdefinestyle{bash}{style=base,language=bash,
+  morekeywords={ros2,colcon,source,export,sudo,apt,git,gz,rviz2,make}}
+\lstdefinestyle{python}{style=base,language=Python}
+\lstdefinestyle{xml}{style=base,language=XML,
+  morestring=[b]",moredelim=[s][\color{codeKey}]{<}{>}}
+\lstdefinestyle{yaml}{style=base,
+  keywords={true,false,null},
+  comment=[l]{\#},
+  moredelim=[l][\color{codeKey}]{:},
+}
+\lstset{style=base}
+
+% =====================================================================
+%  3. THE FLOWCHART VISUAL LANGUAGE
+% =====================================================================
+%  Every flowchart in this report uses these shapes and only these.
+%  The reader learns the alphabet once, in Fig. 1 (the legend), and can
+%  then read every later diagram without a caption.
+%
+%  SHAPES (ISO 5807 / classic flowchart conventions)
+%    terminal   rounded    start of a node, end of a node
+%    process    rectangle  a computation
+%    decision   diamond    a test, two labelled exits
+%    io         parallelogram  a ROS topic read or written
+%    subroutine rectangle with double side bars: a call into lib/
+%    failure    rectangle, red fill: a recovery / degraded branch
+%
+%  PHASES (the coloured bands behind the shapes)
+%    INITIALISATION  blue   everything executed once, before the loop
+%    MAIN LOOP       green  the periodic callback / control tick
+%    TERMINATION     red    shutdown, resource release, destruction
+% ---------------------------------------------------------------------
+
+\tikzset{
+  % ---- node shapes ---------------------------------------------------
+  fcterm/.style   = {rounded rectangle, draw=nodeTermLine, thick,
+                     fill=nodeTerm, minimum width=26mm, minimum height=7mm,
+                     align=center, font=\sffamily\scriptsize\bfseries,
+                     inner sep=2pt},
+  fcproc/.style   = {rectangle, draw=nodeProcLine, thick, fill=nodeProc,
+                     minimum width=34mm, minimum height=8mm, align=center,
+                     font=\sffamily\scriptsize, inner sep=3pt},
+  fcdec/.style    = {diamond, draw=nodeDecLine, thick, fill=nodeDec,
+                     aspect=2.2, align=center, inner sep=1pt,
+                     font=\sffamily\scriptsize, minimum width=30mm},
+  fcio/.style     = {trapezium, trapezium left angle=70,
+                     trapezium right angle=110, draw=nodeIOLine, thick,
+                     fill=nodeIO, minimum width=30mm, minimum height=7mm,
+                     align=center, font=\sffamily\scriptsize\itshape,
+                     inner sep=2pt},
+  fcsub/.style    = {rectangle, draw=nodeSubLine, thick, fill=nodeSub,
+                     minimum width=34mm, minimum height=8mm, align=center,
+                     font=\sffamily\scriptsize, inner sep=3pt,
+                     path picture={
+                       \draw[nodeSubLine,thick]
+                         ($(path picture bounding box.north west)+(1.6mm,0)$)
+                         -- ($(path picture bounding box.south west)+(1.6mm,0)$);
+                       \draw[nodeSubLine,thick]
+                         ($(path picture bounding box.north east)-(1.6mm,0)$)
+                         -- ($(path picture bounding box.south east)-(1.6mm,0)$);
+                     }},
+  fcfail/.style   = {rectangle, draw=nodeFailLine, thick, fill=nodeFail,
+                     minimum width=34mm, minimum height=8mm, align=center,
+                     font=\sffamily\scriptsize, inner sep=3pt},
+  fcnote/.style   = {rectangle, draw=gray!60, dashed, fill=nodeNote,
+                     align=left, font=\sffamily\tiny\itshape, inner sep=3pt,
+                     text width=38mm},
+  % ---- edges ---------------------------------------------------------
+  fcline/.style   = {-{Stealth[length=2mm]}, thick, draw=nodeProcLine},
+  fclab/.style    = {font=\sffamily\tiny\bfseries, inner sep=1.5pt,
+                     fill=white, text=nodeProcLine},
+  fcback/.style   = {fcline, draw=phaseMainLine, dashed},
+  % ---- phase bands (drawn on the background layer) --------------------
+  bandinit/.style = {rectangle, rounded corners=2mm, fill=phaseInitFill,
+                     draw=phaseInitLine, thick, dash pattern=on 3pt off 2pt},
+  bandmain/.style = {rectangle, rounded corners=2mm, fill=phaseMainFill,
+                     draw=phaseMainLine, thick, dash pattern=on 3pt off 2pt},
+  bandend/.style  = {rectangle, rounded corners=2mm, fill=phaseEndFill,
+                     draw=phaseEndLine, thick, dash pattern=on 3pt off 2pt},
+  bandlab/.style  = {font=\sffamily\tiny\bfseries, align=left},
+}
+
+% \phaseband{style}{label}{colour}{fitted nodes}{name}
+%   Draws a coloured band behind the listed nodes and writes the phase
+%   name vertically down its left edge. Always used inside a
+%   \begin{scope}[on background layer] ... \end{scope}.
+\newcommand{\phaseband}[5]{%
+  \node[#1, fit=#4, inner sep=3.2mm] (#5) {};
+  \node[bandlab, text=#3, rotate=90, anchor=south]
+       at ($(#5.west)+(2.0mm,0)$) {#2};
+}
+
+% Standard vertical flowchart geometry, so all diagrams line up.
+\tikzset{
+  fcchain/.style = {node distance=6.5mm and 10mm},
+}
+
+% =====================================================================
+%  4. SWOT TABLES
+% =====================================================================
+%  Every algorithm and design decision in this report gets the same
+%  four-quadrant table. Internal factors on top (Strengths / Weaknesses),
+%  external on the bottom (Opportunities / Threats), which is the
+%  standard reading order.
+%
+%  \swot{title}{strengths}{weaknesses}{opportunities}{threats}
+% ---------------------------------------------------------------------
+\definecolor{swotS}{HTML}{E4F2E4}
+\definecolor{swotW}{HTML}{FBE6E4}
+\definecolor{swotO}{HTML}{E3ECF9}
+\definecolor{swotT}{HTML}{FDF3D8}
+
+\newcommand{\swotcell}[3]{%
+  \cellcolor{#1}\begin{minipage}[t]{\linewidth}%
+  \vspace{2pt}\textbf{\footnotesize #2}\par\vspace{2pt}
+  \scriptsize #3\vspace{3pt}\end{minipage}}
+
+\newenvironment{swottable}[1]
+  {\begin{table}[!t]\caption{SWOT --- #1}\centering\footnotesize
+   \renewcommand{\arraystretch}{1.15}
+   \begin{tabular}{|p{0.455\columnwidth}|p{0.455\columnwidth}|}\hline}
+  {\hline\end{tabular}\end{table}}
+
+% Wide variant for the two-column-spanning SWOT tables.
+\newenvironment{swottablewide}[1]
+  {\begin{table*}[!t]\caption{SWOT --- #1}\centering\footnotesize
+   \renewcommand{\arraystretch}{1.15}
+   \begin{tabular}{|p{0.47\textwidth}|p{0.47\textwidth}|}\hline}
+  {\hline\end{tabular}\end{table*}}
+
+\usepackage{colortbl}
+
+% =====================================================================
+%  5. SMALL SEMANTIC MACROS
+% =====================================================================
+\newcommand{\topicname}[1]{\texttt{\small /#1}}          % a ROS topic
+\newcommand{\nodename}[1]{\texttt{\small #1}}            % a ROS node
+\newcommand{\filename}[1]{\texttt{\small #1}}            % a source file
+\newcommand{\param}[1]{\texttt{\small #1}}               % a parameter
+\newcommand{\SI}[2]{#1\,\text{#2}}                       % 0.50 m/s etc.
+
+% Cross-phase reference: "as in Phase A, Sec. X"
+\newcommand{\phaseA}{Phase~A}
+\newcommand{\phaseB}{Phase~B}
+
+% Measured-value emphasis, so every number traceable to a log stands out
+\newcommand{\measured}[1]{\textbf{#1}}
