@@ -507,6 +507,41 @@ def check_label_source() -> None:
           '"gz_joint_states"' in pan)
 
 
+def check_latex_builds() -> None:
+    """Both documents must survive a real LaTeX run, not just a brace count.
+
+    check_latex.py counts environments and braces, which is what can be done
+    without a TeX installation -- and it passed happily on a status.tex whose
+    first \\SI{360}{\\degree} killed pdflatex outright, because \\degree comes
+    from gensymb or siunitx and neither was loaded. A syntactic check cannot
+    see an undefined control sequence.
+
+    So when pdflatex IS available this runs it. When it is not, the check
+    reports that plainly rather than claiming a pass it did not earn."""
+    print("\nreport builds")
+    import shutil
+    import subprocess
+    if shutil.which("pdflatex") is None:
+        print("  skip  pdflatex not installed -- structure checked by "
+              "docs/report/check_latex.py only, which CANNOT catch an "
+              "undefined control sequence")
+        return
+    for rel, main in (("docs/status_report", "status.tex"),
+                      ("docs/report", "report.tex")):
+        d = os.path.join(ROOT, rel)
+        try:
+            r = subprocess.run(
+                ["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
+                 main],
+                cwd=d, capture_output=True, text=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            check(f"{rel} builds", False, str(exc))
+            continue
+        bad = [ln for ln in r.stdout.splitlines() if ln.startswith("!")]
+        check(f"{rel}/{main} compiles", r.returncode == 0 and not bad,
+              bad[0] if bad else "clean")
+
+
 def check_align_state_feedback() -> None:
     """The alignment loop is a designed controller, and it converges.
 
@@ -1078,6 +1113,7 @@ def main() -> int:
     check_params_match_code()
     check_station_realign()
     check_align_state_feedback()
+    check_latex_builds()
     check_drive_model_chain()
     check_label_source()
     check_fruit_projection()

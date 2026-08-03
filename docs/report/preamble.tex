@@ -277,6 +277,11 @@
 \newcommand{\nodename}[1]{\texttt{\small #1}}            % a ROS node
 \newcommand{\filename}[1]{\texttt{\small #1}}            % a source file
 \newcommand{\param}[1]{\texttt{\small #1}}               % a parameter
+% \degree is not a LaTeX primitive -- it comes from gensymb or
+% siunitx, neither of which is loaded here. Without this the first
+% \SI{360}{\degree} kills the build with "Undefined control
+% sequence", which is exactly what it did.
+\providecommand{\degree}{\ensuremath{^\circ}}
 \newcommand{\SI}[2]{#1\,\text{#2}}                       % 0.50 m/s etc.
 
 % Cross-phase reference: "as in Phase A, Sec. X"
