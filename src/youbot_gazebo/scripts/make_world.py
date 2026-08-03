@@ -9,14 +9,35 @@ render with colour, lighting and textures:
     Gutters    3 x (8.0 x 0.4 x 0.8) at Y = -1.2, 0, +1.2, spanning X[-4,4].
     Aisles     0.8 m between gutters (Y = +/-0.6); open cross-corridors at X ends.
     Plants     dense rows of strawberry plants on each gutter top: brown pot,
-               bushy green foliage and ripe red strawberries (the harvest
-               targets). Nothing is placed in the driving aisles.
+               bushy green foliage and strawberries at a continuous, randomised
+               ripeness (the harvest targets). Nothing is placed in the
+               driving aisles.
+    Distractors a handful of red, non-fruit objects (crates, pipes, a dropped
+               jacket) scattered in the aisles -- hard negatives for the
+               colour-ratio failure mode the ml/ pipeline exists to fix.
 
-Run:  python3 scripts/make_world.py   (writes worlds/greenhouse.sdf)
+Domain randomisation (this is what varies a capture SESSION):
+    colour temperature, sun direction + intensity  -- one of four lighting
+        presets (cold_morning, neutral_midday, warm_late_afternoon,
+        overcast), sampled per run unless --condition pins one;
+    fruit maturity                                  -- continuous per-berry
+        ripeness in [0, 1], green to red, recorded in berries.yaml;
+    red distractors                                 -- count and placement
+        randomised per run.
+Everything else (arena, gutters, aisles) is fixed geometry so the lidar map
+and planner are unaffected.
+
+Run:
+    python3 scripts/make_world.py --condition warm_late_afternoon --seed 7
+    python3 scripts/make_world.py                # random condition, random seed
+
+Writes worlds/greenhouse.sdf, worlds/berries.yaml and worlds/conditions.json.
 """
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
 import os
 import random
@@ -36,6 +57,102 @@ GUTTER_H = 0.8
 # Strawberry plants: rows along each gutter top (z = GUTTER_H). No crates on the
 # driving path -- the fruited plants themselves are the harvest targets.
 PLANT_SPACING = 0.9  # m between plants along a gutter
+
+# Lighting presets a capture session is sampled from. Ranges, not points --
+# two "warm_late_afternoon" sessions should not render identically, only
+# recognisably as the same time of day. Elevation/azimuth are the sun's
+# position in the sky (degrees); intensity scales the light's own brightness;
+# ambient_scale scales the scene fill so overcast frames are not just a dim
+# sun with everything else unlit, which is not what overcast looks like.
+CONDITIONS = {
+    "cold_morning": dict(
+        temp_k=(7500, 9500), elev_deg=(12, 22), azim_deg=(60, 100),
+        intensity=(0.55, 0.75), ambient_scale=(0.85, 1.00), overcast=False),
+    "neutral_midday": dict(
+        temp_k=(5300, 6000), elev_deg=(65, 85), azim_deg=(0, 360),
+        intensity=(0.90, 1.05), ambient_scale=(0.95, 1.05), overcast=False),
+    "warm_late_afternoon": dict(
+        temp_k=(2600, 3400), elev_deg=(8, 18), azim_deg=(240, 290),
+        intensity=(0.55, 0.80), ambient_scale=(0.80, 0.95), overcast=False),
+    "overcast": dict(
+        temp_k=(6500, 8000), elev_deg=(35, 60), azim_deg=(0, 360),
+        intensity=(0.22, 0.40), ambient_scale=(1.25, 1.45), overcast=True),
+}
+
+# Continuous ripeness endpoints: 0.0 is unripe green, 1.0 is fully ripe red.
+# ml/README.md calls out "ripe, half-ripe, green -- ripeness is a continuum,
+# all three present" as a coverage requirement, not colour classes.
+UNRIPE_RGB = (0.16, 0.42, 0.10)
+RIPE_RGB = (0.95, 0.05, 0.06)
+
+# Red, but not fruit: what actually causes the colour-threshold false
+# positives per ml/README.md ("pipes, tools, crates, clothing"). Each entry is
+# (shape, base_rgb, specular, size_range_m) -- deliberately NOT the berry's
+# hue/gloss combination, since the point is a class the ratio test cannot
+# tell from a strawberry by colour alone, not a copy of the berry material.
+DISTRACTOR_KINDS = (
+    ("box", (0.55, 0.10, 0.08), 0.15, (0.10, 0.30)),   # red plastic crate
+    ("cylinder", (0.62, 0.18, 0.05), 0.35, (0.03, 0.06)),  # rust-red pipe/tool
+    ("box", (0.50, 0.06, 0.12), 0.05, (0.10, 0.22)),   # dropped red jacket/rag
+)
+
+
+def kelvin_to_rgb(temp_k: float) -> tuple[float, float, float]:
+    """Blackbody colour for a temperature in Kelvin, as 0..1 RGB.
+
+    Tanner Helland's fit to Mitchell Charity's blackbody table: the standard
+    cheap approximation, accurate enough for tinting a directional light and
+    far cheaper than a spectral render."""
+    t = max(1000.0, min(40000.0, temp_k)) / 100.0
+    r = 255.0 if t <= 66 else 329.698727446 * ((t - 60) ** -0.1332047592)
+    if t <= 66:
+        g = 99.4708025861 * math.log(t) - 161.1195681661
+    else:
+        g = 288.1221695283 * ((t - 60) ** -0.0755148492)
+    if t >= 66:
+        b = 255.0
+    elif t <= 19:
+        b = 0.0
+    else:
+        b = 138.5177312231 * math.log(t - 10) - 305.0447927307
+
+    def clamp(v):
+        return max(0.0, min(255.0, v)) / 255.0
+
+    return clamp(r), clamp(g), clamp(b)
+
+
+def sun_direction(elev_deg: float, azim_deg: float) -> tuple[float, float, float]:
+    """Unit direction the light travels for a sun at (elevation, azimuth).
+
+    elev_deg=90 is straight down (noon); low elev_deg is a low sun and the
+    long, near-horizontal shadows of morning/evening."""
+    elev, azim = math.radians(elev_deg), math.radians(azim_deg)
+    return (-math.cos(elev) * math.cos(azim),
+            -math.cos(elev) * math.sin(azim),
+            -math.sin(elev))
+
+
+def sample_domain(rng: random.Random, condition: str) -> dict:
+    """Sample one capture session's domain parameters.
+
+    `condition` pins a preset (reproducible together with --seed); "random"
+    (the default) samples one of the four uniformly, which is what you want
+    across many unattended sessions so the dataset ends up balanced rather
+    than however many times a human remembered to pass --condition."""
+    if condition == "random":
+        condition = rng.choice(sorted(CONDITIONS))
+    spec = CONDITIONS[condition]
+    return dict(
+        condition=condition,
+        temp_k=rng.uniform(*spec["temp_k"]),
+        elev_deg=rng.uniform(*spec["elev_deg"]),
+        azim_deg=rng.uniform(*spec["azim_deg"]),
+        intensity=rng.uniform(*spec["intensity"]),
+        ambient_scale=rng.uniform(*spec["ambient_scale"]),
+        overcast=spec["overcast"],
+        n_distractors=rng.randint(4, 10),
+    )
 
 
 def wall(name, x, y, sx, sy, sz, r, g, b):
@@ -144,6 +261,12 @@ def gutter(name, y):
 # the world. This is the ground-truth reference the debug monitor compares the
 # robot's perception against -- generated, never hand-maintained.
 TRUE_BERRIES = []
+# Continuous ripeness in [0, 1], one entry per TRUE_BERRIES entry, same order.
+# A separate list (not a 5th tuple element) on purpose: truth_monitor.py and
+# berry_view.py unpack berries.yaml's "berries:" rows as fixed (x, y, z, r)
+# 4-tuples, so widening that row would break both. A new "ripeness:" section
+# is invisible to code that only reads a section it names explicitly.
+TRUE_RIPENESS = []
 # Every foliage sphere, as an OCCLUDER. A berry being inside the camera frustum
 # does not mean the camera can see it: half the fruit on a plant hangs behind
 # that plant's own leaves. Without this, "berries truly in view" counts fruit
@@ -151,13 +274,15 @@ TRUE_BERRIES = []
 TRUE_FOLIAGE = []
 
 
-def plant(name, x, y):
+def plant(name, x, y, seed):
     """A realistic-looking strawberry plant sitting on the gutter top: a bushy
-    cluster of green leaves and ripe glossy strawberries, each plant slightly
-    different (deterministic per-name randomness, so every rebuild is
-    identical). Purely visual (well above the 0.20 m lidar plane, so it never
-    clutters the map) -- these fruited plants are the harvest targets."""
-    rng = random.Random(name)                  # deterministic per plant
+    cluster of green leaves and strawberries at a continuous ripeness, each
+    plant slightly different. Seeded from (name, seed) so a given session
+    seed reproduces exactly, but different sessions -- and therefore
+    different capture datasets -- see different foliage and fruit. Purely
+    visual (well above the 0.20 m lidar plane, so it never clutters the map)
+    -- these fruited plants are the harvest targets."""
+    rng = random.Random(f"{name}:{seed}")
     z0 = GUTTER_H
     s = rng.uniform(0.85, 1.15)                # overall plant scale
     parts = []
@@ -178,7 +303,10 @@ def plant(name, x, y):
           <geometry><sphere><radius>{fr:.3f}</radius></sphere></geometry>
           <material><ambient>0.06 {g*0.55:.2f} 0.08 1</ambient><diffuse>0.10 {g:.2f} 0.13 1</diffuse></material>
         </visual>""")
-    # Ripe strawberries hanging around the bush: glossy red, green calyx cap.
+    # Strawberries hanging around the bush at a continuous ripeness: glossy,
+    # green calyx cap. ripeness=0 is green and unripe, 1 is fully ripe red --
+    # sampled per berry, not per plant, so a single bush shows fruit at
+    # several stages at once, same as a real one.
     n_berry = rng.randint(4, 6)
     for i in range(n_berry):
         ang = rng.uniform(0, 6.283)
@@ -187,20 +315,25 @@ def plant(name, x, y):
         by = rad * 0.8 * math.sin(ang)
         bz = rng.uniform(0.06, 0.12)
         br = rng.uniform(0.028, 0.036)
-        red = rng.uniform(0.85, 1.0)           # ripeness shade
+        ripeness = rng.uniform(0.0, 1.0)
+        shade = rng.uniform(0.92, 1.05)        # per-berry gloss/shade jitter
+        cr = min(1.0, max(0.0, UNRIPE_RGB[0] + (RIPE_RGB[0] - UNRIPE_RGB[0]) * ripeness) * shade)
+        cg = min(1.0, max(0.0, UNRIPE_RGB[1] + (RIPE_RGB[1] - UNRIPE_RGB[1]) * ripeness) * shade)
+        cb = min(1.0, max(0.0, UNRIPE_RGB[2] + (RIPE_RGB[2] - UNRIPE_RGB[2]) * ripeness) * shade)
         TRUE_BERRIES.append((x + bx, y + by, z0 + bz, br))
+        TRUE_RIPENESS.append(ripeness)
         parts.append(f"""
         <visual name="berry{i}">
           <pose>{bx:.3f} {by:.3f} {z0 + bz:.3f} 0 0 0</pose>
           <geometry><sphere><radius>{br:.3f}</radius></sphere></geometry>
           <material>
-            <ambient>{red*0.62:.2f} 0.02 0.03 1</ambient>
-            <diffuse>{red:.2f} 0.09 0.10 1</diffuse>
+            <ambient>{cr*0.62:.2f} {cg*0.62:.2f} {cb*0.62:.2f} 1</ambient>
+            <diffuse>{cr:.2f} {cg:.2f} {cb:.2f} 1</diffuse>
             <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
                  so a near-white gloss that strong rendered the LIT face of a
                  berry as (255, 106, 92): still red to the eye, but no longer
                  red by any channel-RATIO test, which is what blinded the
-                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+                 detector. 0.25 keeps the fruit shiny and keeps its hue. -->
             <specular>0.25 0.25 0.25 1</specular>
           </material>
         </visual>
@@ -219,7 +352,45 @@ def plant(name, x, y):
     </model>"""
 
 
-def build() -> str:
+def distractor(name, x, y, rng):
+    """A red object that is not a strawberry: a crate, a length of pipe, a
+    dropped jacket -- scattered in the aisles. Deliberately absent from
+    TRUE_BERRIES/TRUE_FOLIAGE: it must never be a positive label, and it must
+    never occlude one either, since it sits in the empty aisle, not on a
+    plant. This is the training set's answer to the colour-threshold
+    detector's real failure mode (ml/README.md SS1): red things that are not
+    fruit."""
+    kind, base, spec, size_rng = rng.choice(DISTRACTOR_KINDS)
+    jitter = lambda c: max(0.0, min(1.0, c + rng.uniform(-0.08, 0.08)))
+    cr, cg, cb = (jitter(c) for c in base)
+    yaw = rng.uniform(0.0, 6.283)
+    if kind == "cylinder":
+        r = rng.uniform(*size_rng)
+        h = rng.uniform(0.10, 0.30)
+        z = h / 2.0
+        geometry = f"<cylinder><radius>{r:.3f}</radius><length>{h:.3f}</length></cylinder>"
+    else:
+        sx, sy, sz = (rng.uniform(*size_rng) for _ in range(3))
+        z = sz / 2.0
+        geometry = f"<box><size>{sx:.3f} {sy:.3f} {sz:.3f}</size></box>"
+    return f"""
+    <model name="{name}">
+      <static>true</static>
+      <pose>{x:.3f} {y:.3f} {z:.3f} 0 0 {yaw:.3f}</pose>
+      <link name="link">
+        <visual name="v">
+          <geometry>{geometry}</geometry>
+          <material>
+            <ambient>{cr*0.7:.2f} {cg*0.7:.2f} {cb*0.7:.2f} 1</ambient>
+            <diffuse>{cr:.2f} {cg:.2f} {cb:.2f} 1</diffuse>
+            <specular>{spec:.2f} {spec:.2f} {spec:.2f} 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>"""
+
+
+def build(rng: random.Random, domain: dict, seed: int) -> str:
     parts = []
 
     # Perimeter glass walls (4 boxes just outside +/- arena half extents).
@@ -245,12 +416,41 @@ def build() -> str:
         parts.append(gutter(f"gutter_{gi}", gy))
         x0 = -(n_plants - 1) * PLANT_SPACING / 2.0
         for pi in range(n_plants):
-            parts.append(plant(f"plant_{gi}_{pi}", x0 + pi * PLANT_SPACING, gy))
+            parts.append(plant(f"plant_{gi}_{pi}", x0 + pi * PLANT_SPACING, gy, seed))
+
+    # Red, non-fruit distractors scattered in the two driving aisles (never
+    # on a gutter, never registered as a berry or an occluder).
+    for di in range(domain["n_distractors"]):
+        ay = rng.choice((0.6, -0.6)) + rng.uniform(-0.28, 0.28)
+        ax = rng.uniform(-ARENA_X_HALF + 0.7, ARENA_X_HALF - 0.7)
+        parts.append(distractor(f"distractor_{di}", ax, ay, rng))
+
+    # Lighting for this session: colour temperature, sun elevation/azimuth
+    # and intensity, all domain-randomised (see sample_domain()).
+    sun_rgb = kelvin_to_rgb(domain["temp_k"])
+    sun_dx, sun_dy, sun_dz = sun_direction(domain["elev_deg"], domain["azim_deg"])
+    intensity = domain["intensity"]
+    sun_diffuse = tuple(c * intensity for c in sun_rgb)
+    sun_specular = tuple(c * intensity * 0.4 for c in sun_rgb)
+    amb = domain["ambient_scale"]
+    # Overcast: the sun becomes a soft, shadowless skylight rather than a
+    # directional source -- diffuse light from everywhere is exactly what
+    # "overcast" looks like, and hard shadows would contradict the label.
+    cast_shadows = "false" if domain["overcast"] else "true"
+    fill_rgb = kelvin_to_rgb(11000)             # fixed cool sky fill
+    fill_diffuse = tuple(c * 0.30 * amb for c in fill_rgb)
+    scene_ambient = tuple(min(1.0, 0.50 * amb * (0.6 + 0.4 * c)) for c in sun_rgb)
+    sky_base = (0.72, 0.84, 0.95)
+    bg = tuple(min(1.0, 0.5 * s + 0.5 * c * amb) for s, c in zip(sky_base, sun_rgb))
 
     models = "".join(parts)
     return f"""<?xml version="1.0" ?>
 <!-- Generated by scripts/make_world.py (do not edit by hand).
-     Strawberry greenhouse digital twin (10 x 5 m). Geometry matches sim_node.py. -->
+     Strawberry greenhouse digital twin (10 x 5 m). Geometry matches sim_node.py.
+     Session domain: condition={domain['condition']} seed={seed}
+     sun: {domain['temp_k']:.0f} K, elevation {domain['elev_deg']:.1f} deg,
+     azimuth {domain['azim_deg']:.1f} deg, intensity {intensity:.2f},
+     overcast={domain['overcast']}, distractors={domain['n_distractors']} -->
 <sdf version="1.9">
   <world name="greenhouse">
     <physics name="1ms" type="ignored">
@@ -276,8 +476,8 @@ def build() -> str:
         </gz-gui>
         <engine>ogre2</engine>
         <scene>scene</scene>
-        <ambient_light>0.6 0.6 0.6</ambient_light>
-        <background_color>0.75 0.85 0.95</background_color>
+        <ambient_light>{scene_ambient[0]:.3f} {scene_ambient[1]:.3f} {scene_ambient[2]:.3f}</ambient_light>
+        <background_color>{bg[0]:.3f} {bg[1]:.3f} {bg[2]:.3f}</background_color>
         <camera_pose>-1.8 -1.4 2.6 0 0.55 2.30</camera_pose>
       </plugin>
       <plugin filename="GzSceneManager" name="Scene Manager"/>
@@ -318,25 +518,29 @@ def build() -> str:
     </gui>
 
     <scene>
-      <ambient>0.55 0.55 0.52 1</ambient>
-      <background>0.72 0.84 0.95 1</background>
+      <ambient>{scene_ambient[0]:.3f} {scene_ambient[1]:.3f} {scene_ambient[2]:.3f} 1</ambient>
+      <background>{bg[0]:.3f} {bg[1]:.3f} {bg[2]:.3f} 1</background>
       <grid>false</grid>
       <sky></sky>
     </scene>
 
-    <!-- Warm late-morning sun + a soft cool fill light so the glasshouse
-         interior is never flat black on the shadow side. -->
+    <!-- Domain-randomised sun (colour temperature, elevation/azimuth and
+         intensity; see the header comment above for this session's values)
+         plus a fixed cool fill light so the glasshouse interior is never
+         flat black on the shadow side. Overcast sessions drop the sun's
+         shadow and lean on the fill instead, which is what a cloudy sky
+         looks like: light from everywhere, no hard shadow. -->
     <light type="directional" name="sun">
-      <cast_shadows>true</cast_shadows>
+      <cast_shadows>{cast_shadows}</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>1.0 0.96 0.86 1</diffuse>
-      <specular>0.4 0.38 0.3 1</specular>
-      <direction>-0.3 0.2 -0.9</direction>
+      <diffuse>{sun_diffuse[0]:.3f} {sun_diffuse[1]:.3f} {sun_diffuse[2]:.3f} 1</diffuse>
+      <specular>{sun_specular[0]:.3f} {sun_specular[1]:.3f} {sun_specular[2]:.3f} 1</specular>
+      <direction>{sun_dx:.4f} {sun_dy:.4f} {sun_dz:.4f}</direction>
     </light>
     <light type="directional" name="fill">
       <cast_shadows>false</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
-      <diffuse>0.28 0.30 0.34 1</diffuse>
+      <diffuse>{fill_diffuse[0]:.3f} {fill_diffuse[1]:.3f} {fill_diffuse[2]:.3f} 1</diffuse>
       <specular>0 0 0 1</specular>
       <direction>0.4 -0.3 -0.8</direction>
     </light>
@@ -357,16 +561,49 @@ def build() -> str:
 """
 
 
-def main() -> None:
+def parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Generate a domain-randomised worlds/greenhouse.sdf for "
+                     "one capture session.")
+    p.add_argument("--condition", choices=[*sorted(CONDITIONS), "random"],
+                    default="random",
+                    help="Lighting preset to sample this session's sun from "
+                         "(default: pick one of the four at random, for "
+                         "balanced coverage across many unattended sessions).")
+    p.add_argument("--seed", type=int, default=None,
+                    help="RNG seed. Fixes condition sampling, sun position, "
+                         "fruit ripeness and distractor placement -- the same "
+                         "seed with the same --condition reproduces this "
+                         "world exactly. Default: a fresh, non-reproducible "
+                         "seed from OS entropy.")
+    p.add_argument("--session", default="",
+                    help="Free-text session tag recorded in conditions.json "
+                         "(e.g. 'cold_morning_01'). Purely informational.")
+    p.add_argument("--out-dir", default=None,
+                    help="Directory to write greenhouse.sdf, berries.yaml and "
+                         "conditions.json into (default: ../worlds next to "
+                         "this script).")
+    return p.parse_args(argv)
+
+
+def main(argv=None) -> None:
+    args = parse_args(argv)
+    seed = args.seed if args.seed is not None else random.SystemRandom().randrange(2**31)
+    rng = random.Random(seed)
+    domain = sample_domain(rng, args.condition)
+
     here = os.path.dirname(os.path.abspath(__file__))
-    out = os.path.join(here, "..", "worlds", "greenhouse.sdf")
-    text = build()                      # fills TRUE_BERRIES as a side effect
-    with open(os.path.normpath(out), "w") as f:
+    out_dir = os.path.normpath(args.out_dir or os.path.join(here, "..", "worlds"))
+    os.makedirs(out_dir, exist_ok=True)
+
+    text = build(rng, domain, seed)     # fills TRUE_BERRIES etc. as a side effect
+    out = os.path.join(out_dir, "greenhouse.sdf")
+    with open(out, "w") as f:
         f.write(text)
 
     # Ground-truth berry catalogue for youbot_slam/truth_monitor.
-    ref = os.path.join(here, "..", "worlds", "berries.yaml")
-    with open(os.path.normpath(ref), "w") as f:
+    ref = os.path.join(out_dir, "berries.yaml")
+    with open(ref, "w") as f:
         f.write("# Ground-truth berry positions (x y z radius, metres), "
                 "generated with the world.\n")
         f.write("# Used by youbot_slam/truth_monitor to score perception "
@@ -380,9 +617,42 @@ def main() -> None:
         f.write("foliage:\n")
         for fx, fy, fz, fr in TRUE_FOLIAGE:
             f.write(f"  - [{fx:.4f}, {fy:.4f}, {fz:.4f}, {fr:.4f}]\n")
-    print(f"wrote {os.path.normpath(ref)} ({len(TRUE_BERRIES)} berries, "
+        # Continuous ripeness, one value per "berries:" row, same order. A
+        # new section rather than a 5th tuple element -- see the comment on
+        # TRUE_RIPENESS for why -- so it is additive, not a schema change.
+        f.write("# Continuous ripeness in [0, 1] (0 = unripe green, 1 = "
+                "fully ripe red), one entry\n# per berries: row above, same "
+                "order. Not consumed by truth_monitor or berry_view; for "
+                "the\n# ml/ training pipeline once it wants a ripe/unripe "
+                "class split.\n")
+        f.write("ripeness:\n")
+        for rp in TRUE_RIPENESS:
+            f.write(f"  - {rp:.4f}\n")
+    print(f"wrote {ref} ({len(TRUE_BERRIES)} berries, "
           f"{len(TRUE_FOLIAGE)} leaves)")
-    print(f"wrote {os.path.normpath(out)}")
+    print(f"wrote {out}")
+
+    # Session provenance: what a colleague running 4 capture sessions needs
+    # to log against the resulting dataset, and what dataset_capture's
+    # /dataset/conditions message (see ml/README.md SS2.1) should carry.
+    cond_path = os.path.join(out_dir, "conditions.json")
+    summary = {
+        "session": args.session,
+        "seed": seed,
+        "condition": domain["condition"],
+        "sun_color_temp_k": round(domain["temp_k"], 1),
+        "sun_elevation_deg": round(domain["elev_deg"], 2),
+        "sun_azimuth_deg": round(domain["azim_deg"], 2),
+        "sun_intensity": round(domain["intensity"], 3),
+        "ambient_scale": round(domain["ambient_scale"], 3),
+        "overcast": domain["overcast"],
+        "n_berries": len(TRUE_BERRIES),
+        "n_distractors": domain["n_distractors"],
+    }
+    with open(cond_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"wrote {cond_path}")
+    print("conditions: " + ", ".join(f"{k}={v}" for k, v in summary.items()))
 
 
 if __name__ == "__main__":
