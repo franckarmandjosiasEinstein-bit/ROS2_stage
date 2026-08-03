@@ -1,8 +1,194 @@
-%% =====================================================================
-%%  Planning and Path Following
-%%  SCOPE: A* on the inflated grid, octile heuristic, pure pursuit for a mecanum base.
-%% =====================================================================
+% =====================================================================
+%  Planning and Path Following
+%  SCOPE: planning.py (A* on the inflated grid, octile heuristic,
+%         nearest-free snapping, collinear smoothing),
+%         navigation.py (pure pursuit for a mecanum base).
+% =====================================================================
 \subsection{Planning and Path Following}
 \label{sec:phaseA_planning}
 
-\emph{[Section in preparation.]}
+Planning and following are two different problems and are solved by two
+different pieces of code. The planner answers \emph{``what sequence of
+free cells connects here to there?''} once, on a static snapshot of the
+map. The follower answers \emph{``what should the wheels do in the next
+\SI{32}{ms}?''} continuously, on a pose that is always slightly wrong.
+Conflating them --- a single controller that both searches and steers ---
+is a recurring failure mode in student robotics projects, and this
+project deliberately avoided it from the first commit.
+
+\subsubsection{A$^\star$ on the inflated grid}
+
+The planner is A$^\star$ \cite{hart1968astar} over the 8-connected
+$100\times100$ inflated grid produced in Sec.~\ref{sec:phaseA_mapping}.
+Straight moves cost $1$, diagonal moves cost $\sqrt{2}$, and the
+heuristic is the \emph{octile} distance, which is the exact cost of the
+cheapest unobstructed 8-connected path:
+
+\begin{equation}
+h(a,b) = \sqrt{2}\,\min(\Delta_x,\Delta_y) + \big|\Delta_x - \Delta_y\big|,
+\qquad
+\Delta_x = |a_x - b_x|.
+\label{eq:octile}
+\end{equation}
+
+The choice of heuristic is not cosmetic. Manhattan distance
+($\Delta_x + \Delta_y$) \emph{over}-estimates the cost of a diagonal
+move --- it charges $2$ where the true cost is $1.414$ --- and an
+inadmissible heuristic destroys A$^\star$'s optimality guarantee, which
+in practice shows up as paths that take an unnecessary dog-leg around a
+basin. Euclidean distance is admissible but loose on a grid that cannot
+move at arbitrary angles, and a loose heuristic expands more nodes than
+necessary. Octile is both admissible and tight for this connectivity,
+which is exactly the property one wants: optimal paths, minimal
+expansions. On the \phaseA{} grid a typical query expands a few thousand
+cells and returns in a few milliseconds --- fast enough to replan on
+every mission event rather than clinging to a stale plan.
+
+\subsubsection{Two robustness measures around the search}
+
+The textbook algorithm assumes the start and goal are free cells. In a
+running system, neither can be assumed, and both violations were
+observed within the first hour of testing.
+
+\paragraph{Nearest-free snapping}
+The robot's own cell is frequently \emph{inside} the inflation band ---
+that is what standing next to a wall means once obstacles have been
+grown by the robot radius --- and A$^\star$ started from an occupied
+cell returns no path at all. Likewise, a crate detected by the camera
+sits on the floor beside a basin, and its cell is often inflated. The
+planner therefore snaps both endpoints to the closest free cell by an
+expanding square-ring search:
+
+\begin{lstlisting}[style=python]
+for radius in range(1, max(rows, cols)):
+    for dr in range(-radius, radius + 1):
+        for dc in range(-radius, radius + 1):
+            if max(abs(dr), abs(dc)) != radius:
+                continue                 # ring, not disc
+            if self._is_free(cand):
+                return cand
+\end{lstlisting}
+
+The \texttt{continue} keeps the scan on the ring boundary, so cells are
+visited in increasing Chebyshev distance and the first free cell found is
+the nearest one. Snapping the goal is what makes ``drive to the crate''
+mean ``drive as close to the crate as the configuration space allows''
+rather than ``fail''.
+
+\paragraph{Collinear smoothing}
+A raw A$^\star$ result is one waypoint per cell: a \SI{6}{m} path is
+sixty waypoints, fifty-eight of which lie on straight segments. The
+follower does not benefit from them and the mission log becomes
+unreadable. \texttt{\_smooth} keeps a cell only when the step direction
+changes:
+
+\begin{lstlisting}[style=python]
+if (dx1, dy1) != (dx2, dy2):
+    out.append(cells[i])
+\end{lstlisting}
+
+Sixty waypoints typically collapse to five or six, with the geometry of
+the path unchanged --- this is a pure compression of the representation,
+not a shortcut. Genuine shortcutting (line-of-sight smoothing across the
+grid, as in Theta$^\star$) was considered and rejected: it produces
+paths that graze the inflation boundary, and the inflation margin is the
+only collision guarantee the system has.
+
+\input{figures/fig_flow_astar}
+
+\subsubsection{Following the plan: pure pursuit}
+
+The follower is pure pursuit \cite{coulter1992purepursuit,
+snider2009steering}. Its state is a \emph{cursor} on the polyline,
+$(i, t)$, meaning ``fraction $t$ along segment $i$''. Each tick:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item The cursor is advanced to the orthogonal projection of the robot
+        onto the polyline, and \emph{never allowed to move backwards}
+        (\texttt{self.\_cursor\_t = max(self.\_cursor\_t, t)}). Without
+        that monotonicity, a robot pushed sideways past a corner will
+        re-acquire an earlier segment and drive the path twice.
+  \item A target is taken \param{lookahead\_distance} $= \SI{0.4}{m}$
+        further along the polyline, walking segment by segment so the
+        distance is measured \emph{along the path}, not as a chord.
+  \item A velocity command toward that target is issued, braked
+        proportionally within \param{brake\_distance} $= \SI{0.6}{m}$ of
+        the final waypoint but never below \param{min\_speed} $=
+        \SI{0.12}{m/s}$.
+  \item Success is tested against the \emph{final waypoint} and the
+        \param{position\_tolerance} $= \SI{0.15}{m}$, not against the
+        cursor. Testing the cursor makes arrival depend on how the path
+        happened to be discretised.
+\end{enumerate}
+
+The lookahead distance is the single tuning knob, and it trades two
+failure modes against each other: too short and the robot oscillates
+about the path, over-correcting on every tick; too long and it cuts
+corners, which in a greenhouse means clipping a basin. The value
+\SI{0.4}{m} was found by bisection against the \SI{1.2}{m} aisle width
+of the \phaseA{} arena, and it is worth noting that the \phaseB{}
+greenhouse, with \SI{0.80}{m} aisles, required it to be reduced to
+\SI{0.32}{m} --- the parameter is a property of the environment, not of
+the algorithm.
+
+\subsubsection{The holonomic command law --- and the defect hidden in it}
+
+\phaseA{} exploits the mecanum base directly. The velocity toward the
+lookahead target is computed in the world frame, rotated into the body
+frame, and issued \emph{together with} a proportional yaw command that
+softly turns the base to face the direction of travel:
+
+\begin{align}
+v_x^{\text{body}} &= \phantom{-}\cos\psi\, v_x^{w} + \sin\psi\, v_y^{w},\\
+v_y^{\text{body}} &= -\sin\psi\, v_x^{w} + \cos\psi\, v_y^{w},\\
+\omega_z &= \mathrm{clip}\!\left(k_\psi\,
+   \mathrm{wrap}(\mathrm{atan2}(\Delta y, \Delta x) - \psi),\,
+   \pm 1.5\right).
+\label{eq:crab}
+\end{align}
+
+This is legal, elegant and, in the \phaseA{} arena, effective: the base
+translates immediately along the path while its heading catches up, so
+no time is lost turning, and the lidar and arm end up pointing where the
+robot is going. It was validated in \texttt{nav\_test} and used for the
+whole of \phaseA{} without complaint.
+
+It also contains a defect that \phaseA{} was structurally incapable of
+revealing, and that cost several days in \phaseB{}. Because translation
+and rotation are commanded simultaneously, the body points one way and
+travels another --- it \emph{crabs}. Two consequences follow:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{The robot becomes wider.} A $0.58 \times \SI{0.38}{m}$
+        body crossing an aisle at $45^\circ$ sweeps \SI{0.68}{m} of it
+        instead of \SI{0.38}{m}. In a \SI{1.2}{m} \phaseA{} aisle that
+        is harmless. In a \SI{0.80}{m} \phaseB{} aisle it is fatal.
+  \item \textbf{The protective stop is aimed at the wrong obstacle.}
+        \phaseB{}'s guard tests the corridor swept \emph{along the
+        commanded direction}; when that direction is oblique, the test
+        rectangle points into the gutter beside the robot instead of
+        down the lane ahead of it, and the brake fires for something the
+        robot was never going to reach.
+\end{itemize}
+
+The measured cost in \phaseB{} was \measured{46\%} of mission time spent
+braked inside lanes the robot could have driven straight down. The
+correction --- turn to face the target, then translate along the body
+$x$ axis scaled by $\cos(\text{heading error})$, reserving holonomic
+translation for the two manoeuvres that genuinely need it --- is
+presented with its measurements in Sec.~\ref{sec:discussion}. It is
+recorded \emph{here}, in the \phaseA{} chapter, because that is where
+the defect was written, and because it is the clearest example in this
+project of a design that is correct in one environment and wrong in
+another for reasons no amount of code review would surface. Only a
+narrower corridor and a time measurement exposed it.
+
+\subsubsection{Validation}
+
+\texttt{planner\_test} builds a grid from the supervisor, plans between
+fixed start/goal pairs, and verifies that the returned polyline
+traverses only free cells --- the property that inflation is supposed to
+guarantee. \texttt{nav\_test} then drives those plans and reports final
+position error against the GPS. Both are single-purpose controllers with
+no mission logic, which is what makes a failure in either of them
+attributable to one subsystem.

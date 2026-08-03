@@ -1,0 +1,136 @@
+% =====================================================================
+%  A* planning + pure-pursuit following -- Phase A
+%  (planning.py / navigation.py). Two-column float.
+% =====================================================================
+\begin{figure*}[!t]
+\centering
+\begin{tikzpicture}[fcchain]
+
+% ================= LEFT: A* SEARCH ====================================
+% ---------------- INITIALISATION --------------------------------------
+\node[fcterm] (a0) {\texttt{plan(start, goal)}};
+\node[fcproc, below=of a0] (a1)
+     {world $\rightarrow$ grid indices\\{\tiny \texttt{world\_to\_map}, res.\ 0.10 m}};
+\node[fcdec, below=8mm of a1] (a2) {both inside\\the grid?};
+\node[fcfail, left=6mm of a2] (a2b) {return empty path};
+\node[fcsub, below=9mm of a2] (a3)
+     {snap each endpoint to the\\nearest free cell\\
+      {\tiny expanding Chebyshev ring}};
+\node[fcproc, below=of a3] (a4)
+     {$g[\text{start}]=0$; push\\$(h(\text{start},\text{goal}),\text{start})$ on the heap};
+
+% ---------------- MAIN LOOP -------------------------------------------
+\node[fcdec, below=9mm of a4] (b0) {heap empty?};
+\node[fcfail, left=6mm of b0] (b0b) {no path exists};
+\node[fcproc, below=9mm of b0] (b1) {pop the lowest-$f$ cell};
+\node[fcdec, below=8mm of b1] (b2) {is it the goal?};
+\node[fcproc, below=9mm of b2] (b3)
+     {for each of the 8 neighbours:\\
+      cost $1$ or $\sqrt{2}$};
+\node[fcdec, below=8mm of b3] (b4) {in bounds and free\\in the \emph{inflated} grid?};
+\node[fcdec, below=9mm of b4] (b5) {$g_{\text{new}} < g[\text{nb}]$?};
+\node[fcproc, below=9mm of b5] (b6)
+     {update $g$, \texttt{came\_from};\\
+      push $f = g + h$ \ {\tiny octile, Eq.~(\ref{eq:octile})}};
+
+% ---------------- TERMINATION (of the search) --------------------------
+\node[fcproc, right=22mm of b2] (c0)
+     {walk \texttt{came\_from} back to the start};
+\node[fcsub, below=of c0] (c1)
+     {drop collinear cells\\{\tiny 60 waypoints $\rightarrow$ 5--6}};
+\node[fcio, below=of c1] (c2) {world-frame polyline};
+
+% ================= RIGHT: PURE PURSUIT ================================
+\node[fcterm, below=11mm of c2] (d0) {\texttt{set\_path(polyline)}};
+\node[fcproc, below=of d0] (d1) {cursor $(i,t) \leftarrow (0,0)$};
+
+\node[fcio, below=9mm of d1] (e0) {pose $(x,y,\psi)$ each tick};
+\node[fcdec, below=of e0] (e1)
+     {$\|\mathbf{p}-\mathbf{w}_{\text{last}}\| < 0.15$ m?};
+\node[fcproc, right=8mm of e1] (e1b) {stop wheels, \texttt{success}};
+\node[fcproc, below=9mm of e1] (e2)
+     {advance cursor to the projection\\
+      {\tiny monotone: $t \leftarrow \max(t, t_{\text{new}})$}};
+\node[fcproc, below=of e2] (e3)
+     {target $=$ 0.40 m further \emph{along the path}};
+\node[fcdec, below=8mm of e3] (e4) {within 0.60 m\\of the goal?};
+\node[fcproc, below=9mm of e4] (e5)
+     {$v \leftarrow \max(0.12,\ 0.5\,d/0.6)$};
+\node[fcproc, right=8mm of e5] (e5b) {$v \leftarrow 0.5$ m/s};
+\node[fcproc, below=9mm of e5] (e6)
+     {world $\rightarrow$ body twist, \ $\omega_z = k_\psi e_\psi$\\
+      {\tiny Eq.~(\ref{eq:crab}) -- \textbf{crabs; see Sec.~\ref{sec:discussion}}}};
+\node[fcsub, below=of e6] (e7) {\texttt{body\_to\_wheel\_speeds()}};
+
+\node[fcproc, below=9mm of e7] (f0) {stop: zero all four wheels};
+\node[fcterm, below=of f0] (f1) {path released};
+
+% ---------------- edges: A* -------------------------------------------
+\draw[fcline] (a0) -- (a1);
+\draw[fcline] (a1) -- (a2);
+\draw[fcline] (a2) -- node[fclab,above] {no} (a2b);
+\draw[fcline] (a2) -- node[fclab,right] {yes} (a3);
+\draw[fcline] (a3) -- (a4);
+\draw[fcline] (a4) -- (b0);
+\draw[fcline] (b0) -- node[fclab,above] {yes} (b0b);
+\draw[fcline] (b0) -- node[fclab,right] {no} (b1);
+\draw[fcline] (b1) -- (b2);
+\draw[fcline] (b2) -- node[fclab,right] {no} (b3);
+\draw[fcline] (b2) -- node[fclab,above] {yes} (c0);
+\draw[fcline] (b3) -- (b4);
+\draw[fcline] (b4) -- node[fclab,right] {yes} (b5);
+\draw[fcline] (b4.west) -- ++(-9mm,0)
+      node[fclab,pos=0.5,above] {no} |- (b3.west);
+\draw[fcline] (b5) -- node[fclab,right] {yes} (b6);
+\draw[fcline] (b5.west) -- ++(-13mm,0)
+      node[fclab,pos=0.5,above] {no} |- (b3.west);
+\draw[fcback] (b6.east) -- ++(9mm,0) |- (b0.east);
+\draw[fcline] (c0) -- (c1);
+\draw[fcline] (c1) -- (c2);
+
+% ---------------- edges: pure pursuit ---------------------------------
+\draw[fcline] (c2) -- (d0);
+\draw[fcline] (d0) -- (d1);
+\draw[fcline] (d1) -- (e0);
+\draw[fcline] (e0) -- (e1);
+\draw[fcline] (e1) -- node[fclab,above] {yes} (e1b);
+\draw[fcline] (e1) -- node[fclab,right] {no} (e2);
+\draw[fcline] (e2) -- (e3);
+\draw[fcline] (e3) -- (e4);
+\draw[fcline] (e4) -- node[fclab,right] {yes} (e5);
+\draw[fcline] (e4.east) -| node[fclab,pos=0.25,above] {no} (e5b.north);
+\draw[fcline] (e5) -- (e6);
+\draw[fcline] (e5b.south) |- ($(e6.north)+(0,3mm)$);
+\draw[fcline] (e6) -- (e7);
+\draw[fcback] (e7.west) -- ++(-9mm,0)
+      node[fclab,pos=0.5,above] {32 ms} |- (e0.west);
+\draw[fcline] (e7) -- (f0);
+\draw[fcline] (e1b.south) -- ++(0,-4mm) -| ($(f0.east)+(6mm,0)$) -- (f0.east);
+\draw[fcline] (f0) -- (f1);
+
+% ---------------- phase bands ------------------------------------------
+\begin{scope}[on background layer]
+  \phaseband{bandinit}{INIT}{phaseInitLine}{(a0)(a1)(a2)(a2b)(a3)(a4)}{aa}
+  \phaseband{bandmain}{SEARCH LOOP}{phaseMainLine}
+            {(b0)(b0b)(b1)(b2)(b3)(b4)(b5)(b6)}{ab}
+  \phaseband{bandend}{RECONSTRUCTION}{phaseEndLine}{(c0)(c1)(c2)}{ac}
+  \phaseband{bandinit}{INIT}{phaseInitLine}{(d0)(d1)}{ad}
+  \phaseband{bandmain}{CONTROL LOOP}{phaseMainLine}
+            {(e0)(e1)(e1b)(e2)(e3)(e4)(e5)(e5b)(e6)(e7)}{ae}
+  \phaseband{bandend}{TERMINATION}{phaseEndLine}{(f0)(f1)}{af}
+\end{scope}
+
+\end{tikzpicture}
+\caption{Planning and following (\phaseA{}). Left: A$^\star$ on the
+inflated grid. The two shaded guards around the search --- bounds
+checking and nearest-free snapping --- are what make the textbook
+algorithm survive a running system, where the robot routinely stands
+inside its own inflation band and a detected crate routinely sits inside
+someone else's. Right: pure pursuit. The cursor advance is monotone by
+construction, so a robot pushed sideways past a corner cannot re-acquire
+an earlier segment and drive the path twice. The highlighted command
+node is the holonomic law of Eq.~(\ref{eq:crab}): correct in the
+\SI{1.2}{m} aisles of \phaseA{}, and the origin of the crabbing defect
+measured in the \SI{0.80}{m} aisles of \phaseB{}.}
+\label{fig:flow_astar}
+\end{figure*}

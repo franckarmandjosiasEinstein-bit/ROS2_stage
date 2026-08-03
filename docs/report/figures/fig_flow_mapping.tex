@@ -1,0 +1,109 @@
+% =====================================================================
+%  Log-odds occupancy mapping from one lidar scan -- Phase A (mapping.py)
+%  Two-column float: the beam loop and the grid pipeline sit side by side.
+% =====================================================================
+\begin{figure*}[!t]
+\centering
+\begin{tikzpicture}[fcchain]
+
+% ---------------- INITIALISATION (left column) ------------------------
+\node[fcterm] (m0) {\texttt{Mapping} constructed};
+\node[fcproc, below=of m0] (m1)
+     {allocate $100\times100$ arrays\\
+      {\tiny \texttt{log\_odds} float32, \texttt{grid} uint8, res.\ 0.10 m}};
+\node[fcproc, below=of m1] (m2)
+     {zero the belief\\{\tiny $\ell = 0$ everywhere $=$ ``unknown''}};
+\node[fcproc, below=of m2] (m3)
+     {fix the sensor model\\
+      {\tiny \texttt{L\_OCC}$=+0.85$, \texttt{L\_FREE}$=-0.40$, clamp $\pm5$}};
+
+% ---------------- MAIN LOOP (left column) -----------------------------
+\node[fcio, below=9mm of m3] (n0) {scan: 360 ranges + pose $(x,y,\psi)$};
+\node[fcdec, below=of n0] (n1) {robot cell inside\\the grid?};
+\node[fcfail, left=6mm of n1] (n1b) {skip this scan};
+\node[fcproc, below=9mm of n1] (n2)
+     {\textbf{for each beam $i$}\\
+      $\alpha = \psi + (\mathrm{fov}/2 - i\,\Delta)$};
+\node[fcdec, below=8mm of n2] (n3)
+     {range $<$ \texttt{min\_range}\\(0.25 m)?};
+\node[fcfail, left=6mm of n3] (n3b) {discard\\{\tiny self-hit / noise}};
+\node[fcdec, below=9mm of n3] (n4) {finite and\\$<$ \texttt{max\_range}?};
+\node[fcproc, below=9mm of n4] (n5)
+     {endpoint $= $ hit at \texttt{dist}};
+\node[fcproc, right=8mm of n5] (n5b)
+     {endpoint $= $ \texttt{max\_range}\\{\tiny free ray, no surface}};
+
+% ---------------- MAIN LOOP (right column) ----------------------------
+\node[fcsub, below=9mm of n5] (n6)
+     {Bresenham walk to the endpoint\\{\tiny exact integer line}};
+\node[fcproc, below=of n6] (n7)
+     {$\ell \mathrel{-}= 0.40$ on every crossed cell\\
+      {\tiny \textbf{break BEFORE the endpoint}}};
+\node[fcdec, below=8mm of n7] (n8) {beam hit a surface?};
+\node[fcproc, below=9mm of n8] (n9) {$\ell \mathrel{+}= 0.85$ at the endpoint cell};
+\node[fcproc, below=of n9] (n10)
+     {clip $\ell$ to $\pm 5$\\{\tiny keeps the map able to forget}};
+\node[fcproc, below=of n10] (n11)
+     {threshold $\ell > 0.5 \Rightarrow$ occupied};
+\node[fcsub, below=of n11] (n12)
+     {inflate by 0.32 m (disc)\\{\tiny configuration space, shifted array ORs}};
+\node[fcio, below=of n12] (n13) {binary planning grid};
+
+% ---------------- TERMINATION -----------------------------------------
+\node[fcproc, below=9mm of n13] (p0)
+     {ASCII / PNG dump, compare with supervisor truth};
+\node[fcterm, below=of p0] (p1) {controller exit};
+
+% ---------------- edges ------------------------------------------------
+\draw[fcline] (m0) -- (m1);
+\draw[fcline] (m1) -- (m2);
+\draw[fcline] (m2) -- (m3);
+\draw[fcline] (m3) -- (n0);
+\draw[fcline] (n0) -- (n1);
+\draw[fcline] (n1) -- node[fclab,above] {no} (n1b);
+\draw[fcline] (n1) -- node[fclab,right] {yes} (n2);
+\draw[fcline] (n2) -- (n3);
+\draw[fcline] (n3) -- node[fclab,above] {yes} (n3b);
+\draw[fcline] (n3) -- node[fclab,right] {no} (n4);
+\draw[fcline] (n4) -- node[fclab,right] {yes} (n5);
+\draw[fcline] (n4.east) -| node[fclab,pos=0.25,above] {no} (n5b.north);
+\draw[fcline] (n5) -- (n6);
+\draw[fcline] (n5b.south) |- ($(n6.north)+(0,3mm)$);
+\draw[fcline] (n6) -- (n7);
+\draw[fcline] (n7) -- (n8);
+\draw[fcline] (n8) -- node[fclab,right] {yes} (n9);
+\draw[fcline] (n8.east) -- ++(14mm,0)
+      node[fclab,pos=0.55,above] {no} |- (n10.east);
+\draw[fcline] (n9) -- (n10);
+\draw[fcback] (n10.west) -- ++(-10mm,0)
+      node[fclab,pos=0.5,above] {next beam} |- (n2.west);
+\draw[fcline] (n10) -- (n11);
+\draw[fcline] (n11) -- (n12);
+\draw[fcline] (n12) -- (n13);
+\draw[fcback] (n13.east) -- ++(14mm,0)
+      node[fclab,pos=0.5,above] {every 4 ticks} |- (n0.east);
+\draw[fcline] (n13) -- (p0);
+\draw[fcline] (p0) -- (p1);
+
+% ---------------- phase bands ------------------------------------------
+\begin{scope}[on background layer]
+  \phaseband{bandinit}{INITIALISATION}{phaseInitLine}{(m0)(m1)(m2)(m3)}{ma}
+  \phaseband{bandmain}{MAIN LOOP}{phaseMainLine}
+    {(n0)(n1)(n1b)(n2)(n3)(n3b)(n4)(n5)(n5b)(n6)(n7)(n8)(n9)(n10)(n11)(n12)(n13)}{mb}
+  \phaseband{bandend}{TERMINATION}{phaseEndLine}{(p0)(p1)}{mc}
+\end{scope}
+
+\end{tikzpicture}
+\caption{Log-odds occupancy mapping from a single lidar scan
+(\phaseA{}, \filename{mapping.py}). The initialisation band allocates
+the belief array and fixes the sensor model; nothing in the loop depends
+on scene content, so the same code maps the \phaseA{} arena and, ported
+unchanged in substance, the \phaseB{} greenhouse. Two details in the
+main loop carry disproportionate weight: the Bresenham walk stops
+\emph{before} the endpoint, so a wall gains the full $+0.85$ per scan
+instead of a net $+0.45$; and the clamp at $\pm5$ is what allows a cell
+vacated by a moving worker to be forgotten within about ten scans. The
+inflation step at the bottom is the boundary between a map of the world
+and a map of the robot's configuration space.}
+\label{fig:flow_mapping}
+\end{figure*}

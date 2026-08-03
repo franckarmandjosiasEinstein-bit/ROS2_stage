@@ -1,8 +1,292 @@
-%% =====================================================================
-%%  Mapping and Localisation
-%%  SCOPE: Log-odds occupancy grid, Bresenham ray casting, likelihood-field matching.
-%% =====================================================================
+% =====================================================================
+%  Mapping and Localisation
+%  SCOPE: mapping.py (log-odds grid, Bresenham, inflation),
+%         localization.py (odometry, likelihood-field scan matching),
+%         exploration.py (frontier extraction).
+% =====================================================================
 \subsection{Mapping and Localisation}
 \label{sec:phaseA_mapping}
 
-\emph{[Section in preparation.]}
+\subsubsection{The representation: a log-odds occupancy grid}
+
+The map is a $100 \times 100$ grid covering the \SI{10}{m} arena at
+\SI{0.10}{m} resolution, following Moravec and Elfes
+\cite{moravec1985occupancy}. Each cell carries not a binary state but a
+\emph{log-odds} value $\ell$, the logarithm of the ratio between the
+probability that the cell is occupied and the probability that it is
+free:
+
+\begin{equation}
+\ell(c) = \log \frac{P(c\ \text{occupied})}{P(c\ \text{free})}.
+\label{eq:logodds}
+\end{equation}
+
+The reason for the logarithm is arithmetic, not aesthetic. In
+probability space, fusing independent observations requires a product
+and a renormalisation; in log-odds space it is an addition
+\cite{thrun2005probabilistic}. Fusing a scan therefore becomes a sweep
+of \texttt{+=} over an array, which is both fast and numerically
+untroubled. Two constants define the sensor model actually used:
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}llr@{}}
+\toprule
+\param{L\_OCC}  & added where a beam terminates & $+0.85$\\
+\param{L\_FREE} & added to every cell the beam crosses & $-0.40$\\
+\param{L\_CLAMP} & saturation bound on $|\ell|$ & $5.0$\\
+\param{L\_OCC\_THRESHOLD} & $\ell$ above which a cell is ``occupied'' & $0.5$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three deliberate asymmetries are encoded in those four numbers.
+
+\textbf{Occupied evidence is worth more than free evidence}
+($0.85$ against $0.40$). A beam that stops has made a positive
+measurement of a surface; a beam that passes through has only failed to
+find one. Making them equal produces a map that erodes thin obstacles,
+because a gutter edge is crossed by many more passing beams than
+terminating ones.
+
+\textbf{The belief is clamped.} Without \param{L\_CLAMP}, a wall seen
+five hundred times reaches $\ell = 400$ and needs a thousand
+contradicting observations to be forgotten. The map would then be unable
+to react to a moving worker who parks somewhere and later leaves. The
+clamp at $\pm 5$ keeps roughly ten contradicting scans sufficient to
+flip a cell, which is the right time constant for obstacles moving at
+\SI{0.3}{m/s} in a \SI{10}{m} arena.
+
+\textbf{The occupancy threshold is not zero but $+0.5$.} A cell must
+accumulate net positive evidence, not merely non-negative evidence,
+before the planner is told to avoid it. This is the cheapest available
+defence against single-beam noise.
+
+\subsubsection{Integrating one scan: exact ray casting}
+
+For each of the 360 beams the mapper computes the world-frame bearing
+$\alpha = \psi + \big(\tfrac{\mathrm{fov}}{2} - i\,\Delta\big)$, decides
+whether the beam terminated on a surface ($\texttt{dist}$ finite and
+below \param{max\_range}), and walks the integer line from the robot
+cell to the endpoint cell with Bresenham's algorithm
+\cite{bresenham1965algorithm}:
+
+\begin{lstlisting}[style=python]
+for (cc, cr) in self._bresenham(r0c, r0r, ec, er):
+    if cc == ec and cr == er:
+        break            # stop BEFORE the endpoint
+    self.log_odds[cr, cc] += L_FREE
+if hit:
+    self.log_odds[er, ec] += L_OCC
+\end{lstlisting}
+
+The \texttt{break} is not decoration. Without it the endpoint cell
+receives \param{L\_FREE} on the same pass that gives it
+\param{L\_OCC}, and the wall's net evidence per scan falls from $+0.85$
+to $+0.45$ --- halving the convergence rate for no reason at all. It is
+a one-line detail that is invisible in the code review and obvious in
+the resulting map.
+
+\paragraph{A rejected optimisation, and why it was rejected}
+The per-beam Python loop is the slowest part of \phaseA{}. A numpy
+rewrite was implemented and benchmarked: sample each ray at half-cell
+intervals and scatter with \texttt{np.add.at}. It was measured to be
+\emph{both slower and less accurate} --- slower because
+\texttt{np.add.at} is not vectorised internally over duplicate indices,
+and less accurate because half-cell sampling can skip the very cell a
+beam grazes, eroding occupied cells along oblique walls. The exact
+sweep was kept, and the mapper was instead run once every
+\param{INTEGRATE\_EVERY} $= 4$ control ticks, which costs nothing in map
+quality because the robot moves less than \SI{4}{cm} in that interval.
+Recording a rejected optimisation is as much part of the engineering
+record as recording an accepted one.
+
+\paragraph{A near-range gate}
+Beams shorter than \param{min\_range} $= \SI{0.25}{m}$ are discarded
+entirely. At that distance the return is either the robot's own
+structure or noise, and integrating it stamps a permanent obstacle onto
+the cell the robot is standing in --- after which the planner cannot
+find a path out of it.
+
+\subsubsection{From belief to plan: thresholding and inflation}
+
+The planner cannot consume log-odds. \texttt{update\_grid\_from\_log\_odds}
+produces the binary planning grid in two steps: threshold at
+\param{L\_OCC\_THRESHOLD}, then dilate every occupied cell by a disc of
+radius \param{inflation}.
+
+Inflation is what turns a map of the \emph{world} into a map of the
+\emph{robot's configuration space} \cite{lozanoperez1983spatial}. Once
+obstacles are grown by the robot's own radius, the planner may treat the
+robot as a dimensionless point, and any path it returns through free
+cells is collision-free for the real body. In \phaseA{} the radius is
+\SI{0.32}{m}, chosen to cover the YouBot half-diagonal of
+$\sqrt{0.29^2 + 0.19^2} = \SI{0.347}{m}$ with a small deliberate
+shortfall so that the \SI{1.2}{m} aisles remain traversable.
+
+That choice --- a disc sized on the half-diagonal --- is exactly the
+approximation that \phaseB{} later had to abandon. A disc of
+\SI{0.347}{m} is correct for a robot that may be rotated arbitrarily,
+but it is \SI{16}{cm} too conservative sideways, and in the
+\SI{0.80}{m} aisles of the Phase~B greenhouse that conservatism is the
+difference between a passable lane and an impassable one. The rectangle
+model of Sec.~\ref{sec:safety} replaces it.
+
+The dilation itself is done by shifted whole-array \texttt{OR}s rather
+than a per-cell neighbourhood scan:
+
+\begin{lstlisting}[style=python]
+for dr in range(-radius, radius + 1):
+    for dc in range(-radius, radius + 1):
+        if dr*dr + dc*dc > radius*radius:
+            continue
+        out[r_dst0:r_dst1, c_dst0:c_dst1] |= \
+            occupied[r_src0:r_src1, c_src0:c_src1]
+\end{lstlisting}
+
+which is $O(\text{radius}^2)$ array operations instead of
+$O(\text{cells} \times \text{radius}^2)$ scalar ones --- for a
+$100\times100$ grid and a 3-cell radius, 45 array \texttt{OR}s in place
+of 450\,000 Python iterations.
+
+\input{figures/fig_flow_mapping}
+
+\subsubsection{Localisation, part 1: dead reckoning}
+
+\filename{localization.py} first provides a GPS-free pose by integrating
+the mecanum forward kinematics of Sec.~\ref{sec:phaseA_locomotion} over
+the four wheel encoders. It is exact in the absence of slip and its
+error is unbounded and monotone in its presence. Every metre driven adds
+error that is never removed, which is the entire justification for what
+follows.
+
+\subsubsection{Localisation, part 2: likelihood-field scan matching}
+
+The corrector is a \emph{correlative scan matcher}
+\cite{olson2009correlative}: given a pose prior from odometry, search a
+small window of $(\Delta x, \Delta y, \Delta\psi)$ offsets for the one
+that best explains the current scan against a reference map. The score
+of a candidate pose is a likelihood field \cite{thrun2005probabilistic}:
+project the scan endpoints into the map, look up each endpoint's
+distance $d$ to the nearest obstacle surface, and sum a Gaussian,
+
+\begin{equation}
+S(x,y,\psi) = \sum_{k \in \text{beams}}
+              \exp\!\left(-\frac{d_k^2}{2\sigma^2}\right),
+\qquad \sigma = \SI{0.15}{m}.
+\label{eq:likelihood}
+\end{equation}
+
+Three implementation decisions carry the performance, and each of them
+was made after the naive version failed.
+
+\paragraph{The distance field is seeded from surfaces, not from solids}
+The first version computed distance-to-nearest-\emph{occupied-cell}.
+This saturates: a scan shifted bodily \emph{inside} a large planting
+basin still lands every endpoint on an occupied cell, scores a perfect
+$d = 0$ everywhere, and the search has no gradient to climb. Real lidar
+only ever sees obstacle \emph{boundaries}, so the breadth-first distance
+transform is seeded from occupied cells that touch free space:
+
+\begin{lstlisting}[style=python]
+occ = grid > 0
+free_neighbor[:-1, :] |= ~occ[1:, :]   # and the three other shifts
+return occ & free_neighbor
+\end{lstlisting}
+
+Endpoints that drift into an obstacle interior are then penalised, and
+the score surface acquires a genuine peak at the true pose.
+
+\paragraph{Coarse-then-fine, with a cached beam layout}
+The search runs a coarse pass ($\pm\SI{0.30}{m}$ in steps of
+\SI{0.10}{m}, $\pm\SI{0.10}{rad}$ in steps of \SI{0.05}{rad}) followed
+by a fine pass around the winner ($\pm\SI{0.06}{m}$ / \SI{0.02}{m},
+$\pm\SI{0.04}{rad}$ / \SI{0.02}{rad}). That is $7^3 = 343$ candidates
+plus $7^3$ again, rather than the $31^3 = 29\,791$ a single fine sweep
+would need. Every beam is subsampled by \param{beam\_stride} $= 6$
+(60 of 360 beams), and the subsampled indices and their local bearings
+depend only on the scan geometry --- constant across all 686 candidates
+--- so they are computed once and cached. The score itself is fully
+vectorised, which measured about ten times faster than the equivalent
+per-beam loop.
+
+\paragraph{A strictly-better trust gate}
+The corrected pose is accepted \emph{only if it scores strictly higher
+than the prior}:
+
+\begin{lstlisting}[style=python]
+if score <= prior_score:
+    return prior, prior_score
+\end{lstlisting}
+
+The reason is a failure that was observed rather than predicted. In a
+region of long straight walls the score surface has a broad plateau: a
+scan shifted along the wall explains the map exactly as well as the true
+pose. Without the gate the search settles on an arbitrary point of that
+plateau, the result is fed back into the odometry as a reset, and the
+next iteration starts from a slightly worse prior --- a slow runaway
+driven entirely by ties. Comparing with $\le$ rather than $<$ also
+covers the degenerate case of an uninformative scan, where every
+candidate scores identically and the search would otherwise adopt a
+window-corner offset on no evidence at all.
+
+This single line is, in retrospect, the most important defensive
+decision in the localisation stack, and its \phaseB{} descendant is the
+rule that a scan-matching estimate may never be trusted merely because
+it exists (Sec.~\ref{sec:slam}, where the homemade matcher is shown to
+be \emph{worse} than the prior it was meant to improve).
+
+\subsubsection{Assembling the estimator}
+
+\texttt{LocalizationEstimator} bundles the two behind one \texttt{pose()}
+callable: odometry integrates every tick, and every
+\param{correct\_every} $= 8$ ticks the scan matcher snaps the estimate
+back onto the reference map and resets the odometry to the corrected
+value. Between corrections the pose tracks the wheels; the drift is
+bounded by the correction period rather than by the distance driven.
+Because the interface is a single callable, the mission layer can be
+switched between ground-truth GPS and this estimator by changing one
+argument --- which is how the two were compared quantitatively.
+
+\subsubsection{Frontier extraction: deciding where to look next}
+
+\filename{exploration.py} closes the loop between the map and the
+mission. Rather than patrolling a fixed waypoint list, the robot drives
+to the boundary between known-free and unknown space
+\cite{yamauchi1997frontier}. Working directly on the log-odds array,
+
+\begin{align}
+\text{free}(c)    &\iff \ell(c) < -0.5, \\
+\text{unknown}(c) &\iff |\ell(c)| < 0.1, \\
+\text{frontier}(c)&\iff \text{free}(c) \wedge
+   \exists\, c' \in \mathcal{N}_4(c) : \text{unknown}(c').
+\end{align}
+
+The three-way test is why the log-odds array is kept rather than
+discarded after thresholding: a binary grid cannot distinguish
+``observed and empty'' from ``never observed'', and frontier exploration
+is exactly the algorithm that needs that distinction.
+
+Frontier cells are clustered by 4-connectivity, clusters smaller than
+\param{min\_cluster} $= 4$ cells are dropped as noise, and each surviving
+cluster contributes one goal. Two refinements matter:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item The goal is the frontier cell \emph{nearest the robot}, never
+        the cluster centroid. For a ring-shaped frontier --- the normal
+        shape early in a run --- the centroid falls in the middle of
+        already-explored space, and the robot is sent to a place it has
+        already been.
+  \item Cells closer than \param{min\_dist} $= \SI{0.6}{m}$ are skipped,
+        otherwise the robot twitches in place chasing a frontier it is
+        already dissolving.
+\end{itemize}
+
+The resulting goals are ordered by a greedy nearest-first tour, and an
+empty list is the natural termination condition: no frontier means
+everything reachable has been seen. In \phaseB{} this adaptive scheme is
+replaced by a deterministic three-lap boustrophedon survey
+(Sec.~\ref{sec:phaseB_mission}) --- not because frontier exploration failed,
+but because a fixed structured aisle layout makes a coverage pattern
+both simpler and time-bounded, and the report's time axis
+(Sec.~\ref{sec:results}) made bounded completion time a first-class
+requirement.

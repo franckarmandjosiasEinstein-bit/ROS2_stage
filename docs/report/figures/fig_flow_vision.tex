@@ -1,0 +1,94 @@
+% =====================================================================
+%  Colour-vision crate detection pipeline -- Phase A (vision.py)
+%  Single column.
+% =====================================================================
+\begin{figure}[!t]
+\centering
+\begin{tikzpicture}[fcchain]
+
+% ---------------- INITIALISATION -------------------------------------
+\node[fcterm] (v0) {\texttt{Vision} constructed};
+\node[fcproc, below=of v0] (v1)
+     {read camera intrinsics\\{\tiny $W{=}160$, $H{=}120$, fov $=1.2$ rad}};
+\node[fcproc, below=of v1] (v2)
+     {precompute $f_x=\frac{W/2}{\tan(\mathrm{fov}/2)}$, $c_x$, $c_y$\\
+      {\tiny Eq.~(\ref{eq:focal})}};
+\node[fcproc, below=of v2] (v3)
+     {cache $\cos\beta$, $\sin\beta$ of the fixed mount\\
+      {\tiny $d{=}0.20$ m, $h_c{=}0.40$ m, $\beta{=}0.5$ rad}};
+
+% ---------------- MAIN LOOP ------------------------------------------
+\node[fcio, below=9mm of v3] (w0) {BGRA image buffer (camera)};
+\node[fcproc, below=of w0] (w1)
+     {ratio threshold $\rightarrow$ red mask\\{\tiny Eq.~(\ref{eq:redmask}), brightness-invariant}};
+\node[fcsub, below=of w1] (w2)
+     {4-connectivity flood fill\\{\tiny explicit stack, not recursion}};
+\node[fcdec, below=8mm of w2] (w3) {blob $\ge 4$ px?};
+\node[fcproc, below=9mm of w3] (w4)
+     {centroid $(\bar u,\bar v)$};
+\node[fcio, right=9mm of w4] (w4b) {robot pose $(x_r,y_r,\psi)$};
+\node[fcproc, below=of w4] (w5)
+     {ray $\mathbf{d}_c$, camera pose $\mathbf{R},\mathbf{p}$\\
+      {\tiny Eq.~(\ref{eq:ray}), (\ref{eq:campose}) -- composed, not read}};
+\node[fcdec, below=8mm of w5] (w6)
+     {$|d_{w,z}| > 0.12$,\\ $t \le 3$ m, inside arena?};
+\node[fcfail, right=7mm of w6] (w7) {discard\\{\tiny horizon / range / bounds}};
+\node[fcproc, below=10mm of w6] (w8)
+     {ground hit $(x,y)$\\{\tiny Eq.~(\ref{eq:groundhit})}};
+\node[fcdec, below=8mm of w8] (w9)
+     {near a lidar return?};
+\node[fcfail, right=7mm of w9] (w10) {reject: a crate is\\below the lidar plane};
+\node[fcproc, below=10mm of w9] (w11)
+     {temporal confirmation\\{\tiny $N$ consecutive frames, same window}};
+\node[fcio, below=of w11] (w12) {confirmed crate list};
+
+% ---------------- TERMINATION ----------------------------------------
+\node[fcproc, below=9mm of w12] (t0)
+     {report detections vs.\ supervisor truth};
+\node[fcterm, below=of t0] (t1) {test controller exit};
+
+% ---------------- edges ----------------------------------------------
+\draw[fcline] (v0) -- (v1);
+\draw[fcline] (v1) -- (v2);
+\draw[fcline] (v2) -- (v3);
+\draw[fcline] (v3) -- (w0);
+\draw[fcline] (w0) -- (w1);
+\draw[fcline] (w1) -- (w2);
+\draw[fcline] (w2) -- (w3);
+\draw[fcline] (w3) -- node[fclab,right] {yes} (w4);
+\draw[fcline] (w4) -- (w5);
+\draw[fcline] (w4b) -- (w5);
+\draw[fcline] (w5) -- (w6);
+\draw[fcline] (w6) -- node[fclab,above] {no} (w7);
+\draw[fcline] (w6) -- node[fclab,right] {yes} (w8);
+\draw[fcline] (w8) -- (w9);
+\draw[fcline] (w9) -- node[fclab,above] {yes} (w10);
+\draw[fcline] (w9) -- node[fclab,right] {no} (w11);
+\draw[fcline] (w11) -- (w12);
+\draw[fcback] (w12.west) -- ++(-6mm,0) |- (w0.west);
+\node[font=\sffamily\tiny\itshape, text=phaseMainLine, rotate=90]
+     at ($(w5.west)+(-9mm,-6mm)$) {every frame};
+\draw[fcline] (w12) -- (t0);
+\draw[fcline] (t0) -- (t1);
+
+% ---------------- phase bands ----------------------------------------
+\begin{scope}[on background layer]
+  \phaseband{bandinit}{INITIALISATION}{phaseInitLine}{(v0)(v1)(v2)(v3)}{va}
+  \phaseband{bandmain}{MAIN LOOP}{phaseMainLine}
+            {(w0)(w1)(w2)(w3)(w4)(w4b)(w5)(w6)(w7)(w8)(w9)(w10)(w11)(w12)}{vb}
+  \phaseband{bandend}{TERMINATION}{phaseEndLine}{(t0)(t1)}{vc}
+\end{scope}
+
+\end{tikzpicture}
+\caption{Colour-vision crate detection (\phaseA{},
+\filename{vision.py}). Everything derivable from the fixed camera
+declaration is computed once in the initialisation band, so the per-frame
+cost is one vectorised threshold, one flood fill and a handful of
+$3\times3$ products. The two red branches are the defects found by
+testing against supervisor ground truth rather than by inspection: a
+projection that is geometrically unreliable, and a detection that the
+lidar contradicts. The pose entering the projection is the robot's
+\emph{own} estimate, never the simulator's --- which is why localisation
+error shows up honestly as fruit position error.}
+\label{fig:flow_vision}
+\end{figure}

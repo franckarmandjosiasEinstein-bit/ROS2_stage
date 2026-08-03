@@ -1,8 +1,257 @@
-%% =====================================================================
-%%  Perception: Lidar and Colour Vision
-%%  SCOPE: lidar\_test, vision\_test; blob detection and ground projection.
-%% =====================================================================
+% =====================================================================
+%  Perception: Lidar and Colour Vision
+%  SCOPE: the Lidar and Camera nodes, vision.py, lidar_test, vision_test.
+% =====================================================================
 \subsection{Perception: Lidar and Colour Vision}
 \label{sec:phaseA_perception}
 
-\emph{[Section in preparation.]}
+\phaseA{} carries exactly two exteroceptive sensors, and they answer two
+different questions. The lidar answers \emph{``where can I go?''}; the
+camera answers \emph{``what is that, and where is it?''}. Neither can
+answer the other's question, and a substantial part of the mission logic
+(Sec.~\ref{sec:phaseA_mission}) exists to reconcile the two.
+
+\subsubsection{The lidar: what the sensor physically is}
+
+The sensor is declared in the robot's \texttt{bodySlot} as
+
+\begin{lstlisting}[style=xml]
+Lidar {
+  translation 0 0 0.2
+  name "lidar"
+  horizontalResolution 360
+  fieldOfView 6.28
+  numberOfLayers 1
+  maxRange 12
+}
+\end{lstlisting}
+
+Read literally, this is a single horizontal plane, \SI{0.20}{m} above the
+base origin, sampled at 360 bearings over a full \SI{6.28}{rad}
+revolution, with a \SI{12}{m} ceiling. Four consequences follow directly
+from those five numbers, and every one of them shaped a later design
+decision:
+
+\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=2pt]
+  \item \textbf{It is a slice, not a view.} The lidar sees only what
+        intersects one horizontal plane at one height. An obstacle below
+        that plane --- a crate lying on the floor --- is invisible to it,
+        which is precisely why crate detection had to be done in the
+        camera and not in the lidar.
+  \item \textbf{Its angular resolution is $1^\circ$.} Two returns
+        \SI{2}{m} away are \SI{3.5}{cm} apart; at \SI{5}{m} they are
+        \SI{8.7}{cm} apart. A gap narrower than the beam spacing at that
+        range is simply not resolved, so the far field of a scan is
+        systematically coarser than the near field. The mapper inherits
+        this: a distant cell receives fewer and more widely spaced
+        updates, and therefore converges more slowly --- which is the
+        correct behaviour, not a defect.
+  \item \textbf{It measures range, not free space.} A beam that returns
+        \SI{3}{m} asserts one occupied point \emph{and} a \SI{3}{m}
+        segment of emptiness behind it. Turning that pair of assertions
+        into a map is the entire subject of
+        Sec.~\ref{sec:phaseA_mapping}.
+  \item \textbf{Its origin is the base centre, not the bumper.} The
+        sensor sits at the geometric centre of a $0.58 \times
+        \SI{0.38}{m}$ body. A raw range of \SI{0.28}{m} straight ahead
+        therefore describes a point \emph{inside} the robot's own nose.
+        This single fact caused the most damaging defect of the whole
+        project, in \phaseB{}, and is dissected in
+        Sec.~\ref{sec:safety}.
+\end{enumerate}
+
+\paragraph{A common misconception, stated and corrected}
+A \SI{360}{\degree} lidar is often described as giving a robot
+``awareness of everything around it''. It does not. It gives a
+\emph{complete horizontal ring of distances at one height, with no
+identity attached to any of them}. The scan cannot distinguish a wall
+from a plant gutter from a moving worker; it cannot see above or below
+its own plane; it has no memory from one scan to the next; and it
+produces no notion of ``a corridor'' or ``a row'' --- those are
+inventions of the mapper and the planner. Every behaviour that resembles
+spatial understanding in this system is software built on top of a ring
+of numbers.
+
+\subsubsection{The camera: intrinsics as declared}
+
+\begin{lstlisting}[style=xml]
+DEF CAMERA_RGB Camera {
+  translation 0.2 0 0.3
+  rotation 0 1 0 0.5
+  name "camera"
+  width 160  height 120
+  fieldOfView 1.2
+}
+\end{lstlisting}
+
+The mount is fixed and known: \SI{0.20}{m} ahead of the base centre,
+\SI{0.30}{m} above the body slot (about \SI{0.40}{m} above the floor),
+pitched \SI{0.5}{rad} downward about the body $y$ axis. The image is
+$160 \times 120$ with a horizontal field of view of \SI{1.2}{rad}. From
+these the pinhole intrinsics follow with no calibration step at all:
+
+\begin{equation}
+f_x = f_y = \frac{W/2}{\tan(\theta_{\mathrm{fov}}/2)} = \frac{80}{\tan 0.6}
+     \approx \SI{118.6}{px},
+\label{eq:focal}
+\end{equation}
+
+with the principal point at $((W-1)/2,\,(H-1)/2)$. Square pixels are
+assumed, which is exact for a Webots camera.
+
+\subsubsection{Detection stage 1 --- brightness-invariant red segmentation}
+
+Webots returns the image as a BGRA byte buffer, rows top to bottom. The
+first version of the detector used an absolute margin: a pixel was red
+if $R - G > 60$ and $R - B > 60$. It worked on the test bench and failed
+in the arena, because the checkerboard floor is itself a brownish red.
+The margin that rejected the floor also rejected any crate in shadow,
+where all three channels scale down together.
+
+The fix was to threshold on \emph{channel ratio} rather than difference:
+
+\begin{equation}
+\mathcal{M}(u,v) =
+\big[R > 60\big] \wedge
+\big[R \ge G\big] \wedge
+\big[R \ge B\big] \wedge
+\big[G < 0.33\,R\big] \wedge
+\big[B < 0.33\,R\big].
+\label{eq:redmask}
+\end{equation}
+
+The measured pixel statistics justify the constant. A crate pixel has
+$G/R \approx 0.12$; a floor pixel has $G/R \approx 0.40$. A threshold of
+$0.33$ separates them with margin on both sides and --- this is the point
+of the change --- a ratio is invariant under illumination scaling, so
+the same threshold holds in shadow where an absolute margin does not.
+The implementation is four vectorised comparisons over the whole array:
+
+\begin{lstlisting}[style=python]
+limit = self.red_ratio * r
+return ((r > self.value_min) & (r >= g) & (r >= b)
+        & (g < limit) & (b < limit))
+\end{lstlisting}
+
+\subsubsection{Detection stage 2 --- connected components}
+
+The mask is grouped into blobs by 4-connectivity flood fill, implemented
+with an explicit stack rather than recursion, because a $160 \times 120$
+mask can produce a component deep enough to exhaust the Python recursion
+limit. Components smaller than \param{min\_blob\_pixels} $= 4$ are
+discarded as noise. That threshold is deliberately low: a crate at
+\SI{3}{m} occupies only a handful of pixels in a $160 \times 120$ image,
+and raising the threshold to a comfortable-looking 20 pixels made the
+robot blind beyond \SI{1.5}{m}. Each surviving component contributes its
+centroid $(\bar u, \bar v)$ in pixel coordinates.
+
+\subsubsection{Detection stage 3 --- back-projection onto the ground plane}
+
+A single camera cannot recover depth. It can, however, recover position
+\emph{given a plane constraint}, and every crate rests on the floor at a
+known height $z_g = \SI{0.05}{m}$. The centroid is first turned into a
+ray in the camera frame (Webots convention: $+x$ forward, $+y$ left,
+$+z$ up),
+
+\begin{equation}
+\mathbf{d}_c = \left(1,\; -\frac{\bar u - c_x}{f_x},\;
+                         -\frac{\bar v - c_y}{f_x}\right),
+\label{eq:ray}
+\end{equation}
+
+then rotated into the world by the camera's world orientation, which is
+\emph{composed} rather than read from the simulator:
+
+\begin{equation}
+\mathbf{R} = \mathbf{R}_z(\psi)\,\mathbf{R}_y(\beta),
+\qquad
+\mathbf{p} = \begin{pmatrix}
+  x_r + d\cos\psi\\[1pt] y_r + d\sin\psi\\[1pt] h_c
+\end{pmatrix},
+\label{eq:campose}
+\end{equation}
+
+with $\psi$ the robot yaw taken from its own pose estimate, $\beta =
+\SI{0.5}{rad}$ the fixed mount pitch, $d = \SI{0.20}{m}$ the mount
+offset and $h_c = \SI{0.40}{m}$ the camera height. Intersecting the
+world-frame ray $\mathbf{d}_w = \mathbf{R}\,\mathbf{d}_c$ with the ground
+plane gives the scale and the estimate:
+
+\begin{equation}
+t = \frac{z_g - h_c}{d_{w,z}},
+\qquad
+(x, y) = \big(p_x + t\,d_{w,x},\; p_y + t\,d_{w,y}\big).
+\label{eq:groundhit}
+\end{equation}
+
+\paragraph{Why the camera pose is composed and not read}
+The supervisor API could return the camera node's true world transform
+in a single call. Using it would have been shorter, and it would have
+been cheating: the estimate would then be exact regardless of how badly
+the robot's own localisation was drifting, and the perception error
+measured in \texttt{vision\_test} would have been meaningless. Composing
+the pose from the robot's \emph{own} estimate and a fixed, documented
+extrinsic keeps the whole detection chain onboard, and makes
+localisation error propagate into object position error exactly as it
+would on hardware. This is the same discipline that later separates
+\nodename{truth\_monitor} from the robot in \phaseB{}
+(Sec.~\ref{sec:instrumentation}).
+
+\subsubsection{Three rejection gates}
+
+Equation~(\ref{eq:groundhit}) is numerically unstable near the horizon:
+as $d_{w,z} \to 0$ the intersection runs to infinity, so a one-pixel
+error in $\bar v$ can move the estimate by tens of metres. Three gates
+bound the damage, and each was added in response to an observed failure
+rather than anticipated:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \param{min\_ray\_down} $= 0.12$ --- reject rays not pointing
+        down steeply enough. This is the horizon guard.
+  \item \param{max\_range} $= \SI{3.0}{m}$ --- reject ground hits beyond
+        the distance at which a crate is more than a few pixels wide.
+  \item \param{arena\_bound} $= \SI{4.6}{m}$ --- reject any estimate
+        outside the arena. A detection that lands inside a wall is wrong
+        by construction, whatever produced it.
+\end{itemize}
+
+\subsubsection{Two defects found only by testing against truth}
+
+\texttt{vision\_test} spins the robot in place for \SI{30}{s} and prints,
+once a second, the detections beside the supervisor's true crate
+positions. Two defects surfaced that no amount of staring at the mask
+would have revealed.
+
+\textbf{One-off false positives.} A single frame in which a moving
+worker's red-brown texture passed Eq.~(\ref{eq:redmask}) was enough to
+register a phantom crate, after which the mission would drive across the
+arena to collect nothing. The fix was \emph{temporal confirmation}: a
+detection must be seen in several consecutive frames within a small
+spatial window before it is admitted to the crate list. The cost is a
+short delay before a real crate is accepted; the benefit is that
+uncorrelated single-frame noise is rejected outright.
+
+\textbf{Detections sitting on lidar obstacles.} The remaining false
+positives clustered on the workers, which are both reddish and mobile.
+The fix was cross-modal: at discovery time, a candidate whose projected
+ground position falls close to a lidar return is rejected, because a
+crate lies below the lidar plane and therefore \emph{cannot} produce
+one. The two sensors disagreeing is itself the evidence. This is the
+earliest appearance in the project of a principle that runs through all
+of \phaseB{}: a belief supported by one sensor and contradicted by
+another should be dropped, not averaged.
+
+\input{figures/fig_flow_vision}
+
+\subsubsection{What was measured}
+
+Across the \texttt{vision\_test} runs the detector found every crate that
+entered the field of view within \SI{3}{m}, and the residual position
+error was dominated not by the image processing but by the yaw term in
+Eq.~(\ref{eq:campose}): a $5^\circ$ heading error at \SI{2}{m} range
+displaces the estimate by \SI{17}{cm}. That sensitivity is the reason
+\phaseB{} devotes an entire subsystem to bounding heading drift
+(Sec.~\ref{sec:slam}), and it is why the \phaseB{} fruit localiser
+inherits both the strength of this design --- it works, cheaply, with no
+training data and no labelled dataset --- and its weakness: it is never
+better than the pose that feeds it.
