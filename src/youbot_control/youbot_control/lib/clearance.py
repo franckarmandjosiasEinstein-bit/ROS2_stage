@@ -66,6 +66,33 @@ def corridor_clearance(pts, direction: float, half_width: float,
                                            body_half_width))
 
 
+def blocking_point(pts, direction: float, half_width: float,
+                   half_length: float, body_half_width: float):
+    """The return that is actually stopping us, for diagnostics.
+
+    Same test as `corridor_clearance`, but it hands back the offending
+    point instead of only the distance. Written after two rounds of
+    guessing at logs that said "Obstacle within 0.12 m" and nothing
+    else: in a 1.05 m lane that message is a puzzle, and the answer is
+    one number away. A protective stop that cannot say WHAT it stopped
+    for cannot be debugged from a log.
+
+    Returns (px, py, clearance) in the body frame, or None when clear.
+    """
+    ux, uy = math.cos(direction), math.sin(direction)
+    best, hit = float("inf"), None
+    for px, py in pts:
+        along = px * ux + py * uy
+        if along <= 0.0 or along >= best:
+            continue
+        if abs(-px * uy + py * ux) <= half_width:
+            best, hit = along, (px, py)
+    if hit is None:
+        return None
+    reach = footprint_reach(direction, half_length, body_half_width)
+    return hit[0], hit[1], max(0.0, best - reach)
+
+
 def best_escape(pts, half_width: float, half_length: float,
                 body_half_width: float, avoid: float | None = None,
                 n: int = 12):

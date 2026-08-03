@@ -61,7 +61,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool
 
-from youbot_control.lib.clearance import corridor_clearance
+from youbot_control.lib.clearance import blocking_point, corridor_clearance
 
 
 def yaw_from_quaternion(q) -> float:
@@ -348,6 +348,7 @@ class SafetyNode(Node):
         # cm/s, and that slow creep is precisely how the base used to end up
         # overlapping a gutter. Anything that moves gets flank protection.
         translating = math.hypot(vx, vy) > 0.02
+        want_dir = math.atan2(vy, vx) if translating else None
         vx, vy, blocked = self._brake(vx, vy)
         vy += self._recentre(translating)
         # Preventive fence LAST, so it also vets the recentring push: that one
@@ -368,11 +369,38 @@ class SafetyNode(Node):
             if self._blocked_since is None:
                 self._blocked_since = self._now()
             elif self._now() - self._blocked_since > 3.0:
-                self.get_logger().warn(
-                    "Obstacle within %.2f m -- translation held." % self._stop,
-                    throttle_duration_sec=5.0)
+                self.get_logger().warn(self._why_blocked(want_dir),
+                                       throttle_duration_sec=5.0)
         else:
             self._blocked_since = None
+
+    def _why_blocked(self, want_dir) -> str:
+        """Name the obstacle, not just the threshold.
+
+        "Obstacle within 0.12 m -- translation held" is unactionable: in a
+        1.05 m lane it is a puzzle, and two rounds of debugging were spent
+        guessing at it. This says which way the robot was asked to go, where
+        the offending return is in the body frame, and where that lands in
+        the world -- enough to identify the obstacle by name from the log
+        alone."""
+        if want_dir is None:
+            return "Translation held (no commanded direction)."
+        hit = blocking_point(self._pts, want_dir, self._half_w,
+                             self._hl, self._hw)
+        if hit is None:
+            return ("Translation held toward %+.0f deg, but the corridor "
+                    "reads clear -- the scan changed between the brake and "
+                    "this message." % math.degrees(want_dir))
+        px, py, gap = hit
+        msg = ("Translation held: heading %+.0f deg (body), obstacle at "
+               "body (%+.2f, %+.2f), %.02f m from the bumper"
+               % (math.degrees(want_dir), px, py, gap))
+        if self._pose is not None:
+            x, y, yaw = self._pose
+            c, s = math.cos(yaw), math.sin(yaw)
+            msg += " = world (%+.2f, %+.2f)" % (x + c * px - s * py,
+                                                y + s * px + c * py)
+        return msg + "."
 
 
 def main(args=None) -> None:

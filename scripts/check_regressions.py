@@ -487,6 +487,62 @@ def check_fruit_projection() -> None:
               f"fruit plane, fx = {fx:.0f} px/rad)")
 
 
+def check_no_crabbing() -> None:
+    """The path follower must not translate sideways along its path.
+
+    Reported from the Gazebo window before it was found in the code: "the
+    robot moves diagonally instead of going straight". pure_pursuit resolved
+    the world-frame velocity into the body frame and let the base crab toward
+    the lookahead point while also turning toward it. A 0.58 x 0.38 m body
+    crossing an aisle at 45 deg sweeps 0.68 m of it, and -- worse -- the
+    protective stop tests the corridor along the COMMANDED direction, so an
+    oblique command aims the test rectangle into the gutter beside the robot
+    instead of down the lane ahead. 46% of that run was spent blocked inside
+    1.05 m lanes."""
+    print("\npath following: heading before translation")
+    sys.path.insert(0, os.path.join(SRC, "youbot_control"))
+    from youbot_control.lib.pure_pursuit import PurePursuit
+
+    pp = PurePursuit(cruise_speed=0.6, lookahead=0.32)
+    pp.set_path([(0.0, 0.0), (4.0, 0.0)])          # due east
+
+    # Pointed along the path: full speed, straight ahead, no yaw command.
+    st, vx, vy, wz = pp.step(0.0, 0.0, 0.0)
+    check("aligned with the path: drives forward", st == "running" and vx > 0.5,
+          f"vx = {vx:+.03f}")
+    check("aligned with the path: no sideways component", abs(vy) < 1e-9,
+          f"vy = {vy:+.03f} -- this is the crab")
+    check("aligned with the path: no needless yaw", abs(wz) < 1e-6,
+          f"wz = {wz:+.03f}")
+
+    # Facing 90 deg off: the base must turn, not slide sideways.
+    pp.set_path([(0.0, 0.0), (4.0, 0.0)])
+    _, vx, vy, wz = pp.step(0.0, 0.0, math.pi / 2)
+    check("90 deg off: does not translate", abs(vx) < 1e-6 and abs(vy) < 1e-6,
+          f"vx = {vx:+.03f}, vy = {vy:+.03f}")
+    check("90 deg off: turns toward the path", wz < -0.5,
+          f"wz = {wz:+.03f} (expected a negative, clockwise, command)")
+
+    # Half-aligned: speed scaled by cos, still no sideways component.
+    pp.set_path([(0.0, 0.0), (4.0, 0.0)])
+    _, vx, vy, _ = pp.step(0.0, 0.0, math.pi / 3)   # 60 deg off
+    check("partly aligned: speed is scaled, not redirected",
+          0.0 < vx < 0.35 and abs(vy) < 1e-9,
+          f"vx = {vx:+.03f}, vy = {vy:+.03f}")
+
+    # Target behind: never translate away from it.
+    pp.set_path([(0.0, 0.0), (4.0, 0.0)])
+    _, vx, vy, _ = pp.step(0.0, 0.0, math.pi)
+    check("facing away: refuses to translate", abs(vx) < 1e-9 and abs(vy) < 1e-9,
+          f"vx = {vx:+.03f}, vy = {vy:+.03f}")
+
+    # And the guard must be able to say WHAT it braked for.
+    safety = read("youbot_control/youbot_control/safety_node.py")
+    check("the protective stop names the obstacle it stopped for",
+          "blocking_point" in safety and "_why_blocked" in safety,
+          "a brake that logs only its threshold cannot be debugged from a log")
+
+
 def check_params_match_code() -> None:
     """The YAML must not silently disagree with the node's own defaults.
 
@@ -624,7 +680,8 @@ def check_bumper_clearance() -> None:
     # measuring raw beam range; one number in two places is how they drift.
     safety = read("youbot_control/youbot_control/safety_node.py")
     check("safety_node brakes on the shared bumper clearance",
-          "from youbot_control.lib.clearance import corridor_clearance" in safety
+          re.search(r"from youbot_control\.lib\.clearance import "
+                    r"[^\n]*\bcorridor_clearance\b", safety) is not None
           and "corridor_clearance(self._pts" in safety,
           "safety_node must not re-implement the clearance")
     stop = re.search(r'"stop_distance", ([0-9.]+)', safety)
@@ -700,6 +757,7 @@ def main() -> int:
     check_slam_scoring()
     check_preventive_fence()
     check_bumper_clearance()
+    check_no_crabbing()
     check_params_match_code()
     check_station_realign()
     check_fruit_projection()

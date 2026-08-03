@@ -64,12 +64,39 @@ class PurePursuit:
         if dist_final < self.brake_distance:
             speed = max(self.min_speed, self.cruise_speed * dist_final / self.brake_distance)
 
-        vx_w, vy_w = speed * dx / norm, speed * dy / norm
-        cos_y, sin_y = math.cos(yaw), math.sin(yaw)
-        vx = cos_y * vx_w + sin_y * vy_w        # world -> body
-        vy = -sin_y * vx_w + cos_y * vy_w
-        wz = _clip(self.k_angular * _wrap(math.atan2(dy, dx) - yaw), -1.5, 1.5)
-        return "running", vx, vy, wz
+        # HEADING FIRST, THEN DRIVE -- do not crab along the path.
+        #
+        # The first version resolved the world-frame velocity into the body
+        # frame and let the base translate holonomically toward the target
+        # WHILE also turning toward it. That is legal for a mecanum base and
+        # it looks clever, but it means the body points one way and travels
+        # another: the robot crabs diagonally down a corridor it should be
+        # driving straight along. Two things follow, and both were measured.
+        #
+        # It makes the robot wider. A 0.58 x 0.38 m body crossing an aisle at
+        # 45 deg sweeps 0.68 m of it instead of 0.38 m.
+        #
+        # And it aims the protective stop at the wrong thing. safety_node
+        # tests the corridor swept ALONG THE COMMANDED DIRECTION; when that
+        # direction is oblique, the test rectangle points into the gutter
+        # beside the robot rather than down the lane ahead of it, so the guard
+        # brakes for an obstacle the robot was never going to reach. The run
+        # of 2026-08-03 17:43 spent 46% of its time blocked inside 1.05 m
+        # margin lanes it could have driven straight down.
+        #
+        # So: turn to face the target, and translate along the body x axis
+        # scaled by how well we are pointed. cos(err) falls to zero at 90 deg,
+        # which turns the controller into a pure rotation until the heading
+        # catches up, and is negative behind the robot, where translating
+        # would only take it further away. The holonomic freedom is not lost;
+        # it is reserved for the two places that genuinely need it -- the
+        # sideways escape (navigation_node) and the visual alignment creep
+        # (mission_node), both of which command the base directly.
+        heading_error = _wrap(math.atan2(dy, dx) - yaw)
+        wz = _clip(self.k_angular * heading_error, -1.5, 1.5)
+        align = math.cos(heading_error)
+        vx = speed * align if align > 0.0 else 0.0
+        return "running", vx, 0.0, wz
 
     def _advance_cursor(self, pos):
         while self._i < len(self.waypoints) - 1:
