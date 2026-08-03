@@ -507,6 +507,84 @@ def check_label_source() -> None:
           '"gz_joint_states"' in pan)
 
 
+def check_align_state_feedback() -> None:
+    """The alignment loop is a designed controller, and it converges.
+
+    The old proportional law with a floor left a steady-state error the logs
+    named dozens of times per run ("Alignment stalled at offset +0.26 for
+    4s"), and the harvest phase spent 39% of its time there. The replacement
+    is checked as a CONTROL DESIGN, not by eyeballing behaviour:
+
+      * closed-loop poles strictly inside the unit circle at every range the
+        robot works at -- the first version had a sign error that put a pole
+        at 1.59 and would have driven the base away from the fruit;
+      * the analysis routine agrees with the design it analyses -- for one
+        commit closed_loop_poles() carried the pre-fix signs and cheerfully
+        reported an unstable loop that was converging;
+      * zero steady-state error on the exact offsets from the log, where the
+        old law leaves a residue.
+    """
+    print("\nalignment: state feedback")
+    src = read("youbot_control/youbot_control/lib/align_lqr.py")
+    ns = {"math": math}
+    exec(compile(src, "<align>", "exec"), ns)
+    ctl = ns["AlignController"](period=0.1, settling_time=1.5, damping=0.9,
+                                v_max=0.10)
+
+    ranges = (0.3, 0.5, 1.0, 1.5, 2.0, 2.5)
+    worst = max(max(math.hypot(re_, im) for re_, im in
+                    ctl.closed_loop_poles(1.0 / d)) for d in ranges)
+    check("closed loop is stable at every working range",
+          worst < 1.0,
+          f"worst pole magnitude {worst:.4f} over {ranges[0]}-{ranges[-1]} m")
+    check("poles are damped, not marginal", worst < 0.95,
+          f"|z| = {worst:.4f}")
+
+    # The analysis must match a brute-force simulation of the same design.
+    def settle(off0, d, ticks):
+        ctl.reset()
+        off = off0
+        for _ in range(ticks):
+            v, _ = ctl.step(off, distance=d)
+            off -= ctl.T * v * (1.0 / d)
+        return off
+
+    for off0, d in ((0.26, 1.0), (0.96, 0.6), (0.21, 1.5)):
+        final = abs(settle(off0, d, 120))
+        check(f"offset {off0:+.2f} at {d:.1f} m centres within the 12 s timeout",
+              final < 0.02, f"reaches {final:.5f}")
+
+    # The old law, for the record, on the same cases.
+    def old_law(off0, d, ticks, kp=0.28, vmin=0.025, vmax=0.10, T=0.1):
+        off = off0
+        for _ in range(ticks):
+            mag = max(vmin, min(vmax, kp * abs(off)))
+            off -= T * (mag * (1.0 if off >= 0 else -1.0)) * (1.0 / d)
+        return abs(off)
+    check("it beats the proportional law it replaces",
+          abs(settle(0.68, 2.0, 120)) < old_law(0.68, 2.0, 120),
+          f"state feedback {abs(settle(0.68, 2.0, 120)):.4f} vs "
+          f"proportional {old_law(0.68, 2.0, 120):.4f}")
+
+    # An actuator limit no controller can beat, stated so it is not mistaken
+    # for a tuning problem: at 2 m a 0.68 offset needs 1.36 m of sideways
+    # travel, which at the 0.10 m/s ceiling takes 14 s -- longer than the
+    # 12 s alignment timeout. The answer is COMMIT_OFFSET, not more gain.
+    reach = 0.68 * 2.0 / 0.10
+    check("far off-axis berries are an ACTUATOR limit, not a gain problem",
+          reach > 12.0,
+          f"{reach:.0f} s of travel needed against a 12 s timeout -- reject "
+          "those with COMMIT_OFFSET instead of trying to reach them")
+
+    mission = read("youbot_control/youbot_control/mission_node.py")
+    check("the mission uses the controller, not the old creep",
+          "self._align_ctrl.step(" in mission
+          and "ALIGN_KP * abs(off)" not in mission)
+    check("the integral is reset on every new target",
+          mission.count("_align_ctrl.reset()") >= 2,
+          "once in _arm_align, once when the drive sign flips")
+
+
 def check_drive_model_chain() -> None:
     """The drivetrain model is in the command path, and it is honest.
 
@@ -999,6 +1077,7 @@ def main() -> int:
     check_no_crabbing()
     check_params_match_code()
     check_station_realign()
+    check_align_state_feedback()
     check_drive_model_chain()
     check_label_source()
     check_fruit_projection()

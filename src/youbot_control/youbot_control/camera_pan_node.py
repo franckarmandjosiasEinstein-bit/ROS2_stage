@@ -50,8 +50,11 @@ class CameraPanNode(Node):
         self.declare_parameter("joint_states_topic", "gz_joint_states")
         self.declare_parameter("default_target", math.pi / 2.0)  # look left
         self.declare_parameter("limit", 1.5708)      # matches the URDF limit
-        self.declare_parameter("settle_tolerance", 0.02)   # rad, ~1.1 deg
-        self.declare_parameter("settle_ticks", 5)    # consecutive ticks inside
+        # STABILITY, not accuracy. See _tick: what back-projection needs is a
+        # head that is HOLDING STILL, not a head that reached its target.
+        self.declare_parameter("stable_epsilon", 0.01)   # rad of movement/tick
+        self.declare_parameter("settle_ticks", 5)    # consecutive stable ticks
+        self.declare_parameter("at_target_tolerance", 0.05)  # report only
         self.declare_parameter("rate", 20.0)
         self.declare_parameter("command_period", 0.5)  # s between re-commands
 
@@ -62,9 +65,11 @@ class CameraPanNode(Node):
         self._target = self._clamp(
             float(self.get_parameter("default_target").value))
         self._measured = None
+        self._previous = None
         self._inside = 0
         self._settled = False
         self._last_cmd = 0.0
+        self._last_report = 0.0
 
         self.cmd_pub = self.create_publisher(Float64, "camera_pan_cmd", 5)
         # The angle the rest of the stack must use. Published only when it is
@@ -137,8 +142,28 @@ class CameraPanNode(Node):
 
         self.state_pub.publish(Float64(data=self._measured))
 
-        error = abs(self._measured - self._target)
-        if error <= float(self.get_parameter("settle_tolerance").value):
+        # SETTLED MEANS STILL, NOT CORRECT.
+        #
+        # The first version required |measured - target| < 0.02 rad. That is
+        # the wrong test and it cost a whole run: the joint had no damping, so
+        # it never sat inside that window, "settled" stayed false forever, and
+        # the detector -- correctly obeying the flag -- refused to publish a
+        # single fruit position for nine minutes.
+        #
+        # But accuracy was never what back-projection needs. Projecting a pixel
+        # requires knowing WHERE THE CAMERA IS, not whether it is where it was
+        # asked to be. A head holding steady at 1.2 rad instead of 1.5708 gives
+        # a perfectly valid projection; it is simply looking somewhere else,
+        # and the measured angle already says so.
+        #
+        # So the test is stability: has the angle stopped changing? That is
+        # exactly the condition under which a frame and an angle belong
+        # together, and it degrades gracefully -- a head that never reaches its
+        # target still produces usable perception instead of none.
+        moved = (abs(self._measured - self._previous)
+                 if self._previous is not None else float("inf"))
+        self._previous = self._measured
+        if moved <= float(self.get_parameter("stable_epsilon").value):
             self._inside += 1
         else:
             self._inside = 0
@@ -147,9 +172,26 @@ class CameraPanNode(Node):
         if settled != self._settled:
             self._settled = settled
             self.get_logger().info(
-                f"head {'settled at' if settled else 'left'} "
-                f"{math.degrees(self._measured):+.1f} deg")
+                f"head {'steady at' if settled else 'moving, left'} "
+                f"{math.degrees(self._measured):+.1f} deg "
+                f"(target {math.degrees(self._target):+.1f})")
         self.settled_pub.publish(Bool(data=self._settled))
+
+        # Say where the head actually is, periodically. Not reaching the
+        # target is a real fault -- the coverage the head was added for
+        # depends on it -- but it is a SEPARATE fault from "perception is
+        # off", and the previous version reported neither.
+        if now - self._last_report >= 10.0:
+            self._last_report = now
+            miss = abs(self._measured - self._target)
+            if miss > float(self.get_parameter("at_target_tolerance").value):
+                self.get_logger().warn(
+                    "head is steady at %+.1f deg but was asked for %+.1f deg "
+                    "(%.0f deg short). Perception is UNAFFECTED -- it uses the "
+                    "measured angle -- but the head is not pointing where the "
+                    "mission wants it. Check the joint damping and gains."
+                    % (math.degrees(self._measured),
+                       math.degrees(self._target), math.degrees(miss)))
 
 
 def main(args=None) -> None:

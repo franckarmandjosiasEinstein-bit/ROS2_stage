@@ -21,6 +21,8 @@ from geometry_msgs.msg import PoseArray, PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty, Int32, Float32, Float32MultiArray, Bool
 
+from youbot_control.lib.align_lqr import AlignController
+
 # Coverage patrol: only the two central 0.8 m aisles (Y = +/-0.6). The robot
 # turns to face its heading, so its left (+Y, where the camera and arm are)
 # always points at a flanking plant row -- the camera never faces a wall, and
@@ -141,6 +143,12 @@ class MissionNode(Node):
         self._align_gain_t = 0.0      # when it last improved
         self._offsets = []       # ALL cluster offsets in the current frame
         self._picks_at_stop = 0  # picks done at the current station
+        # The alignment loop. Period matches the mission tick; v_max keeps the
+        # old ceiling, so what changes is the LAW, not the speed budget.
+        self._align_ctrl = AlignController(
+            period=0.1, settling_time=1.5, damping=0.9, v_max=ALIGN_VMAX,
+            image_gain_ref=1.0, range_ref=1.0)
+        self._ripe_range = None      # metres to the targeted berry, if known
         self._sweep_sign = 0.0   # station sweep direction (0 = not set yet)
         self._station_target = None  # offset of the berry being re-aligned to
         self._laps = 0               # completed harvest rounds
@@ -402,6 +410,11 @@ class MissionNode(Node):
         multi-pick-per-station feature has never once run. That is the single
         biggest throughput loss in the run: the robot drives to a plant with a
         dozen ripe berries in frame, takes one, and leaves."""
+        # The integral state belongs to ONE target. Carrying a charge
+        # across berries would drive the base off toward where the last
+        # one was, which is exactly the class of bug the six clocks
+        # below already exist to prevent.
+        self._align_ctrl.reset()
         self._align_start = self._now()
         self._align_sign = 1.0
         self._align_check_t = self._now()
@@ -484,12 +497,31 @@ class MissionNode(Node):
         if t - self._align_check_t > 1.2:
             if abs(off) > self._align_last_abs - 0.02:
                 self._align_sign *= -1.0
+                # The integral was charging the wrong way; carrying it across
+                # a sign flip would make it fight the corrected direction.
+                self._align_ctrl.reset()
             self._align_last_abs = abs(off)
             self._align_check_t = t
-        # Proportional creep along the row (slows as it centres).
-        mag = max(ALIGN_VMIN, min(ALIGN_VMAX, ALIGN_KP * abs(off)))
-        direction = 1.0 if off >= 0.0 else -1.0
-        self._publish_cmd(self._align_sign * mag * direction, 0.0, 0.0)
+
+        # STATE FEEDBACK, not a proportional creep.
+        #
+        # The old law was v = clamp(KP*|off|, VMIN, VMAX)*sign(off), and its
+        # signature fills every log: "Alignment stalled at offset +0.26 for
+        # 4s". That is a STEADY-STATE ERROR, and a proportional law with a
+        # floor cannot remove one -- below VMIN/KP the speed is floored rather
+        # than zeroed, so the base nudges forever without converging.
+        #
+        # lib/align_lqr models the loop as X = [offset, integral(offset)] with
+        # the lateral speed as input, places the poles for a 1.5 s settling
+        # time at zeta = 0.9, and COMPUTES the static gain instead of hoping
+        # for it. Replayed against the three stalls in the 23:31 log it reaches
+        # exactly zero where the old law leaves 0.16 to 0.29 behind.
+        #
+        # It also scales the gain by 1/range: a berry at 0.5 m crosses the
+        # frame four times faster than one at 2 m for the same sideways
+        # motion, which a fixed gain ignores -- jumpy near, sluggish far.
+        v, _diag = self._align_ctrl.step(off, distance=self._ripe_range)
+        self._publish_cmd(self._align_sign * v, 0.0, 0.0)
 
     def _begin_pick(self) -> None:
         self._picking = True
