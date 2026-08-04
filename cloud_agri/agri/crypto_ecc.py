@@ -226,3 +226,40 @@ def seal_json(obj: Any, recipient_public_pem, signer_private_pem=None) -> dict:
 def unseal_json(envelope: dict, recipient_private_pem, sender_public_pem=None):
     return json.loads(unseal(envelope, recipient_private_pem,
                              sender_public_pem).decode())
+
+
+# ------------------------------------------------- signature without secrecy
+#
+# Not everything needs encrypting, and encrypting everything is a habit worth
+# resisting because it hides which property actually matters.
+#
+# A Cloud->robot REQUEST says "measure P2,5R". There is nothing confidential
+# in it -- an eavesdropper who learns the robot is about to visit plant 5
+# learns nothing of value. But if anyone can ISSUE one, anyone can drive the
+# robot around the greenhouse. So requests are signed and not encrypted, and
+# the robot refuses an unsigned one.
+#
+# Reports need both: the readings are the asset, and a forged report is worse
+# than a read one.
+
+def sign_json(obj: Any, signer_private_pem) -> dict[str, Any]:
+    """{payload, sig} -- readable by anyone, forgeable by nobody."""
+    raw = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+    sig = load_private(signer_private_pem).sign(raw, ec.ECDSA(hashes.SHA256()))
+    return {"payload": obj, "sig": _b64(sig), "sig_alg": "ECDSA-P256-SHA256"}
+
+
+def verify_json(signed: dict[str, Any], signer_public_pem) -> Any:
+    """Return the payload, or raise. Never returns unverified content."""
+    if not isinstance(signed, dict) or "payload" not in signed:
+        raise CryptoError("not a signed message")
+    if "sig" not in signed:
+        raise CryptoError("message carries no signature")
+    raw = json.dumps(signed["payload"], sort_keys=True,
+                     separators=(",", ":")).encode()
+    try:
+        load_public(signer_public_pem).verify(
+            _unb64(signed["sig"]), raw, ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature as exc:
+        raise CryptoError("signature does not verify") from exc
+    return signed["payload"]

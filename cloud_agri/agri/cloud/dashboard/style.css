@@ -1,0 +1,189 @@
+/* AGRI-CLOUD dashboard.
+ *
+ * The brief asks for a science-fiction look. The constraint that keeps that
+ * from becoming decoration: every colour must MEAN something.
+ *
+ *   the interface   one dark base, one accent (cyan), one alert (amber).
+ *                   Nothing else is coloured, so anything coloured is data.
+ *   the data        each quantity has its own SEQUENTIAL ramp -- dark and
+ *                   desaturated at the low end, bright at the high end. A
+ *                   rainbow would be prettier and would invent boundaries
+ *                   that are not in the numbers.
+ *   alarm           amber ring, never a fill: an out-of-range station must
+ *                   still show its value on the same scale as its
+ *                   neighbours, or you cannot see how far out it is.
+ *
+ * Both themes are supported because a projector in a bright room is the
+ * usual place a jury sees this.
+ */
+
+:root {
+  --bg:        #070b0d;
+  --bg-panel:  #0d1417;
+  --bg-raise:  #131d21;
+  --line:      #1e2d33;
+  --ink:       #cfe6e5;
+  --ink-dim:   #6d8a8c;
+  --accent:    #22e0c8;
+  --accent-dk: #0d6f66;
+  --alert:     #ffb03a;
+  --bad:       #ff5d5d;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #eef4f4; --bg-panel: #ffffff; --bg-raise: #f4f9f9;
+    --line: #c8dada; --ink: #10262a; --ink-dim: #5d7a7d;
+    --accent: #0b8f80; --accent-dk: #7fd8cc; --alert: #b06a00;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #070b0d; --bg-panel: #0d1417; --bg-raise: #131d21;
+  --line: #1e2d33; --ink: #cfe6e5; --ink-dim: #6d8a8c;
+  --accent: #22e0c8; --accent-dk: #0d6f66; --alert: #ffb03a;
+}
+:root[data-theme="light"] {
+  --bg: #eef4f4; --bg-panel: #ffffff; --bg-raise: #f4f9f9;
+  --line: #c8dada; --ink: #10262a; --ink-dim: #5d7a7d;
+  --accent: #0b8f80; --accent-dk: #7fd8cc; --alert: #b06a00;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--mono); font-size: 13px; line-height: 1.5;
+  /* faint scan grid: atmosphere, no information */
+  background-image:
+    linear-gradient(transparent 95%, rgba(34,224,200,.035) 95%),
+    linear-gradient(90deg, transparent 95%, rgba(34,224,200,.035) 95%);
+  background-size: 28px 28px;
+}
+
+/* ------------------------------------------------------------- header */
+.bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: .7rem 1.1rem;
+  border-bottom: 1px solid var(--line); background: var(--bg-panel);
+  position: sticky; top: 0; z-index: 10;
+}
+.brand { display: flex; align-items: baseline; gap: .6rem; }
+.glyph { color: var(--accent); font-size: 1.2rem; }
+.title { font-size: 1.05rem; letter-spacing: .22em; font-weight: 600; }
+.title .dim { color: var(--accent-dk); }
+.sub { color: var(--ink-dim); font-size: .74rem; letter-spacing: .1em; }
+.link { display: flex; align-items: center; gap: .5rem; color: var(--ink-dim);
+        font-size: .78rem; letter-spacing: .08em; }
+.dot { width: .55rem; height: .55rem; border-radius: 50%;
+       background: var(--ink-dim); box-shadow: 0 0 0 3px rgba(0,0,0,.25); }
+.dot.on { background: var(--accent); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot.on { animation: none; } }
+
+/* -------------------------------------------------------- stat tiles */
+.strip { display: grid; gap: 1px; background: var(--line);
+         grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+         border-bottom: 1px solid var(--line); }
+.tile { background: var(--bg-panel); padding: .6rem .9rem; }
+.tile .k { color: var(--ink-dim); font-size: .68rem; letter-spacing: .13em;
+           text-transform: uppercase; }
+.tile .v { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.tile .v small { font-size: .7rem; color: var(--ink-dim); }
+.tile.warn .v { color: var(--alert); }
+
+/* ------------------------------------------------------------ layout */
+main { display: grid; grid-template-columns: 1fr 320px; gap: 1px;
+       background: var(--line); }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.panel { background: var(--bg-panel); padding: .9rem 1.1rem 1.2rem; }
+.panel-head { display: flex; align-items: center; justify-content: space-between;
+              gap: 1rem; margin: .2rem 0 .8rem; }
+h2 { margin: 0; font-size: .74rem; letter-spacing: .18em; font-weight: 600;
+     text-transform: uppercase; color: var(--accent); }
+
+/* --------------------------------------------------------------- map */
+.map-wrap { border: 1px solid var(--line); background: var(--bg-raise);
+            overflow-x: auto; }
+#map { display: block; width: 100%; min-width: 520px; height: auto; }
+.quantity-picker { display: flex; flex-wrap: wrap; gap: .3rem; }
+.quantity-picker button {
+  background: transparent; color: var(--ink-dim); border: 1px solid var(--line);
+  padding: .18rem .55rem; font: inherit; font-size: .7rem; cursor: pointer;
+  letter-spacing: .08em; border-radius: 2px;
+}
+.quantity-picker button[aria-pressed="true"] {
+  color: var(--bg); background: var(--accent); border-color: var(--accent);
+}
+.scale { display: flex; align-items: center; gap: .5rem; margin-top: .5rem;
+         color: var(--ink-dim); font-size: .7rem; }
+.scale .ramp { flex: 1; height: 8px; border: 1px solid var(--line); }
+
+/* ----------------------------------------------------------- command */
+.cmd { display: grid; gap: .5rem; margin-bottom: 1.2rem; }
+.cmd-row { display: flex; gap: .4rem; }
+button, input {
+  font: inherit; border-radius: 2px;
+}
+.cmd button {
+  background: var(--accent-dk); color: var(--ink); border: 1px solid var(--accent);
+  padding: .5rem .7rem; cursor: pointer; letter-spacing: .12em; font-size: .74rem;
+}
+.cmd button:hover { background: var(--accent); color: var(--bg); }
+.cmd input { flex: 1; background: var(--bg-raise); color: var(--ink);
+             border: 1px solid var(--line); padding: .5rem; min-width: 0; }
+.hint { color: var(--ink-dim); font-size: .68rem; }
+.hint.bad { color: var(--bad); }
+
+.reqs, .rejects { display: grid; gap: .35rem; margin-bottom: 1.1rem; }
+.req { border-left: 2px solid var(--accent); padding: .35rem .6rem;
+       background: var(--bg-raise); font-size: .72rem; }
+.req .id { color: var(--ink-dim); }
+.req .prog { height: 3px; background: var(--line); margin-top: .3rem; }
+.req .prog i { display: block; height: 100%; background: var(--accent); }
+.rej { border-left: 2px solid var(--bad); padding: .35rem .6rem;
+       background: var(--bg-raise); font-size: .7rem; color: var(--ink-dim); }
+.empty { color: var(--ink-dim); font-size: .72rem; }
+
+/* ------------------------------------------------------------ detail */
+.detail { border-top: 1px solid var(--line); }
+.detail-grid { display: grid; gap: 1rem;
+               grid-template-columns: 1fr auto auto; align-items: start; }
+@media (max-width: 760px) { .detail-grid { grid-template-columns: 1fr; } }
+.readings { display: grid; gap: .3rem; }
+.reading { display: grid; grid-template-columns: 8rem 1fr 5.5rem;
+           align-items: center; gap: .6rem; }
+.reading .n { color: var(--ink-dim); font-size: .72rem; letter-spacing: .08em; }
+.reading .bar-t { height: 10px; background: var(--bg-raise);
+                  border: 1px solid var(--line); }
+.reading .bar-t i { display: block; height: 100%; }
+.reading .val { text-align: right; font-variant-numeric: tabular-nums; }
+.reading.flagged .val { color: var(--alert); font-weight: 700; }
+.media { margin: 0; }
+.media img { display: block; max-width: 220px; width: 100%; height: auto;
+             border: 1px solid var(--line); background: var(--bg-raise); }
+.media figcaption { color: var(--ink-dim); font-size: .68rem; margin-top: .3rem;
+                    letter-spacing: .08em; }
+.close { background: transparent; border: 1px solid var(--line);
+         color: var(--ink-dim); cursor: pointer; padding: .1rem .45rem; }
+.history { margin-top: 1rem; color: var(--ink-dim); font-size: .72rem;
+           overflow-x: auto; }
+.history table { border-collapse: collapse; min-width: 100%; }
+.history th, .history td { padding: .22rem .6rem; text-align: right;
+                           border-bottom: 1px solid var(--line);
+                           font-variant-numeric: tabular-nums; white-space: nowrap; }
+.history th { color: var(--accent); font-weight: 600; text-align: right;
+              letter-spacing: .08em; font-size: .66rem; text-transform: uppercase; }
+.history td:first-child, .history th:first-child { text-align: left; }
+
+footer { padding: .6rem 1.1rem; color: var(--ink-dim); font-size: .7rem;
+         border-top: 1px solid var(--line); background: var(--bg-panel); }
+
+/* map elements */
+.wall { fill: none; stroke: var(--line); stroke-width: .05; }
+.gutter { fill: var(--bg-panel); stroke: var(--line); stroke-width: .015; }
+.plant { fill: var(--accent-dk); opacity: .5; }
+.cross { stroke-width: .035; }
+.station { cursor: pointer; }
+.station .halo { fill: none; stroke: var(--alert); stroke-width: .045; }
+.station.sel .halo { stroke: var(--accent); }
+.rowlab { fill: var(--ink-dim); font-size: .22px; letter-spacing: .04px; }

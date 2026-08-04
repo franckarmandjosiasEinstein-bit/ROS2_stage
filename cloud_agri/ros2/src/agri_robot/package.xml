@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>agri_robot</name>
+  <version>0.1.0</version>
+  <description>
+    Smart agriculture: the mobile node. Takes signed requests from a Cloud
+    over MQTT, drives the youbot onto the red crosses in the greenhouse,
+    reads the plant's environment, photographs it, encodes the numbers as a
+    QR code, seals the lot with ECC and reports back.
+
+    All of the logic lives in the ROS-free package agri/ (cloud_agri/). This
+    package is only the body: wheels, cameras and the launch file.
+  </description>
+  <maintainer email="josiasarmand40@gmail.com">Franck Armand Josias</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <!-- python3-paho-mqtt, agri-cloud (pip) and its dependencies are NOT
+       declared here: they are installed with pip, not rosdep, and listing
+       them would make rosdep fail on a machine where everything works.
+       The README says which pip install to run. -->
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,166 @@
+"""Bring up the greenhouse, the robot, and the mobile node.
+
+    ros2 launch agri_robot agri.launch.py
+    ros2 launch agri_robot agri.launch.py gui:=false               # headless
+    ros2 launch agri_robot agri.launch.py targets:="P1,1R;P2,4R"   # no Cloud
+
+WHAT IS STARTED
+
+    gz sim                  worlds/greenhouse_cloud.sdf -- the Phase B
+                            greenhouse plus the 48 red crosses
+    robot_state_publisher   urdf/youbot_agri.urdf -- the Phase B youbot plus
+                            the sensor boom and its floor camera
+    ros_gz_bridge           config/gz_bridge_agri.yaml
+    agri_robot              the node: MQTT in, wheels and cameras out
+
+The Cloud is NOT started here. It is a separate process -- on a separate
+machine in any deployment worth the name -- and starting it from the robot's
+launch file would quietly make that untrue:
+
+    agri-cloud --keys keys --store store
+
+WHERE THE WORLD AND THE ROBOT COME FROM
+
+Both are GENERATED (agri.world.make_world, agri.world.make_robot) and both
+are installed into this package's share directory by setup.py, so a colcon
+install is self-contained. If they are missing, that means the generators
+have not been run, and this file says so and stops rather than letting gz
+open an empty world and leaving you to wonder where the greenhouse went.
+
+The robot's meshes still belong to Phase B's youbot_gazebo package and are
+referenced as package://youbot_gazebo/..., so that package's share directory
+is put on GZ_SIM_RESOURCE_PATH -- the same thing the Phase B launch file
+does, and the reason the base is a CAD body rather than a grey box.
+
+SHUTDOWN
+
+Phase B's kill_sim.sh is reused verbatim when it is installed. gz sim forks
+processes that outlive a plain SIGINT to the launcher; the symptom is a
+second run that starts, finds the world already loaded, and behaves
+inexplicably. That script was written for exactly this and there is no
+reason to write a second one.
+"""
+
+import os
+from pathlib import Path
+
+from ament_index_python.packages import (PackageNotFoundError,
+                                         get_package_share_directory)
+from launch import LaunchDescription
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
+                            IncludeLaunchDescription, RegisterEventHandler)
+from launch.conditions import IfCondition, UnlessCondition
+from launch.event_handlers import OnShutdown
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+WORLD = "worlds/greenhouse_cloud.sdf"
+URDF = "urdf/youbot_agri.urdf"
+
+
+def _source_root() -> Path | None:
+    """cloud_agri/ in a source tree, for running without installing."""
+    for parent in Path(__file__).resolve().parents:
+        if (parent / WORLD).exists():
+            return parent
+    return None
+
+
+def _asset(rel: str, share: Path) -> Path:
+    """The installed copy if there is one, else the source tree."""
+    for base in (share, _source_root()):
+        if base is not None and (base / rel).exists():
+            return base / rel
+    raise RuntimeError(
+        f"{rel} is missing from {share} and from the source tree.\n"
+        "Generate the world and the robot first, from cloud_agri/:\n"
+        "    python3 -m agri.world.make_world\n"
+        "    python3 -m agri.world.make_robot\n"
+        "then rebuild:  colcon build --symlink-install")
+
+
+def _share(package: str) -> Path | None:
+    try:
+        return Path(get_package_share_directory(package))
+    except PackageNotFoundError:
+        return None
+
+
+def generate_launch_description() -> LaunchDescription:
+    share = Path(get_package_share_directory("agri_robot"))
+    ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
+
+    world = str(_asset(WORLD, share))
+    robot_desc = _asset(URDF, share).read_text()
+    bridge_cfg = str(share / "config" / "gz_bridge_agri.yaml")
+
+    # package://youbot_gazebo/meshes/... -> the share directory ABOVE
+    # youbot_gazebo, which is what gz resolves package:// against.
+    paths = [str(p.parent) for p in (_share("youbot_gazebo"),) if p]
+    src = _source_root()
+    if src is not None:                     # source tree: meshes live here
+        paths.append(str(src.parent / "src"))
+    res_path = os.pathsep.join(
+        paths + [os.environ.get("GZ_SIM_RESOURCE_PATH", "")]).strip(os.pathsep)
+
+    use_gui = LaunchConfiguration("gui")
+    sim_time = {"use_sim_time": True}
+    default_keys = str((src or share) / "keys")
+
+    gz = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            str(ros_gz_share / "launch" / "gz_sim.launch.py")),
+        launch_arguments={"gz_args": ["-r -v3 ", world]}.items(),
+        condition=IfCondition(use_gui))
+    gz_headless = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            str(ros_gz_share / "launch" / "gz_sim.launch.py")),
+        launch_arguments={"gz_args": ["-r -s -v3 ", world]}.items(),
+        condition=UnlessCondition(use_gui))
+
+    actions = [
+        DeclareLaunchArgument("gui", default_value="true"),
+        DeclareLaunchArgument("broker", default_value="localhost"),
+        DeclareLaunchArgument("keys", default_value=default_keys),
+        DeclareLaunchArgument(
+            "targets", default_value="",
+            description='Semicolon-separated stations to visit with NO Cloud, '
+                        'e.g. "P1,1R;P2,4R". Diagnostic only: the reports are '
+                        'built and discarded.'),
+
+        gz, gz_headless,
+
+        Node(package="robot_state_publisher",
+             executable="robot_state_publisher",
+             name="robot_state_publisher", output="screen",
+             parameters=[{"robot_description": robot_desc}, sim_time]),
+
+        # Spawn in the west headland of the south aisle, facing +x. The
+        # sensor boom then reaches x = -4.08, which is exactly where
+        # driver.route() expects the robot to be when it sets off.
+        Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
+             output="screen",
+             arguments=["-topic", "robot_description", "-name", "youbot",
+                        "-x", "-4.58", "-y", "-1.85", "-z", "0.0"]),
+
+        Node(package="ros_gz_bridge", executable="parameter_bridge",
+             name="gz_bridge", output="screen",
+             parameters=[{"config_file": bridge_cfg}, sim_time]),
+
+        Node(package="agri_robot", executable="robot_node", name="agri_robot",
+             output="screen",
+             parameters=[{"broker": LaunchConfiguration("broker"),
+                          "keys": LaunchConfiguration("keys"),
+                          "standalone_targets": LaunchConfiguration("targets")},
+                         sim_time]),
+    ]
+
+    bringup = _share("youbot_bringup")
+    kill_sim = bringup / "scripts" / "kill_sim.sh" if bringup else None
+    if kill_sim is not None and kill_sim.exists():
+        actions.append(RegisterEventHandler(OnShutdown(on_shutdown=[
+            ExecuteProcess(cmd=["bash", str(kill_sim), "--now", "--quiet"],
+                           output="screen")])))
+
+    return LaunchDescription(actions)

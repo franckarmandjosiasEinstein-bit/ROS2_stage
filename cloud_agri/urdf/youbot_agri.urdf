@@ -1,0 +1,461 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo (Harmonic) URDF for the YouBot digital twin. Same body as the RViz
+  visual URDF, plus what Gazebo needs: inertials, a base collision, a gpu_lidar
+  sensor, and two model plugins:
+    * VelocityControl   : applies /cmd_vel (body-frame vx, vy, wz) to the base,
+                          so the mecanum strafes without simulating rollers.
+    * OdometryPublisher : ground-truth /odom in the map frame (matches the
+                          perfect-localisation assumption of the control stack).
+  Frame convention: +X forward (toward the arm), +Y left, +Z up.
+-->
+<robot name="youbot">
+  <material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material>
+  <material name="dark"><color rgba="0.14 0.14 0.16 1"/></material>
+  <material name="grey"><color rgba="0.42 0.42 0.45 1"/></material>
+  <material name="plate"><color rgba="0.30 0.30 0.33 1"/></material>
+  <material name="basket"><color rgba="0.62 0.44 0.24 1"/></material>
+
+  <!-- Base chassis + rear carrying plate -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.11"/>
+      <mass value="20.0"/>
+      <inertia ixx="0.5" ixy="0" ixz="0" iyy="0.9" iyz="0" izz="1.2"/>
+    </inertial>
+    <!-- No collision: the base is driven kinematically (VelocityControl) and
+         localisation is ground-truth, so the robot is a "ghost" that A* + the
+         reactive lidar brake keep off the gutters. This prevents any physics
+         contact from wedging or tipping it (as happened with crates in aisles). -->
+    <!-- Real CAD body (FreeCAD). Mesh is in mm (scale 0.001) with its length
+         (580) along Y, so yaw -90 deg aligns it to +X (forward). -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
+      <geometry><mesh filename="package://youbot_gazebo/meshes/base.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="kuka_orange"/>
+    </visual>
+  </link>
+
+  <!-- Collection basket on the rear plate, raised on four legs so its walls
+       sit ABOVE the lidar plane (z = 0.20): at the old height they filled it
+       and blinded the rear ~150 deg of every scan. In a corridor the rear
+       wall is what pins the along-axis position: the SLAM locked without
+       it, while ground-truth mapping (which skips returns under 0.25 m)
+       never noticed. Same lesson as a real robot: mount the lidar clear of
+       the chassis, or the chassis becomes the map. -->
+  <link name="basket">
+    <inertial><mass value="0.2"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0 0.005"/><geometry><box size="0.22 0.28 0.01"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="-0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0 0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0 -0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
+    <visual><origin xyz="0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="-0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="-0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_basket" type="fixed"><parent link="base_link"/><child link="basket"/><origin xyz="-0.13 0 0.26"/></joint>
+
+  <!-- Four mecanum wheels (real CAD meshes, mm -> scale 0.001; axle Z -> Y via
+       roll 90 deg, then shift +0.025 to centre the 50 mm width on the hub).
+       Handedness: A on the FL/RR diagonal, B (mirror) on FR/RL. r = 0.054. -->
+  <link name="wheel_fl">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_fl" type="fixed"><parent link="base_link"/><child link="wheel_fl"/><origin xyz="0.225 0.19 0.054"/></joint>
+
+  <link name="wheel_fr">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_fr" type="fixed"><parent link="base_link"/><child link="wheel_fr"/><origin xyz="0.225 -0.19 0.054"/></joint>
+
+  <link name="wheel_rl">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_rl" type="fixed"><parent link="base_link"/><child link="wheel_rl"/><origin xyz="-0.225 0.19 0.054"/></joint>
+
+  <link name="wheel_rr">
+    <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.225 -0.19 0.054"/></joint>
+
+  <!-- ===== 5-DOF arm + 2-finger gripper (real YouBot dimensions) =====
+       Mounted on a raised column (like real strawberry-picking manipulators):
+       the shoulder sits at ~0.55 m so the arm reaches the fruit at ~0.9 m, and
+       the base is rotated so the arm faces the plant row on its +Y side rather
+       than down the empty aisle. Segment lengths: shoulder 75, upper 155,
+       fore 135, wrist-fore 135, wrist 130 mm. -->
+  <!-- Necked at the lidar plane. gpu_lidar is a RENDERING sensor: it ray-casts
+       the VISUALS, so anything crossing z = 0.20 is an obstacle in our own
+       scan. A straight 0.05 m column at x = 0.12 subtends asin(0.05/0.12) =
+       25 deg, so it walled off +/-25 deg of the FORWARD view: the robot was
+       blind in exactly the direction it drives. Those returns come back at
+       0.07 m and are dropped by min_valid_range, which left the forward brake
+       reading only the oblique beams past 25 deg; those graze the gutter
+       alongside and read short, so it braked to a crawl in open corridor. A
+       thin 0.012 m collar through the sensor plane (the way a real mast is
+       cut away around a scanner) drops the blind sector to +/-6 deg. -->
+  <link name="pedestal">
+    <inertial><mass value="1.5"/><inertia ixx="3e-3" ixy="0" ixz="0" iyy="3e-3" iyz="0" izz="2e-3"/></inertial>
+    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.012" length="0.10"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0 0.245"/><geometry><cylinder radius="0.05" length="0.29"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_pedestal" type="fixed">
+    <parent link="base_link"/><child link="pedestal"/><origin xyz="0.12 0 0.16"/>
+  </joint>
+
+  <link name="arm_link_1">
+    <inertial><mass value="1.0"/><inertia ixx="2e-3" ixy="0" ixz="0" iyy="2e-3" iyz="0" izz="2e-3"/></inertial>
+    <visual><origin xyz="0 0 0.0375"/><geometry><cylinder radius="0.045" length="0.075"/></geometry><material name="kuka_orange"/></visual>
+  </link>
+  <joint name="arm_joint_1" type="revolute">
+    <parent link="base_link"/><child link="arm_link_1"/>
+    <origin xyz="0.12 0 0.55" rpy="0 0 1.5708"/><axis xyz="0 0 1"/>
+    <limit lower="-2.95" upper="2.95" effort="30" velocity="1.5"/>
+  </joint>
+
+  <link name="arm_link_2">
+    <inertial><mass value="0.8"/><inertia ixx="2e-3" ixy="0" ixz="0" iyy="2e-3" iyz="0" izz="1e-3"/></inertial>
+    <visual><origin xyz="0 0 0.0775"/><geometry><cylinder radius="0.035" length="0.155"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="arm_joint_2" type="revolute">
+    <parent link="arm_link_1"/><child link="arm_link_2"/>
+    <origin xyz="0 0 0.075"/><axis xyz="0 1 0"/>
+    <limit lower="-1.13" upper="1.57" effort="30" velocity="1.5"/>
+  </joint>
+
+  <link name="arm_link_3">
+    <inertial><mass value="0.6"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="8e-4"/></inertial>
+    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.030" length="0.135"/></geometry><material name="kuka_orange"/></visual>
+  </link>
+  <joint name="arm_joint_3" type="revolute">
+    <parent link="arm_link_2"/><child link="arm_link_3"/>
+    <origin xyz="0 0 0.155"/><axis xyz="0 1 0"/>
+    <limit lower="-2.64" upper="2.55" effort="20" velocity="1.5"/>
+  </joint>
+
+  <link name="arm_link_4">
+    <inertial><mass value="0.4"/><inertia ixx="8e-4" ixy="0" ixz="0" iyy="8e-4" iyz="0" izz="6e-4"/></inertial>
+    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.028" length="0.135"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="arm_joint_4" type="revolute">
+    <parent link="arm_link_3"/><child link="arm_link_4"/>
+    <origin xyz="0 0 0.135"/><axis xyz="0 1 0"/>
+    <limit lower="-1.79" upper="1.79" effort="15" velocity="1.5"/>
+  </joint>
+
+  <link name="arm_link_5">
+    <inertial><mass value="0.3"/><inertia ixx="5e-4" ixy="0" ixz="0" iyy="5e-4" iyz="0" izz="4e-4"/></inertial>
+    <visual><origin xyz="0 0 0.065"/><geometry><cylinder radius="0.025" length="0.130"/></geometry><material name="kuka_orange"/></visual>
+  </link>
+  <joint name="arm_joint_5" type="revolute">
+    <parent link="arm_link_4"/><child link="arm_link_5"/>
+    <origin xyz="0 0 0.135"/><axis xyz="0 0 1"/>
+    <limit lower="-2.92" upper="2.92" effort="10" velocity="1.5"/>
+  </joint>
+
+  <!-- Gripper: a wrist plate + two parallel fingers (prismatic, symmetric) -->
+  <link name="gripper_base">
+    <inertial><mass value="0.15"/><inertia ixx="2e-4" ixy="0" ixz="0" iyy="2e-4" iyz="0" izz="2e-4"/></inertial>
+    <visual><geometry><box size="0.05 0.08 0.03"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="gripper_mount" type="fixed">
+    <parent link="arm_link_5"/><child link="gripper_base"/><origin xyz="0 0 0.130"/>
+  </joint>
+
+  <link name="finger_left">
+    <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="gripper_left" type="prismatic">
+    <parent link="gripper_base"/><child link="finger_left"/>
+    <origin xyz="0 0.015 0.015"/><axis xyz="0 1 0"/>
+    <limit lower="0.0" upper="0.035" effort="20" velocity="0.2"/>
+  </joint>
+
+  <link name="finger_right">
+    <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="gripper_right" type="prismatic">
+    <parent link="gripper_base"/><child link="finger_right"/>
+    <origin xyz="0 -0.015 0.015"/><axis xyz="0 -1 0"/>
+    <limit lower="0.0" upper="0.035" effort="20" velocity="0.2"/>
+  </joint>
+
+  <!-- Lidar sensor mount, centred on the base, 0.20 m up -->
+  <link name="lidar">
+    <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
+    <visual><geometry><cylinder radius="0.035" length="0.05"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_lidar" type="fixed"><parent link="base_link"/><child link="lidar"/><origin xyz="0 0 0.20"/></joint>
+
+  <!-- Camera on a short mast, facing the +Y plant row (same side the arm
+       harvests) so it watches the arm reach the fruit -->
+  <link name="mast">
+    <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
+    <visual><origin xyz="0 0 0.31"/><geometry><cylinder radius="0.015" length="0.62"/></geometry><material name="grey"/></visual>
+  </link>
+  <joint name="j_mast" type="fixed"><parent link="base_link"/><child link="mast"/><origin xyz="0.22 0 0.16"/></joint>
+
+  <!-- PAN HEAD (+/- 90 deg). Decouples "where I look" from "where I go".
+       Two fixed cameras, one per side, would need no moving part at all and
+       would be mechanically safer in a humid greenhouse; a single pan head
+       was chosen because two cameras cost too much. The consequences are
+       accepted deliberately and written down here so they are not
+       rediscovered in the field:
+
+         * the pan angle enters the fruit back-projection IN SERIES with the
+           robot yaw, so an error in it lands directly in the fruit position
+           — the same sensitivity as heading, 5 deg at 2 m is 17 cm. The head
+           must therefore be commanded to a HELD position and the image used
+           only once it has settled, never mid-sweep.
+         * motion blur: stop the head, then shoot.
+         * limited to +/- 90 deg on purpose. Continuous rotation would need a
+           slip ring; +/- 90 deg reaches both plant rows from a central aisle,
+           which is the entire reason for having it. -->
+  <link name="camera_pan">
+    <inertial><mass value="0.08"/><inertia ixx="2e-5" ixy="0" ixz="0" iyy="2e-5" iyz="0" izz="2e-5"/></inertial>
+    <visual><geometry><cylinder radius="0.022" length="0.03"/></geometry><material name="grey"/></visual>
+  </link>
+  <!-- Revolute, so sdformat keeps camera_pan as a REAL link instead of
+       lumping it into base_link the way it does with fixed joints. That is
+       what lets the sensor below ride on it and actually move. -->
+  <joint name="j_camera_pan" type="revolute">
+    <parent link="base_link"/><child link="camera_pan"/>
+    <origin xyz="0.18 0 0.78"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="4.0" velocity="1.5"/>
+    <!-- Damping is not optional here. The JointPositionController applies a
+         FORCE, and a 0.08 kg head with 2e-5 kg m^2 of inertia and no damping
+         is a near-integrator: it overshoots, rings, and never sits inside a
+         0.02 rad window. The arm joints get away without it because they
+         carry real mass. -->
+    <dynamics damping="0.05" friction="0.01"/>
+  </joint>
+
+  <link name="camera">
+    <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <visual><geometry><box size="0.03 0.09 0.03"/></geometry><material name="dark"/></visual>
+  </link>
+  <!-- Pitched up 0.28 rad so the view clears the 0.8 m gutter edge and sees
+       the fruit on top; a level view only shows the brown gutter wall. The
+       yaw that used to be baked in here (+90 deg, permanently looking left)
+       is now the pan joint's job: +1.5708 for the left row, -1.5708 for the
+       right row, 0 to look straight ahead down the aisle. -->
+  <joint name="j_camera" type="fixed"><parent link="camera_pan"/><child link="camera"/><origin xyz="0.14 0 0" rpy="0 -0.28 0"/></joint>
+
+  <!-- ==================== Gazebo-specific ==================== -->
+
+  <!-- Gravity off: with no collision the base would otherwise fall through the
+       floor before the first /cmd_vel arrives. VelocityControl then holds it in
+       the plane (vz = roll = pitch = 0), so it glides level and never tips. -->
+  <gazebo reference="base_link">
+    <gravity>false</gravity>
+  </gazebo>
+
+  <!-- Gravity off on the arm too, so the JointPositionControllers hold each
+       pose cleanly (no droop to fight), consistent with the kinematic robot. -->
+  <gazebo reference="arm_link_1"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_2"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_3"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_4"><gravity>false</gravity></gazebo>
+  <gazebo reference="arm_link_5"><gravity>false</gravity></gazebo>
+  <gazebo reference="gripper_base"><gravity>false</gravity></gazebo>
+  <gazebo reference="finger_left"><gravity>false</gravity></gazebo>
+  <gazebo reference="finger_right"><gravity>false</gravity></gazebo>
+
+  <gazebo reference="camera_pan"><gravity>false</gravity></gazebo>
+
+  <!-- Joint states, so the pan angle can be read back instead of trusted.
+       A commanded angle is not a measured one: the head has to settle, and the
+       detector must know the difference, because this angle enters the fruit
+       back-projection in series with the robot yaw. -->
+  <gazebo>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <!-- No <topic> override on purpose. With one, the plugin publishes on
+           the gz topic /joint_states while the bridge listens on the default
+           /world/<world>/model/<model>/joint_state, and the two never meet:
+           the head angle never arrives, camera_pan_node correctly refuses to
+           publish a pose, and fruit localisation goes silent. Leaving the
+           default is what makes the bridge entry below correct by
+           construction. -->
+    </plugin>
+  </gazebo>
+
+  <!-- One position controller per joint. Each subscribes to a gz Double on
+       <joint>_cmd (bridged from a ROS Float64); arm_node drives the sequence. -->
+  <gazebo>
+    <!-- Camera pan head. Softer gains than the arm on purpose: the head
+         carries 80 g and a stiff loop makes it ring, and a ringing camera is
+         a blurred camera. What matters here is that it SETTLES, not that it
+         gets there fast — an image taken mid-sweep has a pan angle nobody
+         knows, and that angle goes straight into the fruit position. -->
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>j_camera_pan</joint_name><topic>camera_pan_cmd</topic>
+      <p_gain>6</p_gain><i_gain>0.0</i_gain><d_gain>1.2</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_1</joint_name><topic>arm_joint_1_cmd</topic>
+      <p_gain>18</p_gain><i_gain>0.0</i_gain><d_gain>2.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_2</joint_name><topic>arm_joint_2_cmd</topic>
+      <p_gain>18</p_gain><i_gain>0.0</i_gain><d_gain>2.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_3</joint_name><topic>arm_joint_3_cmd</topic>
+      <p_gain>15</p_gain><i_gain>0.0</i_gain><d_gain>1.5</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_4</joint_name><topic>arm_joint_4_cmd</topic>
+      <p_gain>12</p_gain><i_gain>0.0</i_gain><d_gain>1.2</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>arm_joint_5</joint_name><topic>arm_joint_5_cmd</topic>
+      <p_gain>8</p_gain><i_gain>0.0</i_gain><d_gain>1.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gripper_left</joint_name><topic>gripper_left_cmd</topic>
+      <p_gain>60</p_gain><i_gain>0.0</i_gain><d_gain>3.0</d_gain>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gripper_right</joint_name><topic>gripper_right_cmd</topic>
+      <p_gain>60</p_gain><i_gain>0.0</i_gain><d_gain>3.0</d_gain>
+    </plugin>
+  </gazebo>
+
+  <!-- 360-beam 2D lidar, matches sim_node: -pi..pi, 12 m, 10 Hz -->
+  <gazebo reference="lidar">
+    <sensor name="lidar" type="gpu_lidar">
+      <topic>scan</topic>
+      <update_rate>10</update_rate>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159265</min_angle>
+            <max_angle>3.14159265</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>1</samples>
+            <min_angle>0</min_angle>
+            <max_angle>0</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>0.05</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </lidar>
+      <gz_frame_id>lidar</gz_frame_id>
+    </sensor>
+  </gazebo>
+
+  <!-- RGB camera for ripe-strawberry detection -> /camera/image + camera_info.
+       Now attached to camera_pan, NOT to base_link. It used to be mounted on
+       base_link with an explicit pose because sdformat drops sensors on
+       fixed-joint links during lumping — but camera_pan hangs off a REVOLUTE
+       joint, so it survives as a real link and the sensor rides on it. That is
+       precisely what makes the head able to look somewhere the chassis is not
+       pointing. The pose below is j_camera relative to camera_pan. -->
+  <gazebo reference="camera_pan">
+    <sensor name="camera" type="camera">
+      <pose>0.14 0 0 0 -0.28 0</pose>
+      <topic>camera</topic>
+      <update_rate>15</update_rate>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <camera>
+        <horizontal_fov>1.2</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.05</near>
+          <far>15.0</far>
+        </clip>
+      </camera>
+      <gz_frame_id>camera</gz_frame_id>
+    </sensor>
+  </gazebo>
+
+  <!-- Drive the base directly from /cmd_vel (body frame): true mecanum strafe -->
+  <gazebo>
+    <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl">
+      <topic>cmd_vel</topic>
+    </plugin>
+  </gazebo>
+
+  <!-- Ground-truth odometry in the map frame -> /odom + map->base_link TF -->
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <dimensions>3</dimensions>
+      <odom_frame>map</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf_gz</tf_topic>
+      <odom_publish_frequency>30</odom_publish_frequency>
+    </plugin>
+  </gazebo>
+
+  <!-- ================================================================
+       SENSOR BOOM, generated by cloud_agri/agri/world/make_robot.py.
+       Do not edit by hand: the numbers come from agri/vision.py and
+       agri/catalogue.py, and the robot drives to those, not to these.
+       ================================================================ -->
+  <link name="sensor_boom">
+    <inertial><mass value="0.12"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
+    <visual><origin xyz="0 0 0"/><geometry><box size="0.2800 0.035 0.02"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_sensor_boom" type="fixed">
+    <parent link="base_link"/><child link="sensor_boom"/>
+    <origin xyz="0.3600 0 0.5200"/>
+  </joint>
+
+  <link name="floor_cam">
+    <inertial><mass value="0.04"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+    <visual><geometry><box size="0.035 0.035 0.03"/></geometry><material name="dark"/></visual>
+  </link>
+  <joint name="j_floor_cam" type="fixed">
+    <parent link="base_link"/><child link="floor_cam"/>
+    <origin xyz="0.5000 0.0000 0.4500" rpy="0 1.570796 0"/>
+  </joint>
+  <gazebo reference="floor_cam"><gravity>false</gravity></gazebo>
+  <gazebo reference="sensor_boom"><gravity>false</gravity></gazebo>
+
+  <!-- Declared on base_link with an explicit pose, NOT on floor_cam: a link
+       behind a fixed joint is lumped away by sdformat and its sensor goes
+       with it. rpy pitch = +pi/2 turns the camera's viewing axis from body
+       +x to straight down; agri/vision.py depends on exactly this line. -->
+  <gazebo reference="base_link">
+    <sensor name="floor_cam" type="camera">
+      <pose>0.5000 0.0000 0.4500 0 1.570796 0</pose>
+      <topic>floor_cam</topic>
+      <update_rate>10</update_rate>
+      <always_on>true</always_on>
+      <visualize>false</visualize>
+      <camera>
+        <horizontal_fov>1.2</horizontal_fov>
+        <image>
+          <width>320</width>
+          <height>240</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip><near>0.02</near><far>3.0</far></clip>
+      </camera>
+      <gz_frame_id>floor_cam</gz_frame_id>
+    </sensor>
+  </gazebo>
+</robot>

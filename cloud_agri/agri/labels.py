@@ -41,7 +41,7 @@ PLANTS_PER_ROW = 8       # j, 1..8
 SIDES = ("R", "L")
 
 #: Canonical form: P<row>,<plant><SIDE>, e.g. "P2,5R".
-_RE = re.compile(r"^\s*P\s*(\d+)\s*[,;.\-_ ]\s*(\d+)\s*([RLrl])\s*$")
+_RE = re.compile(r"^\s*P\s*(\d+)\s*[,;.\-_ ]\s*(\d+)\s*([RL])\s*$", re.I)
 
 
 class LabelError(ValueError):
@@ -75,7 +75,12 @@ def parse_label(text: str) -> tuple[int, int, str]:
             f"{text!r} is not a station label. Expected P<row>,<plant><R|L>, "
             "for example P2,5R")
     row, plant, side = int(m.group(1)), int(m.group(2)), m.group(3).upper()
-    return row, plant, side  # format_label re-validates the ranges
+    # Validate HERE, not only in normalise(). catalogue.station() parses a
+    # label and computes a position from the numbers; if the range check
+    # lived only in the formatter, "P4,1R" would quietly yield coordinates
+    # inside the north wall and the robot would drive at it.
+    format_label(row, plant, side)
+    return row, plant, side
 
 
 def normalise(text: str) -> str:

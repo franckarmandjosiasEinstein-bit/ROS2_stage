@@ -1,0 +1,300 @@
+# cloud_agri — smart agriculture: a mobile node and a Cloud
+
+A greenhouse with 24 plants and 48 red crosses painted on the floor. A Cloud
+asks for one plant or all of them. A robot drives onto the crosses, reads the
+plant's environment, photographs it, turns the numbers into a QR code, seals
+the lot with elliptic-curve cryptography and sends it back. The Cloud opens
+it, checks it, files it, and draws it.
+
+```
+   CLOUD  ──── signed request ────►  ROBOT      agri/v1/request
+     ▲                                 │
+     │                                 ├─ drive to the cross (odometry, then
+     │                                 │   the floor camera on the marker)
+     │                                 ├─ read t / RH / lux / CO2 / pH
+     │                                 ├─ photograph the plant
+     │                                 ├─ numbers ─► QR code
+     │                                 └─ {QR, photo, numbers} ─► ECC seal
+     └──── sealed JSON ────────────────┘         agri/v1/report
+```
+
+---
+
+## 1. What is where
+
+| | |
+|---|---|
+| `agri/` | everything that is not ROS and not a transport. Labels, geometry, crypto, QR, sensors, envelope, the robot's brain, the Cloud, the dashboard. |
+| `agri/cloud/` | the Cloud: MQTT client, HTTP server, store, dashboard |
+| `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
+| `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
+| `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
+| `tests/check_cloud.py` | 117 pre-flight checks, none of which need a broker, ROS or a network |
+
+The split is deliberate. Everything that can be tested without a simulator
+lives outside ROS and is tested on every run of `check_cloud.py`; the part
+that genuinely needs Gazebo is one file, `ros2/src/agri_robot/agri_robot/driver.py`.
+The offline demo and the real robot run **the same** mission code, the same
+crypto and the same store — only the body and the transport are swapped.
+
+The Phase B harvesting project (`../src/`, `../scripts/`) is untouched and
+still works. This project *reads* its greenhouse and its robot to generate
+its own; it never writes to them, and the test suite asserts that.
+
+---
+
+## 2. Install
+
+```bash
+cd cloud_agri
+pip install -e ".[cloud]"        # the [cloud] extra adds the QR decoders
+sudo apt install mosquitto mosquitto-clients      # the MQTT broker
+```
+
+`[cloud]` pulls in **zxing-cpp** and **opencv-python-headless**. The Cloud
+re-reads every QR image it receives and checks it against the numbers that
+travelled with it, so it needs a decoder. Both are listed because OpenCV
+fails to locate 2 of the 48 station codes and zxing reads all 48; either
+alone works, both is what the tests run against.
+
+---
+
+## 3. Five minutes, no simulator, no broker
+
+```bash
+python3 -m agri.demo --explain
+```
+
+Runs the whole chain in one process: the Cloud signs a request, the robot
+verifies it, drives (simulated), reads, photographs, QR-encodes, seals,
+transmits; the Cloud decrypts, checks and files. `--explain` then prints the
+QR payload as a scanner reads it, the sealed envelope exactly as it goes on
+the wire, the same message after the Cloud opens it, and replays two attacks
+that are both refused.
+
+```bash
+python3 -m agri.demo ALL --serve       # all 48, then a dashboard on :8088
+```
+
+The dashboard's buttons issue **real** signed requests that the robot really
+verifies. Nothing about the chain is faked; only the wheels and the broker
+are.
+
+---
+
+## 4. The real thing: Gazebo + MQTT + the Cloud
+
+Four terminals. Order matters only for the broker.
+
+```bash
+# 0. once: generate the world, the robot, and both key pairs
+cd cloud_agri
+python3 -m agri.world.make_world      # -> worlds/greenhouse_cloud.sdf (48 crosses)
+python3 -m agri.world.make_robot      # -> urdf/youbot_agri.urdf (floor camera)
+python3 -m agri.keys                  # -> keys/{cloud,robot}_{private,public}.pem
+
+# 1. the broker
+mosquitto -p 1883 -v
+
+# 2. the Cloud
+agri-cloud --keys keys --store store            # dashboard on :8088
+
+# 3. the robot, in Gazebo
+cd ../          # the colcon workspace
+colcon build --symlink-install --packages-select agri_robot
+source install/setup.bash
+ros2 launch agri_robot agri.launch.py
+```
+
+Then either press **SURVEY** on the dashboard, or:
+
+```bash
+agri-cloud --keys keys --store store --request "P2,4R,P2,4L"
+```
+
+Stopping the launch stops everything, including the processes `gz sim` forks
+behind itself — it reuses Phase B's `kill_sim.sh`.
+
+Step 0's keys are generated on first use anyway, by whichever side starts
+first; running it explicitly just means you can see the files, and see that
+`keys/` is in `.gitignore`. **A private key that has been committed has been
+published** — rotating is the only fix, so the cheap defence is to never let
+it happen. `check_cloud.py` asserts no `.pem` is in the tree.
+
+The robot and the Cloud each need the *other's public* key, so on two
+machines copy `cloud_public.pem` to the robot and `robot_public.pem` to the
+Cloud. On one machine they share the directory and there is nothing to do.
+
+### Driving without a Cloud
+
+To watch the robot find its crosses before any of the rest exists:
+
+```bash
+ros2 launch agri_robot agri.launch.py targets:="P1,1R;P1,1L;P2,4R"
+```
+
+It drives, measures and photographs, prints how far it parked from each
+cross and what the floor camera saw, and throws the reports away.
+
+---
+
+## 5. The parts, and why they are the way they are
+
+### The label — `Pi,jR/L`
+
+`P2,5R` is row 2, plant 5, right-hand side. Rows run along x; standing at the
+start of a row and looking down it, your left hand points to +y, so **L is
++y**. The side is fixed to the *world*, not to the robot — a robot driving
+back the other way still collects `P2,5R` at the same physical place. One
+parser, one formatter, one set of bounds (`agri/labels.py`), because four
+programs have to agree on this string and the day two of them disagree it
+looks like a network fault.
+
+### The 48 stations — `agri/catalogue.py`
+
+3 rows × 8 plants × 2 sides. Every position is computed from the greenhouse's
+own dimensions, and the test suite reads the Phase B world file and checks
+the plants really are where the catalogue says. The tightest station has
+**0.16 m** to the nearest gutter.
+
+Two stations in an inner aisle are **0.10 m** apart. That single number
+drives three other decisions: the cross arms are 0.04 m so the two markers do
+not merge into one red blob; the park tolerance is 0.04 m so a visit cannot
+be filed under its neighbour; and the floor camera is never allowed to move
+the robot more than 0.04 m.
+
+### Which point of the robot goes on the cross
+
+**Not the middle of the base.** A robot with a body cannot see the floor
+underneath itself, so a marker under the centre can be driven to but never
+verified. The reference point is a **sensor head on a short boom** 0.50 m
+ahead of the base, with a camera looking straight down at it. "The cross is
+in the middle of the picture" and "the sensor is on the cross" are then the
+same statement. Every pose in a report is that point.
+
+### Finding the cross — `agri/vision.py`
+
+The Phase B camera is at 0.78 m pitched 16° **up**, to look over a 0.80 m
+gutter at the fruit; the floor only enters its view about four metres ahead.
+So `make_robot.py` adds a second, cheap camera looking straight down.
+
+A red mask, connected components, and then two tests that matter: the blob
+must fill *under half* its bounding box (a cross does, a stray red object
+does not) and it must not touch the frame edge (a clipped cross has a biased
+centroid and would stop the robot short). Of the candidates, the one
+**nearest the image centre** wins — that is what separates two stations 0.10 m
+apart. The marker's *orientation* comes out of the four-fold symmetry of the
+shape, which is the reason it is a cross and not a dot.
+
+The correction is capped at 0.04 m. If the detector is ever wrong — a
+reflection, a threshold, a sign nobody caught — the worst it can do is
+nothing, and it says so in the log.
+
+### Getting around — `agri/aisles.py`
+
+Four free bands in y, a headland at each end past the ends of the 8 m
+gutters. A route is at most three legs: out, across, in. No planner: there is
+no question to plan, and Phase B's A* is in the repository for anyone who
+wants to see what happens when a robot is free to be creative in a 0.16 m
+gap.
+
+The two headlands are **not** at symmetric coordinates, because the robot is
+not symmetric — the boom always points +x. The first version used one number
+for both and put the chassis alongside the middle gutter while the robot
+strafed across the greenhouse, straight through it. Nothing would have
+reported it (this robot has no collision geometry). It was caught by
+`route_clearance()`, which the test suite now runs over all 2 256
+station-to-station routes on every run.
+
+### The measurement — `agri/measurement.py`, `agri/qrcodec.py`
+
+Five quantities: temperature, humidity, luminosity, CO₂, pH. The QR payload
+is deliberately human-readable, 73 characters:
+
+```
+AGRI1|P2,5R|2026-08-04T18:22:31Z|t=21.4|rh=63.2|lux=12480|co2=431|ph=6.42
+```
+
+Anyone can hold a phone to the dashboard and get the readings back. The Cloud
+decodes the QR **image** it received and refuses the report if it disagrees
+with the numbers travelling beside it.
+
+### The seal — `agri/crypto_ecc.py`
+
+ECIES: an ephemeral ECDH key agreement on P-256, HKDF-SHA256 (salted with the
+ephemeral public key), AES-256-GCM, and an ECDSA signature **over the
+ciphertext** so a forgery is rejected before any private-key work happens.
+Fresh ephemeral key per message, so recovering the robot's key later does not
+open yesterday's traffic.
+
+Requests are **signed but not encrypted**: "measure P2,5R" is not a secret,
+but issuing one drives a robot around a greenhouse, so what matters is
+authenticity. The robot refuses an unsigned request and one signed by the
+wrong key. Reports need both and get both. The test suite checks four
+attacks are refused, and `--explain` replays two of them live.
+
+### The Cloud — `agri/cloud/`
+
+One process with two faces: an MQTT client talking to the robot, an HTTP
+server talking to the operator. It opens each report and runs three checks
+that decrypting does *not* do: the sender named outside the envelope must
+match the one inside, the QR must agree with the numbers, and the pose must
+actually be nearest the station being claimed. Anything that fails is
+**counted and shown**, never dropped quietly — a pipeline that hides its
+rejections is one that will one day be receiving nothing and look perfectly
+healthy.
+
+Storage is JSONL plus a `photos/` and `qr/` directory, with a CSV export.
+
+### The dashboard
+
+Science-fiction look, one rule underneath it: **every colour means
+something**. One dark base, one accent, one alert — so anything coloured is
+data. Each quantity gets its own *sequential* ramp, dark and desaturated at
+the low end, bright at the high end; a rainbow would be prettier and would
+invent boundaries that are not in the numbers. Stations are scaled between
+each quantity's plausible bounds, not between the observed minimum and
+maximum, so a quiet day does not look like a crisis. An out-of-range station
+gets an amber **ring**, never a fill, so its value is still readable on the
+same scale as its neighbours. Both light and dark themes, because a projector
+in a bright room is where this gets looked at.
+
+---
+
+## 6. Two honest limitations
+
+**The readings are synthesised.** Gazebo has no humidity probe. Temperature,
+humidity, luminosity, CO₂ and pH come from `agri/sensors.py` — a seeded field
+with gradients across the greenhouse, a diurnal cycle, per-plant bias and six
+deliberate anomalies (a dry patch at P2,4, a CO₂ pocket at P3,7, acid soil at
+P1,2). The node says so in its first log line. Everything *around* the number
+— when it was taken, where the robot was, what it photographed, how it was
+sealed, who verified it, what happens when it does not verify — is real.
+
+**Localisation is Gazebo's ground-truth odometry.** Phase B's homemade SLAM
+is in this repository and it diverges: 0.10 m of error growing to 1.70 m over
+an 18-minute run, because the across-track correction has no ratchet and the
+map is rebuilt at the corrected pose. Running this project on top of that
+would mean the robot missing its crosses for a reason that has nothing to do
+with what is being demonstrated here. The floor camera is the honest part of
+the localisation story: it is the only sensor that actually verifies the
+robot is where it says it is, and its residual is reported for every single
+visit.
+
+---
+
+## 7. Before you demonstrate
+
+```bash
+python3 tests/check_cloud.py
+```
+
+117 checks, about ten seconds, nothing installed beyond the dependencies. It
+covers the labels, the geometry against the real world file, the crypto and
+its four refusals, all 48 QR codes through real PNG images, the sensor field,
+every one of the 2 256 routes, the floor camera against rendered frames, the
+generated world, the ROS package read as text (topic names, bridge entries,
+spawn point, entry points), the whole chain end to end through a loopback
+broker, and the offline demo run as a subprocess.
+
+Every check in it is there because something actually went wrong.

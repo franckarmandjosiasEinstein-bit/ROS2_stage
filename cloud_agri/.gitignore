@@ -4,8 +4,9 @@
 keys/
 *.pem
 
-# Runtime output: the Cloud's store, photographs, exports.
+# Runtime output: the Cloud's store, photographs, exports, demo runs.
 store/
+demo_run/
 *.db
 
 # Python

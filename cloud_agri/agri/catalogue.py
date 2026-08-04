@@ -83,11 +83,44 @@ BASE_HALF_WIDTH = 0.19
 #: Side -> sign of the y offset. See labels.py for why L is +y.
 SIDE_SIGN = {"L": +1.0, "R": -1.0}
 
-#: Radius of the painted cross, and the thickness of its arms, in metres.
-#: Big enough for the camera to resolve from a couple of metres, small
-#: enough that two crosses 0.10 m apart do not merge into one blob.
-CROSS_ARM = 0.09
-CROSS_THICKNESS = 0.025
+#: WHICH POINT OF THE ROBOT GOES ON THE CROSS.
+#:
+#: Not base_link. A robot that has a body cannot see the floor under its own
+#: middle -- the chassis is in the way -- so a marker under the centre can be
+#: driven to but never verified. The reference point is therefore the SENSOR
+#: HEAD, on a short boom over the front bumper, with the floor camera looking
+#: straight down at it. "The cross is in the middle of the picture" and "the
+#: sensor is on the cross" then mean the same thing, with no lever arm to get
+#: the sign of.
+#:
+#: 0.50 m is the smallest offset that also keeps the camera mast out of the
+#: downward view cone (the mast reaches x = 0.27 at 0.45 m up; a camera at
+#: 0.50 m sees the floor from x = 0.27 outwards, so no ray crosses it).
+#:
+#: Consequences, stated once: the base centre stands 0.50 m back along the
+#: aisle from the station; every pose in a report is the SENSOR point, not
+#: base_link; and the robot always drives with yaw = 0, so the offset is
+#: (+0.50, 0) in the world too and never needs rotating.
+SENSOR_OFFSET_X = 0.50
+
+#: Half-length of a painted cross arm, and the thickness of the arms, in
+#: metres. The arm length is NOT a matter of taste: in an inner aisle two
+#: stations sit at the SAME x, 0.10 m apart in y, so their y arms lie on one
+#: line. Any arm longer than 0.05 makes the two crosses touch, and a red
+#: blob detector then sees ONE marker straddling both -- it would centre the
+#: robot on the midpoint, 0.05 m from either station, and file the visit
+#: under whichever label it guessed.
+#:
+#: 0.04 leaves a 0.02 m gap, about ten pixels for the floor camera, which is
+#: enough for the connected-component step to keep them apart. The first
+#: version of this file used 0.09 and carried a comment claiming the crosses
+#: did not merge; rendering the pair and running the detector over it is
+#: what showed the comment was wrong.
+CROSS_ARM = 0.04
+CROSS_THICKNESS = 0.02
+#: The smallest gap the detector may be left with. Asserted by the test
+#: suite against the real station spacing, so this cannot silently rot.
+MIN_CROSS_GAP = 0.015
 
 
 @dataclass(frozen=True)

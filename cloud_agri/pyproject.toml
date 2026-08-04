@@ -24,6 +24,7 @@ cloud = ["zxing-cpp>=2.2", "opencv-python-headless>=4.8"]
 
 [project.scripts]
 agri-cloud = "agri.cloud.server:main"
+agri-demo = "agri.demo:main"
 agri-world = "agri.world.make_world:main"
 agri-keys = "agri.keys:main"
 

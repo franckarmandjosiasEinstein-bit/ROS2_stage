@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGRI-CLOUD // greenhouse telemetry</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="glyph">◈</span>
+    <span class="title">AGRI<span class="dim">-</span>CLOUD</span>
+    <span class="sub">greenhouse telemetry // node link</span>
+  </div>
+  <div class="link" id="link">
+    <span class="dot" id="linkdot"></span><span id="linktext">no robot</span>
+  </div>
+</header>
+
+<section class="strip" id="strip"><!-- stat tiles --></section>
+
+<main>
+  <section class="panel map-panel">
+    <div class="panel-head">
+      <h2>greenhouse map</h2>
+      <div class="quantity-picker" id="picker"></div>
+    </div>
+    <div class="map-wrap">
+      <svg id="map" viewBox="-5.4 -2.9 10.8 5.8" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="scale" id="scale"></div>
+  </section>
+
+  <section class="panel side">
+    <div class="panel-head"><h2>command</h2></div>
+    <div class="cmd">
+      <button id="btn-all">SWEEP ALL 48</button>
+      <div class="cmd-row">
+        <input id="target" placeholder="P2,5R" spellcheck="false">
+        <button id="btn-one">REQUEST</button>
+      </div>
+      <div class="hint" id="cmdhint">the Cloud signs every request; the robot refuses unsigned ones</div>
+    </div>
+
+    <div class="panel-head"><h2>active requests</h2></div>
+    <div id="requests" class="reqs"></div>
+
+    <div class="panel-head"><h2>rejected</h2></div>
+    <div id="rejects" class="rejects"></div>
+  </section>
+</main>
+
+<section class="panel detail" id="detail" hidden>
+  <div class="panel-head">
+    <h2 id="detail-label">—</h2>
+    <button class="close" id="detail-close">✕</button>
+  </div>
+  <div class="detail-grid">
+    <div class="readings" id="detail-readings"></div>
+    <figure class="media">
+      <img id="detail-photo" alt="plant photograph">
+      <figcaption>photograph</figcaption>
+    </figure>
+    <figure class="media">
+      <img id="detail-qr" alt="QR code of the readings">
+      <figcaption>QR // numeric payload</figcaption>
+    </figure>
+  </div>
+  <div class="history" id="detail-history"></div>
+</section>
+
+<footer>
+  <span id="foot">—</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

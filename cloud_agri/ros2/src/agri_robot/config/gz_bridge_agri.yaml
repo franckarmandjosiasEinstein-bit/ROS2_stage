@@ -1,0 +1,76 @@
+# ros_gz_bridge topic map for the smart-agriculture node.
+#
+# Deliberately NOT the Phase B map. That one routes /cmd_vel through
+# drive_model_node on /cmd_vel_exec, which models a drivetrain this project
+# does not need and would make the launch depend on a package it otherwise
+# does not use. Here the node's /cmd_vel goes straight to Gazebo.
+#
+# Every ROS name below is one the robot node actually subscribes to or
+# publishes on. The test suite reads this file and driver.py and fails if
+# they stop agreeing -- a bridge entry for a topic nobody reads, or a
+# subscription to a topic nobody bridges, is invisible at runtime: the robot
+# simply waits forever and says nothing.
+
+# Simulation clock. use_sim_time is true everywhere in this stack.
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# Velocity command, body frame, straight into VelocityControl.
+- ros_topic_name: "/cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ
+
+# Ground-truth odometry from the OdometryPublisher plugin.
+#
+# GROUND TRUTH, and the README says so. Phase B's homemade SLAM is in the
+# repository and diverges (0.10 m -> 1.70 m over an 18-minute run); running
+# this project on it would mean the robot missing its crosses for a reason
+# that has nothing to do with what is being demonstrated here.
+- ros_topic_name: "/odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# Lidar, used ONLY for the emergency brake in driver.py.
+- ros_topic_name: "/scan"
+  gz_topic_name: "/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+# The plant camera on the pan head: this is what photographs the plant.
+- ros_topic_name: "/camera/image"
+  gz_topic_name: "/camera"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+# The floor camera on the sensor boom: this is what finds the red cross.
+# The gz topic name is set by make_robot.py (FLOOR_CAM_TOPIC).
+- ros_topic_name: "/floor_cam/image"
+  gz_topic_name: "/floor_cam"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+# Head pan command, radians, clamped to +/-1.5708 by the joint limit.
+- ros_topic_name: "/camera_pan_cmd"
+  gz_topic_name: "/camera_pan_cmd"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
+  direction: ROS_TO_GZ
+
+# MEASURED joint angles, so the head's position is read back rather than
+# assumed. photograph() waits on this before it takes the picture: a frame
+# grabbed mid-sweep is blurred and carries an angle nobody knows.
+- ros_topic_name: "/gz_joint_states"
+  gz_topic_name: "/world/greenhouse/model/youbot/joint_state"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS
