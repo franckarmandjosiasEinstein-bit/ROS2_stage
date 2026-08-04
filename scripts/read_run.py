@@ -220,11 +220,35 @@ def moving(lines, out):
     total = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
     if longest >= 5:
         it.verdict = BAD
+        # Name the culprit, not the symptom. Three different faults produce an
+        # identical frozen truth pose, and each now leaves its own line in the
+        # log, so the grid can say WHICH instead of costing another
+        # thirty-minute run to find out. Last time it said "look for POSE
+        # STALE", the answer was that POSE STALE was absent, and that told
+        # nobody anything.
+        stale = any("POSE STALE" in l for l in lines)
+        pinned = [l for l in lines if "PINNED" in l]
+        held = any("Base held by mission_node" in l for l in lines)
+        turn = [l for l in lines if "did not turn" in l]
+        if stale:
+            why = ("'POSE STALE' is in the log: the pose source (slam_node) "
+                   "went silent and the follower stopped on purpose.")
+        elif pinned:
+            why = ("'PINNED': the preventive fence is holding the base "
+                   "against the arena boundary. " + pinned[-1].strip()[-120:])
+        elif turn:
+            why = ("the follower commanded a rotation and the base did not "
+                   "turn: " + turn[-1].strip()[-120:])
+        elif held:
+            why = ("mission_node never released pick_hold -- it died mid-pick "
+                   "and nothing has driven since.")
+        else:
+            why = ("and NOTHING in the log says why: no 'POSE STALE', no "
+                   "'PINNED', no 'Stuck'. That is a NEW failure mode, and it "
+                   "needs a message of its own before it is worth debugging "
+                   "twice.")
         it.detail = (f"FROZEN: the same truth pose {pts[-1]} repeated "
-                     f"{longest} times in a row. The base stopped and nothing "
-                     "said so. Look for 'POSE STALE' -- and if it is absent, "
-                     "the pose was flowing and something else stopped the "
-                     "wheels.")
+                     f"{longest} times in a row. {why}")
     elif total < 5.0:
         it.verdict = WARN
         it.detail = (f"only {total:.1f} m of truth motion across the whole "

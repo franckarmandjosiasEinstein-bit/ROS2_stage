@@ -321,6 +321,102 @@ def check_entry_points() -> None:
                       f"no console_script named {exe}")
 
 
+def check_stuck_detector() -> None:
+    """A cancelled ROTATION is a jam too, and it was the invisible one.
+
+    The detector only ever asked "am I commanding translation and not
+    translating?". Pure pursuit refuses to translate while the heading error
+    exceeds 90 degrees, so at the end of an aisle the command is a pure
+    rotation -- and when the fence cancelled that rotation, `want` was false,
+    `_moved_at` was reset on every tick, and the escape manoeuvre that would
+    have strafed the robot off the wall never armed. Ten minutes.
+
+    The detector is lifted out and run against a scripted robot: it needs a
+    clock, a pose and an escape, and all three can be faked, so this is a
+    behavioural test and not a grep for a variable name."""
+    print("\nstuck detector")
+    src = read("youbot_control/youbot_control/navigation_node.py")
+    tree = ast.parse(src)
+    cls = next(n for n in tree.body
+               if isinstance(n, ast.ClassDef) and n.name == "NavigationNode")
+    wrap = next(n for n in tree.body
+                if isinstance(n, ast.FunctionDef) and n.name == "_wrap")
+    lifted = ast.ClassDef(
+        name="Det", bases=[], keywords=[], decorator_list=[],
+        body=[m for m in cls.body
+              if isinstance(m, ast.FunctionDef) and m.name == "_update_stuck"])
+    module = ast.fix_missing_locations(
+        ast.Module(body=[wrap, lifted], type_ignores=[]))
+    ns = {"math": math}
+    exec(compile(module, "<nav>", "exec"), ns)
+
+    class Log:
+        def __init__(self):
+            self.lines = []
+
+        def warn(self, m):
+            self.lines.append(m)
+
+    class Pub:
+        def publish(self, _):
+            pass
+
+    def robot(commanded, ticks=200):
+        """Run the detector for `ticks` control periods on a base that obeys
+        nothing at all, and report whether it ever declared a jam."""
+        d = ns["Det"]()
+        d._stuck_speed, d._stuck_yaw, d._stuck_time = 0.03, 0.10, 4.0
+        d._recover_time, d._trap_r, d._trap_n = 2.0, 0.40, 3
+        d._recover_until, d._recover_cmd = 0.0, (0.0, 0.0, 0.0)
+        d._last_pos, d._moved_at = None, 0.0
+        d._trap_xy, d._trap_hits = None, 0
+        d._pose = (-4.59, 1.05, math.radians(101.0))
+        d._pts = []
+        d.log = Log()
+        d.blocked_pub = Pub()
+        d.get_logger = lambda: d.log
+        d._escape = lambda c: (0.18, 0.0, 0.0, 0.0, 1.0)
+        clock = {"t": 0.0}
+        d._now = lambda: clock["t"]
+        fired = False
+        for _ in range(ticks):
+            clock["t"] += 0.05
+            fired = d._update_stuck(commanded) or fired
+        return fired, d.log.lines
+
+    # The failure, exactly: -1.5 rad/s commanded, nothing turning.
+    fired, lines = robot((0.0, 0.0, -1.5))
+    check("a commanded rotation that does not turn is reported stuck", fired,
+          "this is the 2026-08-04 freeze: the base commanded -1.5 rad/s for "
+          "ten minutes, turned zero, and the detector said nothing")
+    check("and the message says it was the ROTATION that was refused",
+          any("did not turn" in m for m in lines),
+          f"logged instead: {lines[:1]}")
+
+    # The original fault must still be caught.
+    fired, lines = robot((0.5, 0.0, 0.0))
+    check("a commanded translation that does not move is still reported", fired)
+    check("and that message still says it was the TRANSLATION",
+          any("did not move" in m for m in lines),
+          f"logged instead: {lines[:1]}")
+
+    # A robot standing still on purpose is not stuck. This matters: the
+    # follower publishes zeros at the end of a path, and a detector that
+    # cried jam there would fire an escape manoeuvre after every goal.
+    fired, _ = robot((0.0, 0.0, 0.0))
+    check("a base commanded to hold still is NOT stuck", not fired,
+          "the escape would fire at the end of every path")
+
+    # Below the thresholds is still holding still.
+    fired, _ = robot((0.01, 0.0, 0.05))
+    check("a twitch below both thresholds is not a jam either", not fired)
+
+    check("the parameter exists to be tuned",
+          "stuck_yaw" in src and "stuck_yaw" in read(
+              "youbot_bringup/config/youbot_params.yaml"),
+          "stuck_yaw must be declared in the node AND exposed in the YAML")
+
+
 def check_preventive_fence() -> None:
     """The behaviour of _keep_inside itself, on the geometry that trapped the
     robot: at (-4.65, -0.66) the footprint is already through the west glass."""
@@ -330,7 +426,7 @@ def check_preventive_fence() -> None:
     tree = ast.parse(src)
     cls = next(n for n in tree.body
                if isinstance(n, ast.ClassDef) and n.name == "SafetyNode")
-    wanted = ("_overhang_at", "_keep_inside")
+    wanted = ("_overhang_at", "_keep_inside", "_admit", "_fence_margin")
     ns = {"math": math}
     # Lift the two geometry methods out of the node and exercise them on their
     # own: they are pure functions of a pose and a command, so they can be
@@ -385,6 +481,115 @@ def check_preventive_fence() -> None:
     vx, vy, _ = g._keep_inside(-0.5, 0.0, 0.0)
     check("reversing off the wall is allowed", vx < -0.49,
           f"kept vx = {vx:+.03f}")
+
+    # ------------------------------------------------------------------
+    # The freeze of 2026-08-04, reproduced exactly.
+    #
+    # Believed pose (-4.59, +1.05, 101 deg) -- 1.8 cm inside the west fence,
+    # because 0.46 m of SLAM drift put the belief further west than the truth.
+    # The goal is (+3.80, +0.60), so the heading error is -104 deg, and pure
+    # pursuit refuses to translate past 90 deg: the command is a PURE rotation
+    # at the clip, -1.5 rad/s. Half a second of that lands at 61 deg, where
+    # the footprint's x half-extent is 0.29|cos| + 0.19|sin| = 0.307 m instead
+    # of 0.242 -- 4.7 cm through the glass. The old guard answered "no" and
+    # sent 0.0. It did that twenty times a second for ten minutes.
+    #
+    # 65% of that rotation was legal the whole time.
+    frozen = (-4.59, 1.05, math.radians(101.0))
+    g._pose = frozen
+    _, _, wz = g._keep_inside(0.0, 0.0, -1.5)
+    check("the 2026-08-04 freeze: the turn is scaled, not thrown away",
+          abs(wz) > 0.05,
+          "the robot is pinned against the fence commanding a rotation it "
+          "cannot take, exactly as in the run that froze for ten minutes")
+    check("and it is scaled DOWN -- the full turn really was illegal",
+          abs(wz) < 1.5 - 1e-6, f"kept the whole {wz:+.03f} rad/s")
+
+    # What survives must genuinely be inside, or the scaling has bought
+    # motion at the price of the containment it exists to provide.
+    x, y, yaw = frozen
+    rx, ry = g._overhang_at(x, y, yaw + wz * g._look)
+    check("and what survives keeps the whole body inside",
+          math.hypot(rx, ry) < 1e-6,
+          f"the admitted turn still pokes out {rx:+.03f}, {ry:+.03f}")
+
+    # The margin the diagnostic reports has to be the real one: the message
+    # exists to turn "the robot is not moving" into a number.
+    mx, my = g._fence_margin(x, y, yaw)
+    check("the pinned-robot message reports the true fence margin",
+          0.0 < mx < 0.05, f"claimed {mx:+.03f} m to the x fence, expected ~0.018")
+
+    # A command that is legal at full size must still pass at full size --
+    # the bisection must not shave motion off in open floor.
+    g._pose = (0.0, 0.0, 0.0)
+    check("scaling never taxes a command that was already legal",
+          g._keep_inside(0.6, 0.2, 1.5) == (0.6, 0.2, 1.5))
+
+    # TRANSLATION deliberately stays all-or-nothing. Scaling it too would let
+    # the base creep asymptotically onto the fence and park a centimetre from
+    # the glass -- which is the exact position the freeze was pinned in. The
+    # veto's speed-dependent standoff is the point, not an accident.
+    g._pose = (-4.40, -0.60, math.pi)          # heading -x, 0.16 m of room
+    vx, _, _ = g._keep_inside(0.6, 0.0, 0.0)
+    check("translation into the fence is refused outright, not rationed",
+          abs(vx) < 1e-6,
+          f"kept vx = {vx:+.03f}: the base would creep onto the fence and "
+          "pin itself there, which is the state the rotation fix exists to "
+          "get out of")
+
+    # ------------------------------------------------------------------
+    # And the whole way out, closed loop. Every check above tests one link;
+    # the freeze happened because three correct links formed a cycle, and no
+    # single-link test could see it. So: run the guard against the follower's
+    # own control law from the frozen pose and require that the robot ends up
+    # pointing where it was asked to go.
+    def turn_until_pinned(x, y, yaw, goal, ticks=600):
+        """Rotate toward `goal` under the guard until nothing is admitted."""
+        for _ in range(ticks):
+            g._pose = (x, y, yaw)
+            e = math.atan2(goal[1] - y, goal[0] - x) - yaw
+            e = math.atan2(math.sin(e), math.cos(e))
+            _, _, wz = g._keep_inside(0.0, 0.0, max(-1.5, min(1.5, 2.0 * e)))
+            if abs(wz) < 1e-3:
+                return yaw
+            yaw += wz * 0.05          # one 20 Hz control period
+        return yaw
+
+    goal = (3.80, 0.60)
+    x, y, yaw = frozen
+    turned = turn_until_pinned(x, y, yaw, goal)
+    check("step 1: the pinned base turns instead of standing still",
+          abs(turned - yaw) > math.radians(10.0),
+          f"only {math.degrees(abs(turned - yaw)):.1f} deg of turn was let "
+          "through -- the base is still frozen")
+
+    # It re-pins part way round, which is correct: it really has run out of
+    # room. That is where the stuck detector (tested above) fires the escape.
+    g._pose = (x, y, turned)
+    ex, ey, _ = g._keep_inside(0.0, -0.18, 0.0)      # strafe to the body right
+    check("step 2: the sideways escape survives the guard from there",
+          math.hypot(ex, ey) > 0.01,
+          "the escape manoeuvre is cancelled too, so there is nothing left "
+          "to try and the freeze is permanent")
+
+    c, s = math.cos(turned), math.sin(turned)
+    for _ in range(40):                               # 2 s of escape
+        g._pose = (x, y, turned)
+        ax, ay, _ = g._keep_inside(0.0, -0.18, 0.0)
+        x += (c * ax - s * ay) * 0.05
+        y += (s * ax + c * ay) * 0.05
+    check("step 3: the escape actually buys room at the fence",
+          g._fence_margin(x, y, turned)[0] > 0.20,
+          f"still only {g._fence_margin(x, y, turned)[0]:.03f} m from the "
+          "fence after two seconds of escaping")
+
+    free = turn_until_pinned(x, y, turned, goal)
+    bearing = math.atan2(goal[1] - y, goal[0] - x)
+    check("step 4: and from there it can face its goal -- the freeze is over",
+          abs(math.atan2(math.sin(free - bearing),
+                         math.cos(free - bearing))) < math.radians(5.0),
+          f"stopped at {math.degrees(free):+.1f} deg, needed "
+          f"{math.degrees(bearing):+.1f} deg: still cannot come about")
 
 
 def check_label_source() -> None:
@@ -1440,6 +1645,7 @@ def main() -> int:
     check_vision_thresholds()
     check_slam_scoring()
     check_preventive_fence()
+    check_stuck_detector()
     check_bumper_clearance()
     check_no_crabbing()
     check_params_match_code()

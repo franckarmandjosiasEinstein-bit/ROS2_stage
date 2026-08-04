@@ -140,6 +140,7 @@ class SafetyNode(Node):
         self._pts = []           # body-frame (x, y) of every valid return
         self._pose = None
         self._blocked_since = None
+        self._pinned_since = None
 
         self.create_subscription(Twist, "cmd_vel_raw", self._on_cmd, 10)
         self.create_subscription(LaserScan, "scan", self._on_scan, 5)
@@ -256,6 +257,60 @@ class SafetyNode(Node):
                 oy = max(oy, -self._fy - cy)
         return ox, oy
 
+    def _fence_margin(self, x, y, yaw):
+        """Room between the nearest footprint corner and each wall, in metres.
+        Positive while the body is inside. Reported by _watch_pin, because
+        "the robot is not moving" is a symptom and "1.8 cm from the west
+        fence at 101 deg" is a diagnosis."""
+        c, s = math.cos(yaw), math.sin(yaw)
+        mx = my = float("inf")
+        for sl, sw in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+            cx = x + sl * self._hl * c - sw * self._hw * s
+            cy = y + sl * self._hl * s + sw * self._hw * c
+            mx = min(mx, self._fx - abs(cx))
+            my = min(my, self._fy - abs(cy))
+        return mx, my
+
+    def _watch_pin(self, want, got) -> None:
+        """Say so when a real command arrives and nothing reaches the wheels.
+
+        The guard can cancel a command three ways and only two of them speak.
+        The brake logs the obstacle it stopped for. The corrective fence logs
+        "Outside the arena". The PREVENTIVE fence logs nothing at all -- and
+        the run of 2026-08-04 died in exactly the gap between them: pinned
+        1.8 cm inside the west fence at yaw 101 deg, the follower commanding
+        pure rotation (heading error -104 deg, so pure pursuit refuses to
+        translate), _keep_inside cancelling that rotation because half a
+        second of it swings the long axis through the glass. No obstacle, so
+        no brake message. Body inside, so no fence message. No translation
+        commanded, so navigation_node's stuck detector never armed either.
+        Ten minutes of a robot standing still with every log line normal.
+
+        A silent stop is worse than a wrong one: the wrong one gets fixed."""
+        asked = math.hypot(want[0], want[1]) > 0.02 or abs(want[2]) > 0.05
+        moving = math.hypot(got[0], got[1]) > 0.01 or abs(got[2]) > 0.01
+        if not asked or moving:
+            self._pinned_since = None
+            return
+        if self._pinned_since is None:
+            self._pinned_since = self._now()
+            return
+        held = self._now() - self._pinned_since
+        if held < 3.0 or self._pose is None:
+            return
+        x, y, yaw = self._pose
+        mx, my = self._fence_margin(x, y, yaw)
+        self.get_logger().warn(
+            "PINNED for %.0f s: (%+.2f, %+.2f, %+.2f) keeps arriving and "
+            "NOTHING reaches the wheels. Pose (%+.2f, %+.2f, %+.0f deg); the "
+            "footprint has %.03f m to the x fence and %.03f m to the y fence. "
+            "The preventive fence is holding the base -- rotating from here "
+            "sweeps a corner out, so the turn is refused, and the follower "
+            "will not translate until it has turned."
+            % (held, want[0], want[1], want[2], x, y, math.degrees(yaw),
+               mx, my),
+            throttle_duration_sec=10.0)
+
     def _fence(self):
         """Body-frame command that drives back inside, or None when inside.
 
@@ -278,8 +333,42 @@ class SafetyNode(Node):
         v = self._fence_speed * gain / n
         return (v * (c * ox - s * oy), v * (s * ox + c * oy))
 
+    @staticmethod
+    def _admit(worsens, steps: int = 6) -> float:
+        """Largest fraction of a ROTATION that does not make the overhang worse.
+
+        This used to be a yes/no answer, and the no cost a whole run. Pinned
+        1.8 cm inside the west fence at yaw 101 deg, the follower asked for a
+        pure rotation toward a goal 104 deg away. Half a second of that
+        rotation swings the long axis toward the wall -- the footprint reaches
+        0.19 m sideways but 0.29 m end-on -- so the predicted pose pokes 5 cm
+        through the glass and the whole rotation was thrown away. Zero. Every
+        tick, for ten minutes, with nothing translating and therefore nothing
+        anywhere saying why the robot had stopped.
+
+        But 65% of that rotation was perfectly legal: it lands at 76 deg with
+        the body still inside. The command was not unsafe, it was merely too
+        big, and the difference between those two is the difference between a
+        robot that comes about at the end of an aisle and one that stands
+        still until the mission times out.
+
+        So: bisect for the largest admissible fraction. Six halvings resolve
+        1/64 of the command, which is finer than the guard's own 0.5 s horizon
+        deserves, and it costs six evaluations of a four-corner test.
+        """
+        if not worsens(1.0):
+            return 1.0
+        lo, hi = 0.0, 1.0
+        for _ in range(steps):
+            mid = 0.5 * (lo + hi)
+            if worsens(mid):
+                hi = mid
+            else:
+                lo = mid
+        return lo
+
     def _keep_inside(self, vx, vy, wz):
-        """Refuse any command that would push the footprint further out.
+        """Scale back any command that would push the footprint further out.
 
         The fence above is CORRECTIVE: it speaks once part of the body is
         already through the glass, and then has to shove it back while the
@@ -297,7 +386,9 @@ class SafetyNode(Node):
         exactly what happens at the end of every aisle.
 
         What survives is the motion along the wall and away from it, so the
-        robot slides along the boundary instead of grinding into it."""
+        robot slides along the boundary instead of grinding into it -- and it
+        survives SCALED, not all-or-nothing: see _admit for what the yes/no
+        version cost."""
         if self._pose is None:
             return vx, vy, wz
         x, y, yaw = self._pose
@@ -309,6 +400,16 @@ class SafetyNode(Node):
         # Translation, one world axis at a time: keep whichever component does
         # not make things worse. Testing them together would veto a sideways
         # escape just because the forward component was bad.
+        #
+        # This one stays ALL-OR-NOTHING on purpose, and the difference from
+        # the rotation below is the whole point. Vetoing translation outright
+        # leaves a standoff that grows with speed -- 0.30 m at cruise, 0.05 m
+        # at a crawl -- which is the right shape for something that behaves
+        # like a stopping distance. Scaling it instead would let the base
+        # creep asymptotically onto the fence and park a centimetre off the
+        # glass, which is precisely the position from which rotation becomes
+        # impossible. Fixing the freeze by manufacturing more of the state
+        # that causes it would be a poor trade.
         ox1, _ = self._overhang_at(x + wvx * t, y, yaw)
         if abs(ox1) > abs(ox0) + 1e-6:
             wvx = 0.0
@@ -316,12 +417,16 @@ class SafetyNode(Node):
         if abs(oy1) > abs(oy0) + 1e-6:
             wvy = 0.0
 
-        # Rotation, at the position we will actually be at.
+        # Rotation, at the position we will actually be at. THIS one is
+        # scaled, because a refused rotation has no escape route: translation
+        # can be refused and still leave the robot free to turn away, but a
+        # base that may not turn and whose follower will not translate until
+        # it has turned is simply stopped, with nothing left to try.
         nx, ny = x + wvx * t, y + wvy * t
-        rx, ry = self._overhang_at(nx, ny, yaw + wz * t)
-        kx, ky = self._overhang_at(nx, ny, yaw)
-        if math.hypot(rx, ry) > math.hypot(kx, ky) + 1e-6:
-            wz = 0.0
+        keep = math.hypot(*self._overhang_at(nx, ny, yaw))
+        wz *= self._admit(
+            lambda f: math.hypot(*self._overhang_at(nx, ny, yaw + wz * t * f))
+            > keep + 1e-6)
 
         c, s = math.cos(-yaw), math.sin(-yaw)            # back to body frame
         return c * wvx - s * wvy, s * wvx + c * wvy, wz
@@ -336,6 +441,7 @@ class SafetyNode(Node):
             return
         vx, vy = self._cmd.linear.x, self._cmd.linear.y
         wz = self._cmd.angular.z
+        want = (vx, vy, wz)      # what was asked, before any layer touches it
 
         # 2. Outside the arena: the only allowed motion is back inside.
         push = self._fence()
@@ -369,6 +475,7 @@ class SafetyNode(Node):
         # berry sitting at offset +0.01 -- dead centre -- because standing
         # next to a gutter naturally trips the brake.
         self.override_pub.publish(Bool(data=False))
+        self._watch_pin(want, (vx, vy, wz))
 
         if blocked:
             if self._blocked_since is None:

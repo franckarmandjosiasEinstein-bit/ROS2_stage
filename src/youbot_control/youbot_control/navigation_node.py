@@ -38,6 +38,12 @@ from youbot_control.lib.clearance import best_escape
 from youbot_control.lib.pure_pursuit import PurePursuit
 
 
+def _wrap(a: float) -> float:
+    """Shortest signed angle. A yaw crossing +/-pi between two ticks is a
+    0.001 rad turn, not a 6.28 rad one -- and the stuck detector reads it."""
+    return math.atan2(math.sin(a), math.cos(a))
+
+
 def yaw_from_quaternion(q) -> float:
     siny = 2.0 * (q.w * q.z + q.x * q.y)
     cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
@@ -55,6 +61,17 @@ class NavigationNode(Node):
         # docstring. This node commands the path it wants; the guard decides
         # what actually reaches the wheels.)
         self.declare_parameter("stuck_speed", 0.03)      # m/s: below this = not moving
+        # And the same test on the HEADING. The stuck detector used to ask
+        # only "am I commanding translation and not translating?", which has a
+        # blind spot the size of the whole failure: pure pursuit refuses to
+        # translate while the heading error exceeds 90 deg, so at the end of
+        # an aisle the command is a PURE ROTATION. If the guard then cancels
+        # that rotation -- which it does when turning would sweep a corner
+        # through the fence -- the robot is commanding motion, achieving none,
+        # and reporting nothing, because `want` was false and _moved_at was
+        # reset every single tick. That is the ten-minute freeze at
+        # (-4.46, 1.49, 101 deg), and this parameter is what notices it.
+        self.declare_parameter("stuck_yaw", 0.10)        # rad/s: below this = not turning
         self.declare_parameter("stuck_time", 4.0)        # s before declaring stuck
         self.declare_parameter("recover_time", 2.0)      # s of escape manoeuvre
         self.declare_parameter("escape_speed", 0.18)     # m/s during the escape
@@ -80,6 +97,7 @@ class NavigationNode(Node):
             cruise_speed=self.get_parameter("cruise_speed").value,
         )
         self._stuck_speed = float(self.get_parameter("stuck_speed").value)
+        self._stuck_yaw = float(self.get_parameter("stuck_yaw").value)
         self._stuck_time = float(self.get_parameter("stuck_time").value)
         self._recover_time = float(self.get_parameter("recover_time").value)
         self._escape_speed = float(self.get_parameter("escape_speed").value)
@@ -104,8 +122,8 @@ class NavigationNode(Node):
         self._reached_logged = False
         self._held = False       # mission owns /cmd_vel during align + pick
         self._held_since = 0.0   # when the hold started (freeze diagnostic)
-        self._moved_at = None    # last time the base actually moved
-        self._last_pos = None
+        self._moved_at = None    # last time the base actually moved OR turned
+        self._last_pos = None    # (x, y, yaw) at the previous tick
         self._recover_until = 0.0
         self._recover_cmd = (0.0, 0.0, 0.0)
         self._pts = []            # body-frame lidar returns (escape direction)
@@ -179,13 +197,16 @@ class NavigationNode(Node):
         it is for.
         """
         want = math.atan2(commanded[1], commanded[0]) \
-            if math.hypot(*commanded) > 1e-6 else None
+            if math.hypot(commanded[0], commanded[1]) > 1e-6 else None
         d, gap = best_escape(self._pts, self._margin, self._hl, self._hw,
                              avoid=want)
         if d is None or gap < 0.05:
-            # Boxed in on every heading (or no scan yet): rotate in place. It
-            # is always allowed -- safety_node only ever vetoes translation --
-            # and it hands the planner a new view.
+            # Boxed in on every heading (or no scan yet): rotate in place and
+            # hand the planner a new view. This is NOT unconditionally allowed
+            # -- safety_node's preventive fence scales rotation back too when
+            # turning would sweep a corner out -- which is why the strafe
+            # below is the primary escape and this is the fallback, not the
+            # other way round.
             return 0.0, 0.0, 0.6, d, gap
         # STRAFE ONLY. The first version also turned toward the opening at up
         # to 0.6 rad/s and held that for the whole recovery: two to six seconds
@@ -200,8 +221,14 @@ class NavigationNode(Node):
         return v * math.cos(d), v * math.sin(d), 0.0, d, gap
 
     def _update_stuck(self, commanded) -> bool:
-        """True while an escape manoeuvre is running. A robot that commands
-        motion but does not move is jammed (a corner, a map artefact)."""
+        """True while an escape manoeuvre is running.
+
+        A robot that commands motion but does not move is jammed (a corner, a
+        map artefact, or the guard refusing the command). `commanded` is the
+        full body twist (vx, vy, wz), and BOTH halves count: a cancelled
+        rotation is as much a jam as a cancelled translation, and it is the
+        one that goes unnoticed, because a robot that is only trying to turn
+        never trips a translation test. See the `stuck_yaw` parameter."""
         t = self._now()
         if t < self._recover_until:
             # Re-pick the direction on every tick rather than replaying the
@@ -211,14 +238,18 @@ class NavigationNode(Node):
             vx, vy, wz, _, _ = self._escape(commanded)
             self._recover_cmd = (vx, vy, wz)
             return True
-        x, y, _ = self._pose
+        x, y, yaw = self._pose
         if self._last_pos is None:
-            self._last_pos, self._moved_at = (x, y), t
+            self._last_pos, self._moved_at = (x, y, yaw), t
             return False
         moved = math.hypot(x - self._last_pos[0], y - self._last_pos[1])
-        self._last_pos = (x, y)
-        want = math.hypot(commanded[0], commanded[1]) > self._stuck_speed
-        if not want or moved > self._stuck_speed * 0.05:
+        turned = abs(_wrap(yaw - self._last_pos[2]))
+        self._last_pos = (x, y, yaw)
+        want = (math.hypot(commanded[0], commanded[1]) > self._stuck_speed
+                or abs(commanded[2]) > self._stuck_yaw)
+        progress = (moved > self._stuck_speed * 0.05
+                    or turned > self._stuck_yaw * 0.05)
+        if not want or progress:
             self._moved_at = t
             return False
         if t - self._moved_at < self._stuck_time:
@@ -242,8 +273,17 @@ class NavigationNode(Node):
         self._moved_at = t
         where = "no opening" if d is None else \
             f"escaping toward {math.degrees(d):+.0f} deg ({gap:.2f} m free)"
+        # Name WHICH half was refused. "Not turning" points at the fence and
+        # the heading; "not moving" points at an obstacle. Two different
+        # faults that used to print the same line.
+        kind = ("commanded %+.2f rad/s and did not turn"
+                % commanded[2]) \
+            if math.hypot(commanded[0], commanded[1]) <= self._stuck_speed \
+            else ("commanded %.2f m/s and did not move"
+                  % math.hypot(commanded[0], commanded[1]))
         self.get_logger().warn(
-            f"Stuck at ({x:+.2f}, {y:+.2f}) [{self._trap_hits}] -- {where}.")
+            f"Stuck at ({x:+.2f}, {y:+.2f}, {math.degrees(yaw):+.0f} deg) "
+            f"[{self._trap_hits}] -- {kind} -- {where}.")
         if self._trap_hits >= self._trap_n:
             self.get_logger().warn(
                 f"Stuck {self._trap_hits} times inside {self._trap_r:.2f} m "
@@ -323,7 +363,7 @@ class NavigationNode(Node):
         # It still goes through safety_node like every other command -- if
         # reversing is what is blocked, the rotation survives and the robot
         # turns its way out instead.
-        if self._update_stuck((vx, vy)):
+        if self._update_stuck((vx, vy, wz)):
             self._publish(*self._recover_cmd)
             return
         self._publish(vx, vy, wz)

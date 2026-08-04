@@ -28,6 +28,13 @@ navigation_node:
     # every publisher, one boundary. Two of them disagreeing is what pinned the
     # robot on x = -4.30 for a whole run. What stays here is the stuck detector.
     stuck_speed: 0.03      # m/s: commanded above this but not moving = jammed
+    # The same test on the HEADING. Without it the detector has a blind spot
+    # exactly where the robot spends its time: at the end of an aisle pure
+    # pursuit commands a PURE ROTATION (it refuses to translate past 90 deg of
+    # heading error), so a rotation the guard cancels is a jam that trips no
+    # translation test at all. That is the ten-minute freeze at
+    # (-4.46, 1.49, 101 deg) -- commanding -1.5 rad/s, turning 0.
+    stuck_yaw: 0.10        # rad/s: commanded above this but not turning = jammed
     stuck_time: 4.0        # s of that before the escape manoeuvre fires
     recover_time: 2.0      # s of reverse + turn
 
@@ -45,7 +52,12 @@ safety_node:
     # start when these disagree with the node's own defaults.
     stop_distance: 0.12    # m in front of the bumper -> translation cancelled
     slow_distance: 0.35    # m: start scaling the translation down
-    half_width: 0.24       # m: half-width of the corridor the base sweeps
+    # Not a corridor half-width any more. The band the base sweeps is computed
+    # from the footprint and the direction of travel (lib/clearance.py); what
+    # is left here is the safety margin ADDED to it, for wheels standing proud
+    # of the chassis. The old constant 0.24 was simultaneously too wide going
+    # forward and too narrow going sideways.
+    corridor_margin: 0.02  # m added to the swept band
     min_valid_range: 0.30  # m: below this the lidar is seeing our own body
     side_min: 0.10         # m: clearance kept beside the flank while translating
     side_push: 0.12        # m/s: max recentring correction
