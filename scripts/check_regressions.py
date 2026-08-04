@@ -517,10 +517,20 @@ def check_latex_builds() -> None:
     see an undefined control sequence.
 
     So when pdflatex IS available this runs it. When it is not, the check
-    reports that plainly rather than claiming a pass it did not earn."""
+    reports that plainly rather than claiming a pass it did not earn.
+
+    IT BUILDS INTO A SCRATCH DIRECTORY, NEVER IN PLACE. Building in the source
+    directory rewrites report.pdf and status.pdf, which are tracked, so every
+    pre-flight check left the working tree dirty and the NEXT `git pull`
+    aborted with "your local changes would be overwritten". That cost a whole
+    validation run: the pull failed, the launch went ahead on the previous
+    commit, and half an hour later the log showed a bug that had already been
+    fixed. A check that runs before every simulation must not be able to block
+    the update that precedes it."""
     print("\nreport builds")
     import shutil
     import subprocess
+    import tempfile
     if shutil.which("pdflatex") is None:
         print("  skip  pdflatex not installed -- structure checked by "
               "docs/report/check_latex.py only, which CANNOT catch an "
@@ -529,17 +539,56 @@ def check_latex_builds() -> None:
     for rel, main in (("docs/status_report", "status.tex"),
                       ("docs/report", "report.tex")):
         d = os.path.join(ROOT, rel)
-        try:
-            r = subprocess.run(
-                ["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
-                 main],
-                cwd=d, capture_output=True, text=True, timeout=180)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            check(f"{rel} builds", False, str(exc))
-            continue
-        bad = [ln for ln in r.stdout.splitlines() if ln.startswith("!")]
-        check(f"{rel}/{main} compiles", r.returncode == 0 and not bad,
-              bad[0] if bad else "clean")
+        with tempfile.TemporaryDirectory() as out:
+            try:
+                r = subprocess.run(
+                    ["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
+                     f"-output-directory={out}", main],
+                    cwd=d, capture_output=True, text=True, timeout=180)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                check(f"{rel} builds", False, str(exc))
+                continue
+            bad = [ln for ln in r.stdout.splitlines() if ln.startswith("!")]
+            check(f"{rel}/{main} compiles", r.returncode == 0 and not bad,
+                  bad[0] if bad else "clean")
+
+
+def check_tree_is_pullable() -> None:
+    """Can the next `git pull` actually succeed?
+
+    This is not tidiness. A validation run was lost to exactly this: the pull
+    aborted with "your local changes to docs/report/report.pdf would be
+    overwritten", the message scrolled past under the build output, the launch
+    went ahead on the previous commit, and half an hour later the log showed a
+    deadlock that had already been fixed and pushed. The run proved nothing
+    and nobody could tell until the check count was compared.
+
+    So the pre-flight says out loud when the tree cannot take an update, and
+    names the files. It does not fail the suite -- local edits in progress are
+    normal and legitimate -- but an unnoticed dirty PDF is not."""
+    print("\nready to pull")
+    import subprocess
+    try:
+        r = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        print("  skip  git not available here")
+        return
+    dirty = [ln[3:] for ln in r.stdout.splitlines() if ln[:2] != "??"]
+    if not dirty:
+        print("  ok    the working tree is clean; a git pull will apply")
+        return
+    # Deliberately NOT a check(): work in progress is normal and must not fail
+    # the suite. It is printed loudly because the cost of not noticing it is a
+    # thirty-minute run against the wrong commit.
+    print("  WARN  the working tree is MODIFIED -- `git pull` will ABORT:")
+    for d in dirty[:8]:
+        print(f"          {d}")
+    pdfs = [d for d in dirty if d.endswith(".pdf")]
+    if pdfs:
+        print("        those are build artefacts; discard them with")
+        print("          git checkout -- " + " ".join(pdfs))
+    print("        a pull that aborts leaves you running the PREVIOUS commit.")
 
 
 def check_fruit_map() -> None:
@@ -1398,6 +1447,7 @@ def main() -> int:
     check_fruit_map()
     check_align_state_feedback()
     check_latex_builds()
+    check_tree_is_pullable()
     check_drive_model_chain()
     check_label_source()
     check_real_data_path()
