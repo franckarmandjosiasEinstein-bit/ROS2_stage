@@ -81,11 +81,16 @@ class SafetyNode(Node):
         # somewhere the robot can actually still stop.
         self.declare_parameter("stop_distance", 0.12)   # m from the bumper
         self.declare_parameter("slow_distance", 0.35)   # m: start scaling down
-        # Half-width of the swept corridor: the base is 0.38 m wide (0.19 half)
-        # and the wheels stand a little proud, so 0.24 covers the body with a
-        # small margin. Wider than that and the robot brakes for walls it is
-        # merely driving alongside.
-        self.declare_parameter("half_width", 0.24)
+        # Safety margin ADDED to the band the base actually sweeps. The band
+        # itself is now computed from the footprint and the direction of
+        # travel (lib/clearance.swept_half_width) instead of being the single
+        # constant 0.24 m, which was simultaneously 5 cm too wide going
+        # forward -- braking beside gutters the robot was driving parallel to
+        # -- and 5 cm too narrow going sideways, which left part of the
+        # strafing footprint outside the test during visual alignment.
+        # 0.02 m is a margin for wheels standing proud of the chassis, and
+        # nothing else.
+        self.declare_parameter("corridor_margin", 0.02)
         self.declare_parameter("min_valid_range", 0.30)  # m: ignore self-hits
         # Arena bounds, as the walls the BODY must stay inside -- not the
         # centre. The greenhouse is 10 x 5 m with 0.10 m walls, so the inner
@@ -117,7 +122,7 @@ class SafetyNode(Node):
 
         self._stop = float(self.get_parameter("stop_distance").value)
         self._slow = float(self.get_parameter("slow_distance").value)
-        self._half_w = float(self.get_parameter("half_width").value)
+        self._margin = float(self.get_parameter("corridor_margin").value)
         self._min_range = float(self.get_parameter("min_valid_range").value)
         self._fx = float(self.get_parameter("fence_x").value)
         self._fy = float(self.get_parameter("fence_y").value)
@@ -174,7 +179,7 @@ class SafetyNode(Node):
         """Free distance in front of the FOOTPRINT along `direction` (body
         frame). inf when the corridor is clear. See lib/clearance.py for why
         this is measured from the bumper and not from the sensor."""
-        return corridor_clearance(self._pts, direction, self._half_w,
+        return corridor_clearance(self._pts, direction, self._margin,
                                   self._hl, self._hw)
 
     def _brake(self, vx, vy):
@@ -385,7 +390,7 @@ class SafetyNode(Node):
         alone."""
         if want_dir is None:
             return "Translation held (no commanded direction)."
-        hit = blocking_point(self._pts, want_dir, self._half_w,
+        hit = blocking_point(self._pts, want_dir, self._margin,
                              self._hl, self._hw)
         if hit is None:
             return ("Translation held toward %+.0f deg, but the corridor "

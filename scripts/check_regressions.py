@@ -1078,10 +1078,24 @@ def check_bumper_clearance() -> None:
     going to stop it."""
     print("\nbumper-relative clearance")
     sys.path.insert(0, os.path.join(SRC, "youbot_control"))
-    from youbot_control.lib.clearance import (best_escape, corridor_clearance,
-                                              footprint_reach)
+    from youbot_control.lib.clearance import (best_escape, contact_distance,
+                                              corridor_clearance,
+                                              footprint_reach, swept_half_width)
 
-    HL, HW, BAND = 0.29, 0.19, 0.24
+    # MARGIN, not a band: the band the base sweeps is now computed from the
+    # footprint and the direction of travel, and this is what is added on top
+    # of it. It must match the parameter the two nodes declare.
+    HL, HW, MARGIN = 0.29, 0.19, 0.02
+    for rel in ("youbot_control/youbot_control/safety_node.py",
+                "youbot_control/youbot_control/navigation_node.py"):
+        src = read(rel)
+        m = re.search(r'declare_parameter\("corridor_margin",\s*([0-9.]+)\)', src)
+        check(f"{rel.split('/')[-1]} declares corridor_margin",
+              m is not None and abs(float(m.group(1)) - MARGIN) < 1e-9,
+              f"expected {MARGIN}, found {m.group(1) if m else 'nothing'}")
+        check(f"{rel.split('/')[-1]} no longer carries the old constant band",
+              'declare_parameter("half_width"' not in src,
+              "a single half-width cannot be right for a base that crabs")
 
     check("footprint reach forward is half the length",
           abs(footprint_reach(0.0, HL, HW) - 0.29) < 1e-9,
@@ -1098,9 +1112,15 @@ def check_bumper_clearance() -> None:
     # The wedge itself: a wall 0.30 m ahead of the SENSOR is 0.01 m ahead of
     # the bumper. The old code called that "0.30 m of room" and kept driving.
     wall = [(0.30, y * 0.05) for y in range(-10, 11)]
-    gap = corridor_clearance(wall, 0.0, BAND, HL, HW)
+    gap = corridor_clearance(wall, 0.0, 0.0, HL, HW)
     check("a wall 0.30 m from the lidar reads as 0.01 m from the bumper",
           abs(gap - 0.01) < 1e-6, f"read {gap:.3f} m")
+    # And with the margin on, that 1 cm is inside it -- which is the whole
+    # point of a margin, and a thing a reader should be able to see asserted
+    # rather than have to infer.
+    check("the safety margin consumes that last centimetre",
+          corridor_clearance(wall, 0.0, MARGIN, HL, HW) == 0.0,
+          "a wall 1 cm off the bumper is inside a 2 cm margin")
 
     # And the guard must actually be using this. safety_node had its own copy
     # measuring raw beam range; one number in two places is how they drift.
@@ -1121,8 +1141,94 @@ def check_bumper_clearance() -> None:
     aisle = [(x * 0.05, 0.40) for x in range(-80, 81)] + \
             [(x * 0.05, -0.40) for x in range(-80, 81)]
     check("centred in an 0.8 m aisle, the corridor ahead is clear",
-          corridor_clearance(aisle, 0.0, BAND, HL, HW) == float("inf"),
+          corridor_clearance(aisle, 0.0, MARGIN, HL, HW) == float("inf"),
           "the robot would brake in open corridor")
+
+    # ---- the swept band is geometry, not a constant -------------------
+    # The constant 0.24 m was wrong in two directions at once, and each
+    # error had its own symptom in the logs.
+    check("the band forward is the body half-width, not 0.24",
+          abs(swept_half_width(0.0, HL, HW) - HW) < 1e-9,
+          f"got {swept_half_width(0.0, HL, HW):.3f}; 0.24 was 5 cm of phantom "
+          "band, a quarter of the margin in an 0.80 m aisle")
+    check("the band sideways is the body half-LENGTH",
+          abs(swept_half_width(math.pi / 2, HL, HW) - HL) < 1e-9,
+          f"got {swept_half_width(math.pi/2, HL, HW):.3f}; the base strafes "
+          "during visual alignment and sweeps 0.29 m, not 0.24")
+    check("the band is widest on the diagonal",
+          swept_half_width(math.pi / 4, HL, HW) > 0.33,
+          "a rectangle crossing a corridor at 45 deg shadows more of it than "
+          "it does going either way along its own axes")
+
+    # Driving PARALLEL to the gutter with the body edge 3 cm clear. The
+    # constant band reported zero clearance here and the guard held
+    # translation -- braking for a wall the robot was merely driving past.
+    # Real geometry: gutter face at y = -0.20, base centred at y = -0.42.
+    gutter = [(x * 0.05, 0.22) for x in range(-80, 81)]
+    check("driving alongside a wall 3 cm off the flank does not brake",
+          corridor_clearance(gutter, 0.0, MARGIN, HL, HW) == float("inf"),
+          "this is the 'Translation held' beside the gutters")
+
+    # ---- the clearance itself is exact --------------------------------
+    # A band test plus a single centreline reach is an approximation, and at
+    # 45 deg it credited the guard 7 cm it did not have, because the part of
+    # the base that arrives first is a corner, not the centreline.
+    d45 = math.pi / 4
+    ux, uy = math.cos(d45), math.sin(d45)
+    lat = -0.0707                       # where the leading corner projects
+    corner_pt = (0.5 * ux - lat * uy, 0.5 * uy + lat * ux)
+    exact = contact_distance(*corner_pt, d45, HL, HW, 0.0)
+    centreline = 0.5 - footprint_reach(d45, HL, HW)
+    check("at 45 deg the LEADING CORNER sets the clearance, not the centre",
+          exact < centreline - 0.05,
+          f"exact {exact:.3f} m vs the old centreline answer "
+          f"{centreline:.3f} m -- {centreline - exact:.3f} m of room the "
+          "guard used to give itself while crossing an 0.80 m aisle")
+
+    # Points the old fixed band dropped entirely: at 45 deg it only looked
+    # 0.24 m to each side while the base sweeps 0.34 m.
+    outside = (0.5 * ux + 0.30 * uy, 0.5 * uy - 0.30 * ux)
+    check("a point the old 0.24 band missed is now seen",
+          contact_distance(*outside, d45, HL, HW, 0.0) is not None,
+          "0.30 m lateral at 45 deg is inside the swept rectangle")
+
+    # And the exact form must agree with simply translating the rectangle.
+    def swept_brute(px, py, d, step=2e-4, tmax=4.0):
+        cx, cy, t = math.cos(d), math.sin(d), 0.0
+        while t <= tmax:
+            if abs(px - t * cx) <= HL and abs(py - t * cy) <= HW:
+                return t
+            t += step
+        return None
+
+    worst = 0.0
+    for i in range(400):
+        ang = -math.pi + 2 * math.pi * (i % 37) / 37.0
+        px, py = 0.9 * math.cos(i * 1.7), 0.9 * math.sin(i * 2.3)
+        e = contact_distance(px, py, ang, HL, HW, 0.0)
+        b = swept_brute(px, py, ang)
+        if e is not None and b is not None:
+            worst = max(worst, abs(e - b))
+    check("the clearance agrees with translating the rectangle by hand",
+          worst < 5e-4, f"worst disagreement {worst * 1000:.2f} mm")
+
+    # One geometry, one place. The commissioning stage that certifies the
+    # protective distance on real hardware had its own copy, carrying the
+    # same stale 0.24 -- a tool that measures clearance differently from the
+    # guard enforcing it will sign off a distance the robot never kept.
+    st6 = os.path.join(SRC, "youbot_commissioning/youbot_commissioning/"
+                            "stage6_navigation.py")
+    with open(st6) as fh:
+        stage6 = fh.read()
+    check("commissioning stage 6 imports the clearance, does not repeat it",
+          "from youbot_control.lib.clearance import contact_distance" in stage6)
+    check("stage 6 no longer carries its own corridor band",
+          "corridor_half_width" not in stage6,
+          "0.24 m survived here after the guard stopped using it")
+    with open(os.path.join(SRC, "youbot_commissioning/package.xml")) as fh:
+        check("and declares the dependency that import needs",
+              "<depend>youbot_control</depend>" in fh.read(),
+              "it would import fine in-tree and fail on an installed system")
 
     # The escape. A pocket: wall ahead, wall behind, gutter to the left, the
     # only way out is a sideways strafe. The old fixed manoeuvre was always
@@ -1131,10 +1237,10 @@ def check_bumper_clearance() -> None:
     pocket = [(0.34, y * 0.05) for y in range(-12, 13)] + \
              [(-0.34, y * 0.05) for y in range(-12, 13)] + \
              [(x * 0.05, 0.42) for x in range(-12, 13)]
-    back = corridor_clearance(pocket, math.pi, BAND, HL, HW)
+    back = corridor_clearance(pocket, math.pi, MARGIN, HL, HW)
     check("in the pocket, reversing really is blocked",
           back < 0.10, f"reverse clearance {back:.3f} m")
-    d, gap = best_escape(pocket, BAND, HL, HW, avoid=0.0)
+    d, gap = best_escape(pocket, MARGIN, HL, HW, avoid=0.0)
     check("the escape finds the open side instead", d is not None and gap > 1.0,
           f"chose {math.degrees(d) if d is not None else None} deg, "
           f"{gap:.2f} m free")
@@ -1149,7 +1255,7 @@ def check_bumper_clearance() -> None:
     # returning a confident answer -- the caller then rotates in place.
     box = [(0.34 * math.cos(a * 0.05), 0.34 * math.sin(a * 0.05))
            for a in range(0, 126)]
-    _, gap = best_escape(box, BAND, HL, HW, avoid=None)
+    _, gap = best_escape(box, MARGIN, HL, HW, avoid=None)
     check("boxed in on every heading, no direction is oversold", gap < 0.20,
           f"claimed {gap:.2f} m of room")
 

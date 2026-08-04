@@ -33,6 +33,7 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Int32, String
 
 from youbot_commissioning.lib.stage import CommissioningStage, run
+from youbot_control.lib.clearance import contact_distance
 
 
 class Stage6(CommissioningStage):
@@ -72,7 +73,12 @@ class Stage6(CommissioningStage):
         self.declare_parameter("protective_distance", 0.35)   # m from bumper
         self.declare_parameter("half_length", 0.29)
         self.declare_parameter("half_width", 0.19)
-        self.declare_parameter("corridor_half_width", 0.24)
+        # The band is no longer a parameter here. It used to be 0.24 m, the
+        # same stale constant the guard carried, and a certification tool that
+        # measures clearance differently from the guard that enforces it will
+        # sign off a number the robot does not actually keep. The geometry now
+        # comes from youbot_control.lib.clearance, once, for both.
+        self.declare_parameter("corridor_margin", 0.02)
         self.declare_parameter("min_valid_range", 0.30)
         self.declare_parameter("lap_topic", "survey_lap")
         self.declare_parameter("scan_topic", "scan")
@@ -154,14 +160,19 @@ class Stage6(CommissioningStage):
     def _on_scan(self, msg: LaserScan) -> None:
         """Closest approach, measured from the FOOTPRINT EDGE.
 
-        Same convention as lib/clearance.py in youbot_control: a raw range is
-        measured from the lidar at the base centre, and reporting that as
-        'clearance' understates the danger by up to 0.29 m. Only returns
-        inside the swept corridor count.
+        Not the raw range. A range is measured from the lidar at the base
+        centre, and reporting that as 'clearance' understates the danger by up
+        to 0.29 m -- the length of the nose in front of the sensor.
+
+        The computation is imported, not repeated. This stage is the tool that
+        decides whether the robot kept its protective distance on real
+        hardware; if it measured clearance with its own copy of the geometry it
+        could certify a distance the guard never enforced. `contact_distance`
+        is the same function safety_node brakes on.
         """
-        hw = float(self.get_parameter("corridor_half_width").value)
         hl = float(self.get_parameter("half_length").value)
         bw = float(self.get_parameter("half_width").value)
+        margin = float(self.get_parameter("corridor_margin").value)
         rmin = float(self.get_parameter("min_valid_range").value)
 
         ranges = np.asarray(msg.ranges, dtype=float)
@@ -174,12 +185,15 @@ class Stage6(CommissioningStage):
             return
         px = ranges[ok] * np.cos(ang[ok])
         py = ranges[ok] * np.sin(ang[ok])
-        # Forward corridor only: what the robot is driving into.
-        inside = (px > 0.0) & (np.abs(py) <= hw)
-        if not inside.any():
+        # Forward travel: how far the base could go before touching each
+        # return, smallest wins. inf/None means it never touches.
+        clearance = float("inf")
+        for x, y in zip(px, py):
+            d = contact_distance(float(x), float(y), 0.0, hl, bw, margin)
+            if d is not None and d < clearance:
+                clearance = d
+        if clearance == float("inf"):
             return
-        along = px[inside].min()
-        clearance = max(0.0, float(along) - hl)
         if clearance < self._min_clearance:
             self._min_clearance = clearance
             self._min_clearance_at = self._pose
@@ -187,7 +201,6 @@ class Stage6(CommissioningStage):
                 self.get_logger().warn(
                     f"clearance {clearance:.3f} m from the bumper -- BELOW the "
                     f"protective distance, at {self._min_clearance_at}")
-        _ = bw   # kept for symmetry with clearance.footprint_reach
 
     def _heartbeat(self) -> None:
         elapsed = 0.0 if self._t0 is None else (self._now() - self._t0) / 60.0

@@ -62,7 +62,7 @@ class NavigationNode(Node):
         # brakes them (lib/clearance.py). A recovery that reverses into a
         # direction safety_node then cancels is the loop the field log shows:
         # "Stuck at (+3.70, +0.61)" ten times in nine minutes, same spot.
-        self.declare_parameter("half_width", 0.24)
+        self.declare_parameter("corridor_margin", 0.02)
         self.declare_parameter("base_length", 0.58)
         self.declare_parameter("base_width", 0.38)
         self.declare_parameter("min_valid_range", 0.30)
@@ -78,7 +78,7 @@ class NavigationNode(Node):
         self._stuck_time = float(self.get_parameter("stuck_time").value)
         self._recover_time = float(self.get_parameter("recover_time").value)
         self._escape_speed = float(self.get_parameter("escape_speed").value)
-        self._half_w = float(self.get_parameter("half_width").value)
+        self._margin = float(self.get_parameter("corridor_margin").value)
         self._hl = float(self.get_parameter("base_length").value) / 2.0
         self._hw = float(self.get_parameter("base_width").value) / 2.0
         self._min_range = float(self.get_parameter("min_valid_range").value)
@@ -160,7 +160,7 @@ class NavigationNode(Node):
         """
         want = math.atan2(commanded[1], commanded[0]) \
             if math.hypot(*commanded) > 1e-6 else None
-        d, gap = best_escape(self._pts, self._half_w, self._hl, self._hw,
+        d, gap = best_escape(self._pts, self._margin, self._hl, self._hw,
                              avoid=want)
         if d is None or gap < 0.05:
             # Boxed in on every heading (or no scan yet): rotate in place. It

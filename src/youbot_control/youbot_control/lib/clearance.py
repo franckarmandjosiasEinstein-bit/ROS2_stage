@@ -42,31 +42,111 @@ def footprint_reach(direction: float, half_length: float,
     return min(a, b)
 
 
-def corridor_clearance(pts, direction: float, half_width: float,
+def swept_half_width(direction: float, half_length: float,
+                     half_width: float) -> float:
+    """Half-width of the band the BASE ACTUALLY SWEEPS going `direction`.
+
+    This used to be a constant, 0.24 m, and a constant cannot be right: the
+    base is a 0.58 x 0.38 m rectangle that does not turn to face where it is
+    going, so the width of its shadow depends entirely on the direction of
+    travel. Projecting the rectangle onto the axis normal to the motion gives
+
+        a*|sin d| + b*|cos d|      a = half length, b = half width
+
+    which is 0.19 m straight ahead, 0.29 m straight sideways, and 0.34 m on
+    the diagonal. The single value 0.24 was therefore wrong in both
+    directions at once, and each error had its own symptom:
+
+      TOO WIDE going forward (0.24 vs 0.19). In a 0.80 m aisle the free space
+      beside a centred base is 0.21 m, so 5 cm of phantom band is a quarter
+      of the whole margin. Measured against the real gutter geometry: at a
+      lateral offset of 0.18 m -- body edge still 3 cm clear, driving exactly
+      parallel to the wall, closing on nothing -- the constant band reports
+      zero clearance and the guard holds translation. That is the
+      "Translation held" beside the gutters, and it is a brake firing at a
+      wall the robot is merely driving alongside, which is the exact failure
+      the 0.24 comment claimed to prevent.
+
+      TOO NARROW going sideways (0.24 vs 0.29). Visual alignment strafes.
+      During a strafe the base sweeps 0.29 m to each side and the guard was
+      only watching 0.24, so 5 cm of the moving footprint was outside the
+      test. That is not a nuisance, it is a hole: the gutter the robot
+      entered during alignment was in that gap.
+
+    So the band is computed, and `margin` is what is added on top of the true
+    geometry -- an actual safety margin instead of a number chosen to be a bad
+    compromise between two directions.
+
+    Kept as a named function because it is the number to quote in a report and
+    in a log line, but the clearance itself no longer uses it: see
+    `contact_distance`, which is exact where a band-plus-constant-reach is
+    only an approximation.
+    """
+    return (half_length * abs(math.sin(direction))
+            + half_width * abs(math.cos(direction)))
+
+
+def contact_distance(px: float, py: float, direction: float,
+                     half_length: float, half_width: float,
+                     margin: float = 0.0) -> float | None:
+    """How far the base can travel along `direction` before it touches (px, py).
+
+    None when it never touches. This is a ray-box intersection run backwards:
+    the body is the rectangle |x| <= a+margin, |y| <= b+margin, and we want the
+    smallest t with the point inside the body translated by t*u -- that is, the
+    smallest t such that |px - t*ux| <= a and |py - t*uy| <= b.
+
+    WHY THE EXACT VERSION IS NEEDED. The previous code answered this in two
+    approximate halves: a lateral band test to decide whether the point counts
+    at all, then a single `footprint_reach(direction)` subtracted from its
+    distance along the path. That reach is measured along the CENTRELINE, but
+    the part of the base that arrives first is a corner. Travelling at 45 deg
+    the centreline reach is 0.269 m while the leading corner is already 0.339 m
+    out, so the guard credited itself 7 cm of room it did not have -- in the
+    direction the robot crosses an 0.80 m aisle, where 7 cm is a third of the
+    margin. Nothing about a band and a constant can fix that, because the reach
+    genuinely varies with WHERE in the band the point sits: 0.339 m for a point
+    near the leading corner, much less at the far edge of the band.
+
+    The slab form below gives the true value for every point and every
+    direction, so the band test and the constant reach both disappear into it.
+    """
+    ux, uy = math.cos(direction), math.sin(direction)
+    a, b = half_length + margin, half_width + margin
+    lo, hi = -math.inf, math.inf
+    for p, u, h in ((px, ux, a), (py, uy, b)):
+        if abs(u) < 1e-9:
+            # No motion on this axis: the point must already be within the
+            # body's extent on it, or the base never sweeps over it at all.
+            if abs(p) > h:
+                return None
+            continue
+        t1, t2 = (p - h) / u, (p + h) / u
+        lo, hi = max(lo, min(t1, t2)), min(hi, max(t1, t2))
+    if lo > hi or hi <= 0.0:
+        return None            # never touches, or only behind us
+    return max(0.0, lo)
+
+
+def corridor_clearance(pts, direction: float, margin: float,
                        half_length: float, body_half_width: float) -> float:
     """Free distance IN FRONT OF THE FOOTPRINT along `direction`.
 
-    `pts` are body-frame (x, y) lidar returns. A return counts only if it
-    falls inside the rectangle the base sweeps going that way (half_width to
-    each side); the result is its distance along the direction of travel,
-    minus how far the body already reaches that way. inf when clear, 0.0 when
-    something is level with the bumper or behind it.
+    `pts` are body-frame (x, y) lidar returns. For each one, how far the base
+    can travel that way before touching it (`contact_distance`); the answer is
+    the smallest. inf when nothing is ever touched, 0.0 when something is
+    already level with the footprint.
     """
-    ux, uy = math.cos(direction), math.sin(direction)
     best = float("inf")
     for px, py in pts:
-        along = px * ux + py * uy
-        if along <= 0.0 or along >= best:
-            continue
-        if abs(-px * uy + py * ux) <= half_width:
-            best = along
-    if best == float("inf"):
-        return best
-    return max(0.0, best - footprint_reach(direction, half_length,
-                                           body_half_width))
+        d = contact_distance(px, py, direction, half_length, body_half_width,
+                             margin)
+        if d is not None and d < best:
+            best = d
+    return best
 
 
-def blocking_point(pts, direction: float, half_width: float,
+def blocking_point(pts, direction: float, margin: float,
                    half_length: float, body_half_width: float):
     """The return that is actually stopping us, for diagnostics.
 
@@ -79,21 +159,18 @@ def blocking_point(pts, direction: float, half_width: float,
 
     Returns (px, py, clearance) in the body frame, or None when clear.
     """
-    ux, uy = math.cos(direction), math.sin(direction)
     best, hit = float("inf"), None
     for px, py in pts:
-        along = px * ux + py * uy
-        if along <= 0.0 or along >= best:
-            continue
-        if abs(-px * uy + py * ux) <= half_width:
-            best, hit = along, (px, py)
+        d = contact_distance(px, py, direction, half_length, body_half_width,
+                             margin)
+        if d is not None and d < best:
+            best, hit = d, (px, py)
     if hit is None:
         return None
-    reach = footprint_reach(direction, half_length, body_half_width)
-    return hit[0], hit[1], max(0.0, best - reach)
+    return hit[0], hit[1], best
 
 
-def best_escape(pts, half_width: float, half_length: float,
+def best_escape(pts, margin: float, half_length: float,
                 body_half_width: float, avoid: float | None = None,
                 n: int = 12):
     """Pick the body-frame direction with the most room in front of it.
@@ -112,7 +189,7 @@ def best_escape(pts, half_width: float, half_length: float,
             delta = abs(math.atan2(math.sin(d - avoid), math.cos(d - avoid)))
             if delta < math.radians(60.0):
                 continue
-        gap = corridor_clearance(pts, d, half_width, half_length,
+        gap = corridor_clearance(pts, d, margin, half_length,
                                  body_half_width)
         if gap > best_gap:
             best_dir, best_gap = d, gap
