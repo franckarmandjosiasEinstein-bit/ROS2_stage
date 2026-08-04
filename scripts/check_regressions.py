@@ -610,6 +610,49 @@ def check_fruit_map() -> None:
           and "_begin_align()" in mis.split("_fruit_here_is_real()")[1][:200])
     check("picking retires the cluster in the mission too",
           "_fruit.mark_picked(" in mis)
+    navsrc = read("youbot_control/youbot_control/navigation_node.py")
+    # ---- a phase that cannot advance is a phase that cannot end ---------
+    # Measured cost of getting this wrong: the scout phase was added between
+    # survey and explore, and neither _on_arrival nor _abandon_goal learned
+    # about it. Goal (-3.80, +0.60) was issued, timed out after 60 s,
+    # abandoned, and re-issued IDENTICALLY for 28 minutes of wall clock --
+    # "waypoint 0/4 pass 1/2" in every state line. The run never reached the
+    # harvest, so five other changes went untested with it.
+    kinds = set(re.findall(r'_set_goal\([^,]+,\s*"(\w+)"\)', mis))
+    check("every goal kind the mission sets was found",
+          kinds >= {"survey", "scout", "explore"},
+          f"found {sorted(kinds)}")
+    table = re.search(r"_ADVANCES\s*=\s*\{(.*?)\}", mis, re.S)
+    check("there is ONE table saying what each goal kind advances",
+          table is not None,
+          "two if/elif ladders in two methods is how scout got missed")
+    if table:
+        listed = set(re.findall(r'"(\w+)"\s*:', table.group(1)))
+        # 'pick' and 'depot' advance no counter -- they are handled by name.
+        need = kinds - {"pick", "depot"}
+        check("every waypoint-following kind advances a counter",
+              need <= listed,
+              f"missing from _ADVANCES: {sorted(need - listed)} -- that phase "
+              "would re-issue its first waypoint forever")
+    for meth in ("_on_arrival", "_abandon_goal"):
+        body = re.search(rf"def {meth}\(self\).*?(?=\n    def )", mis, re.S)
+        check(f"{meth} advances through the table, not its own ladder",
+              body is not None and "self._advance(kind)" in body.group(0)
+              and 'elif kind == "explore"' not in body.group(0))
+
+    # The follower must SAY when it has finished the path. It knew, and told
+    # nobody: the mission then waited out 60 s for a gap that never closes,
+    # because A* legitimately ends short of a goal standing in inflated space.
+    check("the follower reports finishing its path",
+          'create_publisher(Bool, "path_done"' in navsrc
+          and "done_pub.publish" in navsrc)
+    check("the mission acts on it instead of waiting out the timeout",
+          'create_subscription(Bool, "path_done"' in mis
+          and "_on_path_done" in mis)
+    check("and only when it is actually short of the goal",
+          "d < ARRIVAL_TOLERANCE" in mis,
+          "a normal arrival must stay a normal arrival")
+
     check("an empty map fails OPEN and says so",
           "the fruit map is EMPTY" in mis,
           "a robot that silently never picks is a worse failure than the one "

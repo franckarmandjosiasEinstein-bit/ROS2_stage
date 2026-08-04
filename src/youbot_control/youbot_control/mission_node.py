@@ -188,6 +188,7 @@ class MissionNode(Node):
         self.create_subscription(Float32MultiArray, "ripe_offsets", self._on_ripe_offsets, 10)
         self.create_subscription(Empty, "pick_done", self._on_pick_done, 5)
         self.create_subscription(Bool, "goal_blocked", self._on_blocked, 5)
+        self.create_subscription(Bool, "path_done", self._on_path_done, 5)
         self.goal_pub = self.create_publisher(PoseStamped, "goal_pose", 10)
         # World positions of the fruit seen this frame, from the detector.
         # They are only ever FOLDED INTO THE MAP -- never acted on directly.
@@ -228,6 +229,37 @@ class MissionNode(Node):
             f"[{self._phase}] goal {self._goal_kind} "
             f"({self._goal[0]:+.2f}, {self._goal[1]:+.2f}) reported blocked by "
             "the follower -- abandoning, advancing.")
+        self._abandon_goal()
+
+    def _on_path_done(self, msg: Bool) -> None:
+        """The follower has driven its whole path.
+
+        If we are inside ARRIVAL_TOLERANCE this is an ordinary arrival and
+        _tick will see it on its own. If we are NOT, the plan ended short of
+        the goal -- which is legitimate: A* routes to the last free cell, and
+        with a 0.10 m grid plus footprint inflation that cell can sit ~0.4 m
+        from a goal standing in inflated space. The gap will not close, no
+        matter how long we wait, because nothing is going to move again.
+
+        Waiting anyway is what the log shows: 60 s of timeout, then the same
+        goal re-issued, at (-3.80, +0.60), for twenty-eight minutes. Take the
+        follower at its word and move on, saying how short it fell so a
+        systematic shortfall is visible rather than merely survived.
+        """
+        if not msg.data or self._goal is None or self._picking or self._aligning:
+            return
+        if self._pose is None:
+            return
+        d = math.hypot(self._goal[0] - self._pose[0],
+                       self._goal[1] - self._pose[1])
+        if d < ARRIVAL_TOLERANCE:
+            return                      # a normal arrival; _tick handles it
+        self.get_logger().warn(
+            f"[{self._phase}] the plan ended {d:.2f} m short of goal "
+            f"{self._goal_kind} ({self._goal[0]:+.2f}, {self._goal[1]:+.2f}) "
+            f"-- tolerance is {ARRIVAL_TOLERANCE:.2f} m. The goal is standing "
+            "in inflated space; advancing rather than waiting out the "
+            "timeout.")
         self._abandon_goal()
 
     def _on_override(self, msg: Bool) -> None:
@@ -470,15 +502,33 @@ class MissionNode(Node):
         if self._phase == "deliver":
             self._set_goal(DEPOT, "depot")
 
+    # Which counter each kind of goal advances. ONE table, because the two
+    # places that advance the mission (arrival and abandonment) used to carry
+    # their own if/elif ladders, and when the `scout` phase was added neither
+    # learned about it. The consequence was not subtle: scout goal (-3.80,
+    # +0.60) was issued, timed out after 60 s, abandoned, and re-issued
+    # IDENTICALLY, forever -- 28 minutes of wall clock on one waypoint,
+    # "waypoint 0/4 pass 1/2" in every state line, and the run never reached
+    # the harvest at all. A phase that cannot advance is a phase that cannot
+    # end.
+    #
+    # A table cannot go out of sync with itself, and check_regressions now
+    # asserts that every kind the mission can SET appears here.
+    _ADVANCES = {
+        "survey": "_survey_i",
+        "scout": "_patrol_i",
+        "explore": "_patrol_i",
+    }
+
+    def _advance(self, kind: str) -> None:
+        attr = self._ADVANCES.get(kind)
+        if attr is not None:
+            setattr(self, attr, getattr(self, attr) + 1)
+
     def _on_arrival(self) -> None:
         kind = self._goal_kind
-        if kind == "survey":
-            self._survey_i += 1
-        elif kind == "explore":
-            # Picking happens on-the-fly while driving (see _tick); at the
-            # waypoint we simply move on to the next one.
-            self._patrol_i += 1
-        elif kind == "pick":
+        self._advance(kind)
+        if kind == "pick":
             self._collected.append(self._goal)
             self.get_logger().info(
                 f"At crate ({self._goal[0]:+.2f}, {self._goal[1]:+.2f}). "
@@ -501,11 +551,8 @@ class MissionNode(Node):
     def _abandon_goal(self) -> None:
         """Give up on an unreachable goal and move the mission forward."""
         kind = self._goal_kind
-        if kind == "survey":
-            self._survey_i += 1
-        elif kind == "explore":
-            self._patrol_i += 1
-        elif kind == "pick":
+        self._advance(kind)
+        if kind == "pick":
             # Mark it "handled" so collect doesn't loop on it forever.
             self._collected.append(self._goal)
         # depot: just fall through and let deliver re-issue the goal.

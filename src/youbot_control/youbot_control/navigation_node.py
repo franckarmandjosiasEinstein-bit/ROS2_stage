@@ -105,6 +105,10 @@ class NavigationNode(Node):
         # immediately instead of burning its 60 s timeout twice over, which is
         # what the field log spent nine minutes doing.
         self.blocked_pub = self.create_publisher(Bool, "goal_blocked", 5)
+        # "I have driven the whole path." Distinct from goal_blocked, which
+        # means "I cannot move at all": the path can complete perfectly and
+        # still stop short of the goal the mission asked for.
+        self.done_pub = self.create_publisher(Bool, "path_done", 5)
         self.create_timer(self.get_parameter("control_period").value, self._control)
         self.get_logger().info(
             "navigation_node up: /plan + /odom -> /cmd_vel_raw (safety_node guards)")
@@ -255,6 +259,16 @@ class NavigationNode(Node):
             if not self._reached_logged:
                 self._reached_logged = True
                 self.get_logger().info("Goal reached.")
+                # And SAY SO. Finishing the path used to be a private fact:
+                # the follower stopped, and the mission -- which has its own,
+                # stricter idea of arrival -- kept waiting for a gap that
+                # would never close, burned its 60 s timeout, and re-issued
+                # the same goal. The plan legitimately ends short when the
+                # goal sits inside inflated space: half a grid cell plus the
+                # footprint inflation is up to ~0.4 m, well outside the
+                # mission's 0.30 m tolerance. Neither party was wrong; they
+                # simply never spoke to each other.
+                self.done_pub.publish(Bool(data=True))
             return
         if status != "running":
             return
