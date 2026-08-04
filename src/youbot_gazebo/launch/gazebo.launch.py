@@ -76,16 +76,43 @@ FOLLOW_ROBOT = (
     '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
     'tracked() { timeout 3 gz topic -e -t /gui/currently_tracked -n 1 '
     '  2>/dev/null | grep -q youbot; }; '
+    # A CAMERA POSE THAT DOES NOT DEPEND ON FINDING THE ROBOT.
+    #
+    # Everything above asks the GUI to look at an ENTITY, and the GUI answers
+    # "Target: 'youbot' not found" whenever its render scene has not caught up
+    # with the server. That is a race, it is lost perhaps one run in three,
+    # and when it is lost the camera stays wherever it started -- which, in a
+    # closed 10 x 5 m greenhouse with no <gui> block in the world, is a view
+    # of a wall. The robot was driving perfectly and the operator could not
+    # see it, which is not a small thing when watching the run IS the test.
+    #
+    # /gui/move_to/pose takes a pose instead of a name, so it cannot fail for
+    # want of an entity. (0, -7, 11) looking at the origin clears the 2.5 m
+    # south wall by 1.4 m and sees the whole floor through the transparent
+    # roof, so the robot is in frame wherever it is. Tracking still overrides
+    # this the moment it works; this is the floor, not the ceiling.
+    #
+    # Deliberately NOT a <gui> block in greenhouse.sdf: declaring one replaces
+    # the default plugin set, and getting that list wrong costs the Entity
+    # Tree and the play/pause controls -- a worse problem than the one being
+    # fixed.
+    'ovr=\'pose: {position: {x: 0, y: -7, z: 11}, '
+    'orientation: {x: -0.3403, y: 0.3403, z: 0.6199, w: 0.6199}}\'; '
+    'overview() { gz service -s /gui/move_to/pose --reqtype gz.msgs.GUICamera '
+    '  --reptype gz.msgs.Boolean --timeout 2000 --req "$ovr" >/dev/null 2>&1; }; '
     'locked=0; '
     'for i in $(seq 1 40); do '
     '  if gone; then exit 0; fi; '
-    '  moveto; track; '
+    '  overview; moveto; track; '   # frame the arena first, then try to lock on
     '  if tracked; then locked=1; break; fi; sleep 1; done; '
     'if [ "$locked" = 1 ]; then '
     '  echo "[view] Gazebo camera is following the robot (confirmed)."; '
     'else '
-    '  echo "[view] the Gazebo camera would not lock on -- right-click youbot '
-    'in the Entity Tree > Follow."; fi; '
+    '  overview; '
+    '  echo "[view] the Gazebo camera would not lock onto the robot, so it is '
+    'parked on an overview of the whole greenhouse instead -- the robot IS '
+    'there, small and yellow. To follow it: Entity Tree > right-click youbot '
+    '> Follow."; fi; '
     'quiet=0; '
     'while sleep 20; do '
     '  if gone; then exit 0; fi; '    # the launch is over; so are we

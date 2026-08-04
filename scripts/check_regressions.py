@@ -233,6 +233,19 @@ def check_launch_handlers() -> None:
         if "FOLLOW_ROBOT" in text:
             check(f"{rel}: camera uses /gui/track", "/gui/track" in text,
                   "only the deprecated /gui/follow service is used")
+            # Every other camera command asks the GUI to look at an ENTITY,
+            # and the GUI answers "Target: 'youbot' not found" whenever its
+            # render scene has not caught up with the server -- a race lost
+            # perhaps one run in three. When it is lost the camera never
+            # moves, and with no <gui> block in the world that means a view
+            # of a wall: the robot drives perfectly and cannot be watched.
+            # /gui/move_to/pose takes a POSE, so it cannot fail that way.
+            check(f"{rel}: the camera has a fallback that needs no entity",
+                  "/gui/move_to/pose" in text and "overview" in text,
+                  "without it, losing the tracking race means seeing nothing")
+            check(f"{rel}: and the overview is applied before the lock is won",
+                  "'  overview; moveto; track; '" in text,
+                  "framing the arena must not wait for 40 failed attempts")
 
 
 def check_vision_thresholds() -> None:
