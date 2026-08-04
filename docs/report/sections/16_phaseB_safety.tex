@@ -5,4 +5,195 @@
 \subsection{The Protective Stop: a Single-Owner Safety Guard}
 \label{sec:safety}
 
-\emph{[Section in preparation.]}
+\subsubsection{Why containment cannot be physical}
+
+The base is driven kinematically. Gazebo's \texttt{VelocityControl} plugin
+imposes the commanded velocity on the model at every physics step, which
+means a contact response is overwritten by the next command before it can
+decelerate anything. Making the greenhouse walls solid therefore does not
+contain the robot: it produces a chassis that penetrates the glass and stays
+there, which is precisely what the early logs show.
+
+This is not a simulation artefact to be apologised for. On the real machine
+one would never allow a collision to be the limit either --- a protective
+device that acts only after contact is not a protective device. In both
+worlds the same conclusion holds: containment must act on the
+\emph{command}, before it reaches the wheels, and it must be impossible to
+route around.
+
+That last clause is the design requirement that the first implementation
+failed. \nodename{navigation\_node} carried its own lidar brake, but
+\nodename{mission\_node} takes the base over during visual alignment and
+picking and published directly to \topicname{cmd\_vel}, bypassing the brake
+entirely. The failure is legible in one log line: \texttt{Aligned at
+(-4.02, +0.84)}. In an \SI{0.80}{m} aisle whose gutter edge sits at
+$y = \SI{1.0}{m}$, a \SI{0.38}{m}-wide base centred at $y = 0.84$ already
+overlaps the gutter. The robot did not drive into the gutter despite the
+brake; it drove in through a publisher the brake never saw.
+
+The correction is structural rather than parametric. Every publisher now
+writes \topicname{cmd\_vel\_raw}; \nodename{safety\_node} is the only node
+that writes \topicname{cmd\_vel}. There is one place where safety is
+enforced, and no way to reach the wheels without passing through it.
+
+\subsubsection{Three layers, each able to veto}
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}llp{0.52\linewidth}@{}}
+\toprule
+& \textbf{Layer} & \textbf{What it vetoes} \\
+\midrule
+1 & Lidar & Anything inside the region the footprint will sweep along the
+commanded direction cancels the \emph{translation}. Rotation is preserved,
+so the robot can always turn away and the planner can reroute. \\
+2 & Fence & Beyond the arena bounds, the only command allowed is the one
+driving back inside. \\
+3 & Timeout & No command for \param{cmd\_timeout} seconds stops the base. A
+publisher that dies must never leave the robot coasting. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Layer~2 checks all four corners of the $0.58 \times \SI{0.38}{m}$ footprint
+against the wall faces, rotated by the current heading, rather than bounding
+the centre. Bounding the centre is what let the chassis clip the glass on a
+diagonal: at \SI{45}{\degree} a corner reaches \SI{0.35}{m} from the centre,
+not the \SI{0.19}{m} a side-on estimate suggests.
+
+\subsubsection{The swept region is geometry, not a constant}
+
+The first two versions of layer~1 were both wrong, and the way in which each
+was wrong is more instructive than the final answer.
+
+\textbf{A cone is the wrong shape.} The original test took the raw beam
+range inside a $\pm\SI{0.55}{rad}$ cone about the direction of travel. A cone
+widens with distance --- at \SI{0.5}{m} it already reaches \SI{0.28}{m}
+sideways --- so a beam grazing a gutter the robot is legitimately driving
+\emph{past} comes back short and brakes it in open corridor. Worse, the range
+along an oblique beam is not the distance to the obstacle along the path, so
+the test also overstates how soon the robot arrives.
+
+\textbf{A constant band is the wrong width.} The cone was replaced by a
+swept rectangle of half-width \SI{0.24}{m}, and a single number cannot be
+right here: the base does not turn to face where it is going, so the width of
+its shadow depends entirely on the direction of travel. Projecting the
+rectangle onto the axis normal to the motion gives
+
+\begin{equation}
+w(\theta) = a\,|\sin\theta| + b\,|\cos\theta|,
+\label{eq:sweptband}
+\end{equation}
+
+with $a = \SI{0.29}{m}$ the half-length and $b = \SI{0.19}{m}$ the
+half-width. That is \SI{0.19}{m} straight ahead, \SI{0.29}{m} straight
+sideways and \SI{0.34}{m} on the diagonal. The constant \SI{0.24}{m} was
+therefore too wide in one direction and too narrow in another, and each error
+produced its own symptom.
+
+Too wide going forward costs margin the aisle does not have. An inner aisle
+is \SI{0.80}{m} across and the base is \SI{0.38}{m}, leaving \SI{0.21}{m}
+per side; \SI{5}{cm} of phantom band is a quarter of that. Evaluated against
+the real gutter geometry, a base offset \SI{0.18}{m} from the aisle
+centreline --- body edge still \SI{3}{cm} clear, travelling exactly parallel
+to the gutter, closing on nothing --- returns zero clearance and the guard
+holds translation. That is the \texttt{Translation held} that appears beside
+the gutters, and it is the brake firing for a wall the robot is merely
+driving alongside.
+
+Too narrow going sideways leaves part of the moving footprint untested.
+Visual alignment strafes: travelling along its own $y$ axis the base sweeps
+\SI{0.29}{m} fore and aft while the guard was watching \SI{0.24}{m}.
+
+\subsubsection{Clearance as a ray--box entry time}
+
+Correcting the width alone would still have left a third error. The
+clearance was computed as the distance along the path minus
+$\rho(\theta)$, the reach of the footprint along the \emph{centreline}. But
+the part of a rectangle that arrives first is a corner. At
+\SI{45}{\degree} the centreline reach is \SI{0.269}{m} while the leading
+corner is already \SI{0.339}{m} out, so the guard credited itself
+\SI{7}{cm} it did not have --- in the direction in which it crosses an
+\SI{0.80}{m} aisle.
+
+The exact formulation removes the band and the constant reach together. For
+a body-frame return $\mathbf{p}$ and a unit direction $\mathbf{u}$, the
+distance the base may travel before touching that point is the smallest
+$t \ge 0$ for which $\mathbf{p} - t\,\mathbf{u}$ lies inside the footprint
+rectangle, i.e.\ the entry time of the ray $\mathbf{p} - t\mathbf{u}$ into
+the box $[-a, a] \times [-b, b]$:
+
+\begin{equation}
+t^\star = \max_{i \in \{x, y\}}
+          \min\!\left(\frac{p_i - h_i}{u_i},\ \frac{p_i + h_i}{u_i}\right),
+\label{eq:raybox}
+\end{equation}
+
+valid when it does not exceed the corresponding exit time, with
+$h_x = a + m$, $h_y = b + m$ and $m$ the safety margin. The clearance is the
+minimum of $t^\star$ over all returns. The margin is now what its name says
+--- \SI{0.02}{m} for wheels standing proud of the chassis --- rather than a
+compromise between two directions in which the geometry disagrees.
+
+Equation~\eqref{eq:raybox} was validated against a brute-force simulation
+that translates the rectangle in \SI{0.1}{mm} steps until it contains the
+point: over $20\,000$ random point/direction pairs the largest disagreement
+was \SI{0.1}{mm}, the resolution of the reference itself.
+
+Table~\ref{tab:corridor} gives the effect on the real gutter geometry.
+
+\begin{table}[htbp]
+\caption{Guard verdict before and after, evaluated on the greenhouse
+gutters. \emph{HELD} means translation cancelled.}
+\label{tab:corridor}
+\centering\footnotesize
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Situation} & \textbf{Constant band} & \textbf{Exact} \\
+\midrule
+Centred in the aisle, straight      & clear  & clear \\
+\SI{0.18}{m} off centre, parallel   & \bad{HELD}   & \ok{clear} \\
+Centred, \SI{16}{\degree} heading error & \warn{slowed} & \ok{clear} \\
+Gutter end, turning out \SI{30}{\degree} & \bad{HELD} & \ok{clear} \\
+Gutter end, turning out \SI{45}{\degree} & \bad{HELD} & \warn{slowed} \\
+Gutter end, turning out \SI{60}{\degree} & \bad{HELD} & \warn{slowed} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Flank containment}
+
+Braking only on the commanded direction misses the way the robot actually
+entered the gutters. During visual alignment the mission commands $v_x$
+only; a small heading error turns that into lateral drift that no
+forward-looking test observes, because nothing is ever \emph{commanded}
+sideways. A separate rule therefore maintains a minimum clearance on both
+flanks (\param{side\_min} $= \SI{0.10}{m}$ from the flank edge) and pushes
+back at up to \param{side\_push} $= \SI{0.12}{m/s}$. Being sensor-based, it
+holds the robot in any corridor rather than in this greenhouse specifically.
+
+\subsubsection{One geometry, one implementation}
+
+Commissioning stage~6 measures the minimum clearance the robot actually
+achieves during autonomous running, and it is that measurement which decides
+whether the protective distance computed from ISO~13855 is respected in
+practice. It originally carried its own copy of the corridor geometry,
+including the same \SI{0.24}{m} constant.
+
+A certification tool that measures clearance differently from the guard that
+enforces it will certify a distance the robot never kept. Stage~6 now imports
+the same function \nodename{safety\_node} brakes on. This is stated here
+rather than in the commissioning section because it is a safety property, not
+a housekeeping one: the number in the report and the number in the brake are
+the same number by construction.
+
+\subsubsection{Observability}
+
+The guard publishes \topicname{safety\_override} whenever it is overriding
+rather than passing a command through. Without it, a publisher commanding
+into an override simply fights it --- the field log shows twenty seconds of
+\texttt{Outside the arena} at three-second intervals while the mission kept
+creeping after a berry, each side unaware of the other. The guard also
+reports \emph{which} return stopped it, in body coordinates: a protective
+stop that cannot say what it stopped for cannot be diagnosed from a log, and
+two debugging sessions were spent on the message \texttt{Obstacle within
+0.12 m} before that was understood.

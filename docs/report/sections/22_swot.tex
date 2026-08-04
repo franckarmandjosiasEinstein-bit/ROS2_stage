@@ -5,4 +5,261 @@
 \section{SWOT Analysis of Every Method}
 \label{sec:swot}
 
-\emph{[Section in preparation.]}
+Every method in this system was chosen over alternatives, and every choice
+bought something at a price. This section states both. The quadrants are used
+in their strict sense: \emph{strengths} and \emph{weaknesses} are properties
+of the method as implemented here and are therefore verifiable in the code
+and the logs; \emph{opportunities} and \emph{threats} are external and
+forward-looking, and the threats in particular are what the transfer to real
+hardware will test.
+
+A weakness listed below is not an admission of carelessness. It is the part
+of the design that would have to change first if the corresponding assumption
+failed, and knowing which part that is has more engineering value than a
+clean-looking table.
+
+% ---------------------------------------------------------------------
+\begin{swottable}{Log-odds occupancy grid}
+\swotcell{swotS}{Strengths}{%
+Fusion is an addition, not a product and a renormalisation, so a scan is a
+sweep of \texttt{+=} over an array: fast and numerically untroubled. Free
+space is represented explicitly, which is what makes frontier exploration
+possible at all. Clamping bounds the confidence any cell can accumulate, so a
+persistent spurious return cannot become unarguable.}
+&
+\swotcell{swotW}{Weaknesses}{%
+The independence assumption between cells is false: a wall is a correlated
+structure, and treating its cells as independent lets a thin obstacle be
+eroded by beams that pass near it. Resolution is fixed at \SI{0.10}{m}, which
+is coarse relative to a \SI{0.80}{m} aisle. A moving obstacle leaves a smear
+that decays only as fast as the free-space evidence accumulates.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+The same grid accepts a second sensor without structural change: ultrasonic
+returns, which reflect off glass where lidar does not, fuse as additional
+log-odds increments. Multi-resolution variants exist if the aisle geometry
+ever demands them.}
+&
+\swotcell{swotT}{Threats}{%
+Glass. A \SI{2}{D} lidar at glancing incidence on a pane returns nothing, so
+the wall is not merely mis-mapped, it is absent, and the grid will confidently
+report free space where there is a barrier. This is the single most dangerous
+sim-to-real gap in the system, and no mapping parameter addresses it.}
+\\
+\end{swottable}
+
+% ---------------------------------------------------------------------
+\begin{swottable}{A* with an octile heuristic on an inflated grid}
+\swotcell{swotS}{Strengths}{%
+Optimal for the given grid and cost function, and complete: if it returns no
+path, no path exists at that inflation. Inflating obstacles by the footprint
+radius reduces the robot to a point, which is what makes an \SI{0.80}{m}
+aisle tractable for a grid planner at all. The octile heuristic is admissible
+on an eight-connected grid, so optimality survives.}
+&
+\swotcell{swotW}{Weaknesses}{%
+It plans for a point, so the resulting path takes no account of the robot's
+orientation --- acceptable only because the base is holonomic. Inflation is
+isotropic, which over-inflates along the aisle where the base is narrow and
+under-inflates across it. Replanning is from scratch; there is no incremental
+repair.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+D*~Lite would give incremental replanning at a fraction of the cost when the
+map changes locally. A costmap gradient rather than a binary inflation would
+let the path prefer the aisle centre instead of merely staying legal.}
+&
+\swotcell{swotT}{Threats}{%
+Inflation radius and aisle width are in direct tension here: the margin that
+guarantees clearance can close the only route. A greenhouse whose aisles are
+narrower than this one --- and \SI{0.80}{m} is already tight --- would make
+the planner report failure rather than risk, which is safe but useless.}
+\\
+\end{swottable}
+
+% ---------------------------------------------------------------------
+\begin{swottable}{Pure pursuit path following}
+\swotcell{swotS}{Strengths}{%
+One parameter of real consequence, the lookahead, with a physical meaning
+that can be reasoned about rather than tuned blindly. Naturally smooth: it
+cannot produce the discontinuous commands a waypoint-snapping follower does.
+Cheap enough to run at \SI{20}{Hz} beside everything else.}
+&
+\swotcell{swotW}{Weaknesses}{%
+Corner cutting is intrinsic --- the lookahead point is the target, not the
+path --- and the amount cut scales with the lookahead, so the parameter
+trades tracking accuracy against stability with no setting that gives both.
+No feedforward: it reacts to the path, it does not anticipate it. It has no
+model of the actuators, so it will happily command a twist the base cannot
+produce.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+An adaptive lookahead scaled by speed and by local curvature is a small
+change with a measurable effect. The controller is also the natural point of
+comparison for the model-predictive alternative discussed in
+Sec.~\ref{sec:discussion}: identical path, identical disturbance, two
+control laws.}
+&
+\swotcell{swotT}{Threats}{%
+Wheel slip on a wet greenhouse floor breaks the assumption that the commanded
+twist is the achieved twist, and pure pursuit has no mechanism to notice. In
+an aisle with \SI{0.21}{m} of margin per side, uncorrected lateral drift
+reaches the gutter well before the next replan.}
+\\
+\end{swottable}
+
+% ---------------------------------------------------------------------
+\begin{swottable}{Colour-threshold fruit detection}
+\swotcell{swotS}{Strengths}{%
+Runs at frame rate on a CPU with no model, no training set and no dependency
+to install --- which is exactly why it exists: it made the whole mission
+testable months before a learned detector could be. The excess-red form used
+here is invariant to illumination \emph{scale}, so it survives shade.}
+&
+\swotcell{swotW}{Weaknesses}{%
+\measured{69\%} recall and \measured{66 of 111} map estimates matching no
+real berry. It cannot be tuned out of this: the test is invariant to
+illumination scale but not to illumination \emph{colour}, and late-afternoon
+light through glass lowers $G/R$ for the entire scene until every surface
+passes. It has no notion of shape, texture or context, so a red pipe is
+fruit.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+It remains a legitimate baseline, and a strong one for the report: a learned
+detector that does not beat it \emph{on the same images} has proved nothing.
+It also survives as a cheap pre-filter to bound the region a heavier model
+must examine.}
+&
+\swotcell{swotT}{Threats}{%
+Real greenhouse illumination varies far more than the simulated world's, and
+in the direction the threshold is weakest. Every hour of the day is a
+distribution shift, and the failure is silent --- the detector reports
+confident fruit, not an error.}
+\\
+\end{swottable}
+
+% ---------------------------------------------------------------------
+\begin{swottable}{Corroborated fruit map (two passes and a baseline)}
+\swotcell{swotS}{Strengths}{%
+It gives the mission the one thing no detector improvement can supply: the
+ability to \emph{disbelieve} a single observation. The two conditions reject
+different things --- the pass count rejects the transient, the viewpoint
+baseline rejects the view-dependent artefact such as a specular highlight,
+which a detector at \SI{15}{Hz} would otherwise corroborate thirty times from
+effectively one place. It is deliberately ignorant of detector confidence, so
+it keeps working unchanged when the threshold is replaced by a model.}
+&
+\swotcell{swotW}{Weaknesses}{%
+It resolves clusters, not berries, and this is a hard limit rather than a
+tuning choice: measured fruit position error is \SI{0.21}{m} while berries on
+one plant sit \SI{0.05}{m} to \SI{0.20}{m} apart, so the error exceeds the
+spacing. It also costs a scouting pass --- corroboration is not free, it is
+paid for in survey time. A berry visible from only one side of the aisle can
+never accumulate a baseline and is therefore never confirmed.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+The same structure accepts a ripeness estimate per cluster, turning the
+harvest route into a scheduling problem over time rather than a tour over
+positions. Cluster persistence across sessions would let the robot return to
+fruit that was not ready yesterday.}
+&
+\swotcell{swotT}{Threats}{%
+The rule assumes the fruit does not move between passes. Wind through open
+vents, or a picker working the same row, breaks that assumption in the
+direction that costs recall rather than precision --- which is the safer
+direction, but still a loss.}
+\\
+\end{swottable}
+
+% ---------------------------------------------------------------------
+\begin{swottable}{Command-level protective stop with a single owner}
+\swotcell{swotS}{Strengths}{%
+Enforcement is structural rather than procedural: one node writes
+\topicname{cmd\_vel} and no publisher can reach the wheels without passing
+through it, so the guarantee does not depend on every future contributor
+remembering. Clearance is exact geometry validated against brute force
+(Sec.~\ref{sec:safety}), and the same function is used by the guard, by the
+escape manoeuvre and by the commissioning tool that certifies the distance.}
+&
+\swotcell{swotW}{Weaknesses}{%
+It is a single point of failure by construction --- that is the design ---
+so a defect in it is a defect in all containment. It also brakes on a
+geometric criterion alone, with no notion of what the obstacle is: a leaf and
+a person produce the same stop. Cancelling translation while preserving
+rotation is correct for escape but means the robot can still turn in place
+against something it is already touching.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+The structure accepts a second, independent channel --- bumper strips or
+ultrasonic rangefinders --- without redesign, which is the normal route to a
+performance level a certification body will accept.}
+&
+\swotcell{swotT}{Threats}{%
+A software-only protective stop on a kinematically driven base does not
+transfer as-is to a machine with real inertia: the stopping distance becomes
+a dynamic quantity, and ISO~13855 requires it to be measured, not assumed.
+Commissioning stage~0 exists precisely to measure it, and every clearance
+figure in this report is provisional until it does.}
+\\
+\end{swottable}
+
+% ---------------------------------------------------------------------
+\begin{swottable}{Discrete state feedback for visual alignment}
+\swotcell{swotS}{Strengths}{%
+It removes a steady-state error that no proportional gain could: replayed
+against the logged stalls it reaches exactly zero offset where the previous
+law left \SI{0.16}{} to \SI{0.29}{}. The design is analytic --- settling time
+and damping in, gains out --- so the behaviour is specified rather than
+discovered, and the closed-loop poles are asserted in the regression suite.}
+&
+\swotcell{swotW}{Weaknesses}{%
+The model is deliberately minimal, and its gain depends on range, so the
+poles are only verified stable across the \SI{0.3}{} to \SI{2.5}{m} band that
+matters here. It assumes the measured offset is the true offset, which the
+detector's false positives violate. It is single-input, single-output, so it
+cannot coordinate the lateral and heading corrections it is implicitly
+splitting.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+The multivariable extension --- four wheel commands reduced to three body
+degrees of freedom, with the decoupling done in the gain matrix --- is a
+direct continuation and the natural next contribution.}
+&
+\swotcell{swotT}{Threats}{%
+No control law fixes an actuator limit. At \SI{2}{m} an offset of $0.68$
+requires \SI{1.36}{m} of lateral travel, which is \SI{14}{s} at the
+\SI{0.10}{m/s} ceiling against a \SI{12}{s} timeout: the alignment was never
+going to succeed at any gain. The answer there is to refuse the station, not
+to tune the controller, and mistaking one for the other cost several runs.}
+\\
+\end{swottable}
+
+% ---------------------------------------------------------------------
+\begin{swottable}{Simulation-first development with a digital twin}
+\swotcell{swotS}{Strengths}{%
+It permits failures that would be unacceptable on hardware, and it supplies
+ground truth --- the world knows where all \measured{127} berries are ---
+which makes every claim in Sec.~\ref{sec:results} a measurement rather than
+an impression. Iteration is limited by a twenty-minute run, not by a
+greenhouse's availability or a season.}
+&
+\swotcell{swotW}{Weaknesses}{%
+The twin is a model of what was already understood, so it cannot surface a
+phenomenon nobody thought to include, and the sensor models are optimistic in
+exactly the places that matter: the lidar sees glass, the camera has no
+motion blur, the floor does not slip. Success in simulation is evidence about
+the software, not about the robot.}
+\\ \hline
+\swotcell{swotO}{Opportunities}{%
+The gap is narrowable in identified directions: an actuator model with
+transport delay and rate limits, domain-randomised illumination, and
+odometry drift injected from a calibrated model rather than assumed. The
+first of these is implemented and awaiting validation.}
+&
+\swotcell{swotT}{Threats}{%
+The characteristic failure of this method is confidence: a system that has
+only ever succeeded in simulation looks finished. The commissioning stages
+exist to make that confidence expensive to hold, by requiring a measured
+result on hardware before each capability is declared.}
+\\
+\end{swottable}

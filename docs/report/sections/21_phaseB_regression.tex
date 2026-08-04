@@ -1,8 +1,125 @@
 %% =====================================================================
 %%  The Pre-Flight Regression Suite
-%%  SCOPE: 191 checks, each encoding a failure the project actually suffered.
+%%  SCOPE: 341 checks, each encoding a failure the project actually suffered.
 %% =====================================================================
 \subsection{The Pre-Flight Regression Suite}
 \label{sec:regression}
 
-\emph{[Section in preparation.]}
+\subsubsection{The cost that motivated it}
+
+A Gazebo run of this mission takes between twenty and thirty minutes. A run
+that dies in its first second because of a shadowed import, or spends its
+entire survey fighting a mis-set fence, costs half an hour and yields a log
+nobody wants to read. Several such runs were lost before the obvious response
+was adopted: make the cheap failures fail cheaply.
+
+\filename{scripts/check\_regressions.py} is pure Python --- no ROS, no
+Gazebo, no build --- and the whole suite executes in about one second. It is
+run before a simulation, not after.
+
+\subsubsection{The rule: nothing hypothetical}
+
+The suite is not a test suite in the usual sense, and the distinction matters.
+It contains no check written because a check seemed prudent. Every one of the
+\measured{341} encodes a failure this project actually suffered, and each
+carries in its failure message the run it comes from, what was expected, what
+was found, and where to look. A check that has never caught anything is a
+check whose cost is paid every day for a benefit that has never arrived; a
+check derived from a lost afternoon pays for itself the first time it fires.
+
+The consequence is that the file reads as an incident history.
+Table~\ref{tab:regression_families} groups it.
+
+\begin{table}[htbp]
+\caption{The regression families, and the failure each was written after.}
+\label{tab:regression_families}
+\centering\footnotesize
+\begin{tabular}{@{}p{0.28\linewidth}p{0.62\linewidth}@{}}
+\toprule
+\textbf{Family} & \textbf{The failure it encodes} \\
+\midrule
+XML well-formedness &
+A double hyphen inside an XML comment is illegal, and the resulting
+\texttt{ExpatError} names a line in a generated string, not in the file that
+was edited. Two debugging sessions. \\
+Shadowed messages &
+A local module named like a ROS message package silently shadows it, and the
+node dies on the first import at run time, not at build time. \\
+Single fence &
+Two nodes both containing the robot, with different bounds, fight each other
+at the boundary. \\
+Brake is not an override &
+A protective stop that a publisher can bypass is not a protective stop
+(Sec.~\ref{sec:safety}). \\
+Bumper clearance &
+\param{stop\_distance} was measured from the lidar at the centre of a
+\SI{0.58}{m} base, so the brake fired when the wall was \SI{1}{cm} inside the
+robot's own nose. \\
+Corridor geometry &
+The swept band and the footprint reach must be computed rather than assumed,
+and the guard, the escape and the commissioning tool must all use the same
+computation. \\
+Parameters match code &
+A parameter renamed in one node and not in the other, defaulting silently. \\
+Fruit map &
+The corroboration rule: two passes, a viewpoint baseline, and a gate that
+fails open with a warning rather than closed in silence. \\
+Alignment state feedback &
+Closed-loop poles verified against a brute-force simulation, after a sign
+error put a pole at $1.59$. \\
+Label source &
+Training labels must come from the ground-truth catalogue, never from the
+detector being replaced. \\
+Real training data &
+The dataset importer must exist and must refuse to guess a class mapping. \\
+Document builds &
+Both \LaTeX{} documents must actually compile. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Two checks worth describing in full}
+
+Most of the suite tests a property of the source text --- a topic name, a
+parameter default, an import. Two do real computation, and those are the ones
+that have caught genuine mathematical errors.
+
+\textbf{Closed-loop pole placement.} The visual-alignment controller is a
+discrete state feedback whose gains are derived analytically. An input sign
+error placed a closed-loop pole at $1.59$: an unstable law that would have
+driven the base into the plant row. The check computes the eigenvalues of
+$A - BR$ and asserts they lie inside the unit circle, and it caught the error
+before the robot ran. A second version of the same defect then appeared in
+the reporting function, which had kept the pre-fix signs and cheerfully
+described a converging loop as unstable; the check now cross-validates the
+analytic poles against a brute-force simulation of the recursion, so the two
+cannot disagree again.
+
+\textbf{Clearance against brute force.} Equation~\eqref{eq:raybox} is
+verified by translating the footprint rectangle in \SI{0.1}{mm} steps until
+it contains the point, over hundreds of point and direction pairs, and
+asserting agreement to within the reference's own resolution. An analytic
+geometry result that is only inspected by eye is an assumption; one checked
+against a simulation of the thing itself is a result.
+
+\subsubsection{What the suite cannot do, and the lesson from that}
+
+The suite's limits were established the expensive way. An earlier
+\LaTeX{} checker counted braces and verified that every \texttt{begin} had a
+matching \texttt{end}. It passed, and the document did not compile:
+\verb|\degree| is provided by \texttt{gensymb} or \texttt{siunitx}, neither
+of which was loaded, and no amount of brace counting can see an undefined
+control sequence. The document had in fact never been compiled at all.
+
+The rule extracted from that, and now applied throughout, is that a proxy for
+an outcome is not the outcome. The check no longer inspects the \LaTeX{}
+source; it runs \texttt{pdflatex} and requires exit status zero. Likewise the
+perception checks do not assert that a threshold looks reasonable --- they
+instantiate the camera model and verify that a berry at a known position
+projects where the ground truth says it does.
+
+The same principle bounds what the suite is worth. It proves the code still
+means what it meant yesterday. It cannot prove the robot works, and no static
+check ever will; that is what Sec.~\ref{sec:results} and the commissioning
+stages are for. Its claim is narrower and still worth having: of the failure
+modes this project has already paid for, none can return silently.
