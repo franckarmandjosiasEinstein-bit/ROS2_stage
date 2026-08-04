@@ -16,6 +16,9 @@
   <!-- dataset_capture reads worlds/berries.yaml, the ground-truth
        catalogue the world generator writes. -->
   <depend>youbot_gazebo</depend>
+  <!-- the launch files read config/youbot_params.yaml and, on shutdown,
+       scripts/kill_sim.sh out of this package's share directory. -->
+  <exec_depend>youbot_bringup</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

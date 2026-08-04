@@ -59,7 +59,15 @@ from launch_ros.actions import Node
 # tracking the robot. Only move_to (which SNAPS the camera, and would be
 # unusable on a timer) stays conditional on the tracking topic going quiet.
 FOLLOW_ROBOT = (
-    ': gui_follow watchdog; '        # marker: lets run.sh pkill this by name
+    ': gui_follow watchdog; '        # marker: kill_sim.sh finds it by this
+    # DIE WITH THE LAUNCH. This loop is the one process that reliably outlived
+    # a Ctrl-C: bash sitting in `sleep 20` does not act on a signal until the
+    # sleep returns, and if launch is killed outright (terminal closed, SIGKILL)
+    # its OnShutdown handler never runs at all, so nothing ever asks. Checking
+    # that our parent is still there costs nothing and makes the leak
+    # self-healing even when the tidy path is skipped entirely.
+    'parent=$PPID; '
+    'gone() { ! kill -0 "$parent" 2>/dev/null; }; '
     'req=\'data: "youbot"\'; '
     'moveto() { gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
     '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
@@ -74,6 +82,7 @@ FOLLOW_ROBOT = (
     '  2>/dev/null | grep -q youbot; }; '
     'locked=0; '
     'for i in $(seq 1 40); do '
+    '  if gone; then exit 0; fi; '
     '  moveto; track; '
     '  if tracked; then locked=1; break; fi; sleep 1; done; '
     'if [ "$locked" = 1 ]; then '
@@ -83,6 +92,7 @@ FOLLOW_ROBOT = (
     'in the Entity Tree > Follow."; fi; '
     'quiet=0; '
     'while sleep 20; do '
+    '  if gone; then exit 0; fi; '    # the launch is over; so are we
     '  track; '                       # cheap, idempotent, always re-asserted
     '  if tracked; then quiet=0; continue; fi; '
     '  quiet=$((quiet + 1)); '
@@ -103,6 +113,9 @@ def generate_launch_description() -> LaunchDescription:
     robot_desc = (gz_share / "urdf" / "youbot_gz.urdf").read_text()
     bridge_cfg = str(gz_share / "config" / "gz_bridge.yaml")
     params = str(bringup_share / "config" / "youbot_params.yaml")
+    # Every process this launch file starts, and every process THOSE
+    # start, is stopped by this one script on shutdown. See its header.
+    KILL_SIM = str(bringup_share / "scripts" / "kill_sim.sh")
     rviz_cfg = str(bringup_share / "config" / "youbot.rviz")
 
     res_path = os.pathsep.join(
@@ -298,9 +311,14 @@ def generate_launch_description() -> LaunchDescription:
             # A FUNCTION, not a prebuilt action: shutdown can be reached more
             # than once (Ctrl-C racing a node exit), and re-executing the same
             # ExecuteProcess instance is an error. This hands back a new one.
+            # And it calls ONE script, shared by all three launch files.
+            # The inline pkill list that used to live here missed the two
+            # things that actually leak: the gui_follow watchdog (an infinite
+            # `while sleep 20` loop, which does not act on a signal until the
+            # sleep returns) and the gz sim server and GUI, which ros_gz_sim
+            # forks from a ruby wrapper -- launch kills the wrapper and the
+            # two forks keep the world alive. Duplicating the patterns three
+            # times is how they drifted apart in the first place.
             on_shutdown=lambda event, context: [ExecuteProcess(
-                cmd=["bash", "-c", 'pkill -9 -f "gz sim"; pkill -9 -f "gz-sim"; '
-                     'pkill -9 -f "ruby.*gz sim"; pkill -9 -f parameter_bridge; '
-                     'pkill -9 -f rviz2; pkill -9 -f rqt_image_view'],
-                output="screen")])),
+                cmd=["bash", KILL_SIM, "--now", "--quiet"], output="screen")])),
     ])

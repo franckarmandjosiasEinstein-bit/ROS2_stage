@@ -15,6 +15,11 @@ setup(
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
         ("share/" + package_name + "/config", glob("config/*.yaml") + glob("config/*.rviz")),
         ("share/" + package_name + "/urdf", glob("urdf/*.urdf")),
+        # kill_sim.sh is run by every launch file's OnShutdown handler, so it
+        # has to exist in the INSTALL space: a launched stack has no idea
+        # where the source tree is, and --symlink-install is not a promise
+        # anyone should rely on for something that must work at shutdown.
+        ("share/" + package_name + "/scripts", glob("scripts/*.sh")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

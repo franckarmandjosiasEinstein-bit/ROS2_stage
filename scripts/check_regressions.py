@@ -18,6 +18,7 @@ import ast
 import math
 import os
 import re
+import subprocess
 import sys
 import xml.dom.minidom
 
@@ -327,6 +328,98 @@ def check_entry_points() -> None:
                 check(f"{fn}: youbot_control/{exe} is installed",
                       ("youbot_control", exe) in declared,
                       f"no console_script named {exe}")
+
+
+def check_shutdown_is_complete() -> None:
+    """Ctrl-C must stop EVERYTHING, including what launch cannot see.
+
+    `ros2 launch` signals the processes it started and nothing else. Three
+    kinds survive: the gz sim server and GUI (ros_gz_sim forks them from a
+    ruby wrapper, so launch kills the wrapper and the forks live on, holding
+    the world so the next run finds one already loaded); the gui_follow
+    watchdog (an infinite `while sleep 20`, which cannot act on a signal until
+    the sleep returns, and is never signalled at all if launch itself is
+    killed outright); and anything that crashed earlier.
+
+    The cleanup used to be an inline pkill list copied into three launch
+    files, and it named neither of the first two. One script now, and these
+    checks exist to keep it one script."""
+    print("\nshutdown leaves nothing behind")
+    ks_rel = "youbot_bringup/scripts/kill_sim.sh"
+    ks_path = os.path.join(SRC, ks_rel)
+    check("the cleanup script exists", os.path.exists(ks_path),
+          f"{ks_rel} is what every launch file calls on shutdown")
+    if not os.path.exists(ks_path):
+        return
+    ks = read(ks_rel)
+
+    r = subprocess.run(["bash", "-n", ks_path], capture_output=True, text=True)
+    check("and it is valid bash", r.returncode == 0, r.stderr.strip())
+
+    # It must reach the install space, or it is not there when it is needed.
+    check("it is installed into the share directory",
+          'glob("scripts/*.sh")' in read("youbot_bringup/setup.py"),
+          "a launched stack cannot find the source tree")
+
+    # The two leakers must be named.
+    check("it knows about the forked gz sim server and GUI",
+          "'gz sim'" in ks and "'gz-sim'" in ks)
+    check("it knows about the gui_follow watchdog",
+          "gui_follow watchdog" in ks,
+          "the infinite sleep loop is the one that reliably outlives Ctrl-C")
+
+    # And it must not be able to take the user's shell with it.
+    check("it never signals its own ancestors",
+          "PROTECTED" in ks and "victims()" in ks,
+          "pkill -f matches whole command lines; a shell whose command line "
+          "contains one of the patterns would kill itself")
+    check("the kill path goes through the guarded helper, not raw pkill",
+          not re.search(r"^\s*pkill", ks, re.M),
+          "a bare pkill bypasses the ancestry guard")
+    # No pattern may be broad enough to hit something this project did not
+    # start. Read the actual list rather than grepping the whole file, so a
+    # name mentioned in a comment is not mistaken for a pattern.
+    block = re.search(r"^PATTERNS=\((.*?)^\)", ks, re.S | re.M)
+    pats = re.findall(r"^\s*'([^']+)'", block.group(1), re.M) if block else []
+    check("the pattern list was found", bool(pats),
+          "expected PATTERNS=( ... ) in the script")
+    TOO_BROAD = {"python3", "python", "ruby", "ros2", "bash", "sh", "gz",
+                 "ign", "launch", "node", "youbot", "youbot_bringup"}
+    wide = [p for p in pats if p.strip() in TOO_BROAD]
+    check("no pattern would match anything this project did not start",
+          not wide,
+          f"{wide} would reach unrelated processes -- an editor, a notebook, "
+          "or the shell running the script")
+
+    # All three launch files, one script, no local copies.
+    for rel in ("youbot_gazebo/launch/gazebo.launch.py",
+                "youbot_slam/launch/gazebo_slam.launch.py",
+                "youbot_slam/launch/gazebo_slam_toolbox.launch.py"):
+        src = read(rel)
+        name = rel.split("/")[-1]
+        check(f"{name}: shutdown calls kill_sim.sh",
+              "KILL_SIM" in src and "kill_sim.sh" in src)
+        code = "\n".join(l for l in src.splitlines()
+                         if not l.lstrip().startswith("#"))
+        check(f"{name}: no inline pkill list left to drift",
+              "pkill" not in code,
+              "three copies of the patterns is how they stopped agreeing")
+        check(f"{name}: the camera watchdog dies with its parent",
+              "parent=$PPID" in src and "if gone; then exit 0; fi" in src,
+              "if launch is killed outright its OnShutdown never runs, so "
+              "the watchdog has to notice on its own")
+
+    # The watchdog is a shell program built by string concatenation. It has
+    # been broken by a missing semicolon before; run bash over it.
+    ns: dict = {}
+    follow = re.search(r"^FOLLOW_ROBOT = \(.*?^\)$",
+                       read("youbot_slam/launch/gazebo_slam.launch.py"),
+                       re.S | re.M)
+    check("the camera watchdog is still valid bash",
+          follow is not None
+          and (exec(compile(follow.group(0), "<f>", "exec"), ns) or True)
+          and subprocess.run(["bash", "-n", "-c", ns["FOLLOW_ROBOT"]],
+                             capture_output=True).returncode == 0)
 
 
 def check_stuck_detector() -> None:
@@ -1679,6 +1772,7 @@ def main() -> int:
     check_vision_thresholds()
     check_slam_scoring()
     check_preventive_fence()
+    check_shutdown_is_complete()
     check_stuck_detector()
     check_bumper_clearance()
     check_no_crabbing()
