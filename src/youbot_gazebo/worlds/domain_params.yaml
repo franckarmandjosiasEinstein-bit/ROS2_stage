@@ -1,0 +1,11 @@
+# Exact domain-randomisation parameters used for this world -- written by make_world.py so a capture session can record what it varied (ml/README.md sec 2.1).
+preset: None
+seed: 0
+color_temp_k: 5500.0
+sun_elevation_deg: 55.0
+sun_azimuth_deg: 200.0
+sun_intensity: 1.0
+cloud_cover: 0.0
+ripeness_mean: 0.72
+ripeness_spread: 0.3
+n_red_distractors: 6
