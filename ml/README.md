@@ -55,52 +55,30 @@ detector**. 500 images spanning a day beat 5 000 taken in one hour.
 | Wet fruit / specular highlights | splits one berry into two blobs | some |
 | Range 0.3 m to 2.5 m | small-object recall | spread |
 
-A useful first target: **2 000 synthetic + 300–500 real annotated frames**.
-The real ones matter far more per image; the synthetic ones make the model
-stop overfitting to the few real backgrounds you have.
+A useful first target: **1 500–3 000 real annotated frames** (public datasets
+plus, when you can get them, photos of the actual greenhouse). Synthetic frames
+from the twin are an optional supplement on top of that, never the base.
 
 ---
 
 ## 2. Where to get data
 
-You cannot reach the greenhouse. Three sources, in the order you should use
-them.
+**Real images are the training set. The twin is a supplement.**
 
-### 2.1 Your own digital twin — free, perfectly annotated, available tonight
+That order is not a preference, it is the whole point. The model has to work on
+a real greenhouse in real daylight; a model trained on Gazebo renders learns
+Gazebo's shading, Gazebo's textures and Gazebo's perfectly clean fruit, and
+none of those exist on site. Start from real photographs and add renders only
+to fill conditions the real set does not contain.
 
-This is the source you already own and the reason the twin exists. The world
-knows where all 127 berries are, so it writes its own labels:
+The importer that makes this practical is **`import_real.py`** — see §2.2.
 
-```bash
-ros2 launch youbot_gazebo gazebo.launch.py
-ros2 run youbot_slam dataset_capture --ros-args \
-  -p session:=twin_morning -p target_frames:=2000
-```
-
-Output lands in `~/youbot_datasets/<session>/` as `images/`, `labels/`,
-`index.csv` and `dataset.json`, already in YOLO format.
-
-Labels come from the ground-truth catalogue through
-`youbot_slam.lib.berry_view` — **never from the colour detector**. Training on
-the detector's own output would teach the replacement to reproduce its
-two-in-three false positives exactly.
-
-Vary the conditions between sessions and record what you varied:
-
-```bash
-ros2 topic pub -1 /dataset/conditions std_msgs/String \
-  "{data: 'warm light, sun low from the west, north row shaded'}"
-```
-
-**Honest limitation.** A model trained only on Gazebo renders transfers
-poorly. Synthetic data is what stops you overfitting to three real
-backgrounds; it is not a substitute for real images. Plan for fine-tuning.
-
-### 2.2 Public datasets — real images, today, no site access
+### 2.1 Public datasets — real images, today, no site access
 
 Names and descriptions below are from published work. **Verify the current URL
 and the licence yourself before use** — hosting and terms change, and some are
-research-only.
+research-only. You download them (this machine has no outbound access to the
+dataset hosts); the conversion is already written.
 
 **Strawberries**
 
@@ -127,6 +105,54 @@ disease-focused and shot on plain backgrounds — poor context for your problem.
 | **Trans10K** — Xie et al., ECCV 2020 | ~10 400 images of transparent objects, two categories |
 | **GSD** — Glass Surface Detection | Larger, more recent glass-surface data |
 
+### 2.2 Making a downloaded dataset usable — `import_real.py`
+
+A list of dataset names is not a path. Every public set ships in its own
+format and numbers its classes from 0 with its own meanings: StrawDI gives you
+per-instance **PNG masks**, Roboflow gives you YOLO boxes with *its* class ids,
+others give COCO JSON or Pascal VOC XML. `import_real.py` converts all four
+into our layout and our class ids.
+
+**Always start with `--inspect`.** The first real problem with a download is
+working out what it actually is — the archive rarely matches its description.
+
+```bash
+python3 ml/import_real.py --inspect ~/downloads/StrawDI_Db1
+```
+
+It reports the format it detected, how many images and labels it found, the
+source class names when the set carries them, and prints the exact import
+command to run next.
+
+```bash
+# StrawDI-style: images + instance masks, NO ripeness information
+python3 ml/import_real.py --src ~/downloads/StrawDI_Db1 --from strawdi \
+    --default-class ripe_strawberry --out ~/real/strawdi
+
+# Roboflow / Kaggle YOLO export: its class names -> ours
+python3 ml/import_real.py --src ~/downloads/rf_strawberry --from yolo \
+    --map "strawberry=ripe_strawberry,unripe=unripe_strawberry" \
+    --out ~/real/roboflow
+
+# COCO JSON and Pascal VOC exports
+python3 ml/import_real.py --src ~/downloads/set_coco --from coco --map "..." --out ~/real/coco
+python3 ml/import_real.py --src ~/downloads/set_voc  --from voc  --map "..." --out ~/real/voc
+```
+
+Two rules the tool enforces rather than guesses:
+
+- **`--map` is required** for every format that carries class names, and any
+  source class you do not map is **dropped and reported**, never silently
+  folded into class 0. A set whose `strawberry` means *any* strawberry will
+  poison `unripe_strawberry`, which exists precisely as a hard negative.
+- **`--default-class` is required** for mask datasets, because they do not
+  label ripeness — a mask is a strawberry, full stop. Which class they all
+  land in is your decision, and the tool warns you when everything lands in
+  `ripe_strawberry` so you know what the model is being taught.
+
+Output is `<out>/images` and `<out>/labels` in our ids, ready to be handed
+straight to `prepare_dataset.py` as a `real` source.
+
 ### 2.3 Real photographs of the actual greenhouse — the ones that matter most
 
 You do not need to be there. Send someone on site this protocol:
@@ -140,6 +166,36 @@ You do not need to be there. Send someone on site this protocol:
 
 Then annotate them (CVAT, Label Studio, or Roboflow — all free for this size)
 and use them for fine-tuning and, crucially, as the **test set**.
+
+### 2.4 The digital twin — a supplement, not the training set
+
+Once the real data is in, the twin fills gaps in it. Its one advantage is
+perfect ground truth: the world knows where all 127 berries are, so it writes
+its own labels, thousands of them, overnight.
+
+```bash
+ros2 launch youbot_gazebo gazebo.launch.py
+ros2 run youbot_slam dataset_capture --ros-args \
+  -p session:=twin_morning -p target_frames:=2000
+```
+
+Output lands in `~/youbot_datasets/<session>/` as `images/`, `labels/`,
+`index.csv` and `dataset.json`, already in YOLO format. Labels come from the
+ground-truth catalogue through `youbot_slam.lib.berry_view` — **never from the
+colour detector**; training on the detector's own output would teach the
+replacement to reproduce its two-in-three false positives exactly.
+
+Vary the conditions between sessions and record what you varied:
+
+```bash
+ros2 topic pub -1 /dataset/conditions std_msgs/String \
+  "{data: 'warm light, sun low from the west, north row shaded'}"
+```
+
+**Use it for what real data cannot give you**: extreme viewpoints, conditions
+you have no photographs of, and frames where you need the count of berries to
+be exactly right. Do not use it as the bulk of the training set, and **never**
+in the test set — `prepare_dataset.py` refuses that outright.
 
 ---
 
@@ -176,12 +232,18 @@ it on the safety path.
 ```bash
 pip install -r requirements.txt
 
+# 0. Convert the real datasets you downloaded (§2.2).
+python3 import_real.py --inspect ~/downloads/StrawDI_Db1
+python3 import_real.py --src ~/downloads/StrawDI_Db1 --from strawdi \
+    --default-class ripe_strawberry --out ~/real/strawdi
+
 # 1. Merge every source into one YOLO tree with train/val/test splits.
+#    Real sources first — they are the training set.
 python3 prepare_dataset.py \
-    --source ~/youbot_datasets/twin_morning:synthetic \
-    --source ~/youbot_datasets/twin_evening:synthetic \
-    --source ~/downloads/strawdi_yolo:real \
+    --source ~/real/strawdi:real \
+    --source ~/real/roboflow:real \
     --source ~/photos_serre_annotated:real \
+    --source ~/youbot_datasets/twin_morning:synthetic \
     --out ~/strawberry_ds
 
 # 2. (optional but recommended) widen the daylight range offline.

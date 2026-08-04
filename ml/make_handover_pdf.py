@@ -285,51 +285,28 @@ def build() -> str:
         ["Range 0.3 m to 2.5 m", "Small-object recall at range.", "spread evenly"],
     ], [52 * mm, 82 * mm, 34 * mm]))
     s.append(Spacer(1, 4))
-    s.append(P("<b>First target: 2000 synthetic frames + 300 to 500 real "
-               "annotated frames.</b> The real ones matter far more per image; "
-               "the synthetic ones stop the model overfitting to the few real "
-               "backgrounds available."))
+    s.append(P("<b>First target: 1500 to 3000 REAL annotated frames</b> - "
+               "public datasets, plus photographs of the actual greenhouse when "
+               "they can be obtained. Rendered frames from the simulator are an "
+               "optional supplement on top of that, never the base."))
 
     # ---------------------------------------------------------- 3 sources
     s.append(PageBreak())
     s.append(P("3. Where to get the data", "h1"))
+    s.append(P("<b>Real images are the training set. The simulator is a "
+               "supplement.</b> That order is not a preference. The model has "
+               "to work in a real greenhouse in real daylight; a model trained "
+               "on rendered images learns the renderer's shading, the "
+               "renderer's textures and its perfectly clean unoccluded fruit, "
+               "and none of those exist on site. Start from real photographs "
+               "and add renders only to fill conditions the real set does not "
+               "contain.", "warn"))
 
-    s.append(P("3.1 The digital twin - free, perfectly annotated, available tonight",
-               "h2"))
-    s.append(P("The simulated greenhouse knows where all 127 berries are, so "
-               "it writes its own labels. This is the one thing a twin gives "
-               "that a photographer does not: not pictures, but pictures with "
-               "perfect ground truth, thousands of them, overnight."))
-    s.append(Preformatted(wrap_code(
-        "ros2 launch youbot_gazebo gazebo.launch.py\n"
-        "ros2 run youbot_slam dataset_capture --ros-args \\\n"
-        "    -p session:=twin_morning -p target_frames:=2000\n"
-        "\n"
-        "# record the conditions of each session - half the value of the set\n"
-        "ros2 topic pub -1 /dataset/conditions std_msgs/String \\\n"
-        "  \"{data: 'warm light, sun low from the west, north row shaded'}\""),
-        S["shell"]))
-    s.append(P("Output lands in <font face='Courier'>~/youbot_datasets/"
-               "&lt;session&gt;/</font> as <font face='Courier'>images/</font>, "
-               "<font face='Courier'>labels/</font>, "
-               "<font face='Courier'>index.csv</font> and "
-               "<font face='Courier'>dataset.json</font>, already in YOLO "
-               "format."))
-    s.append(P("<b>Labels never come from the colour detector.</b> They are "
-               "projected from the ground-truth berry catalogue through "
-               "<font face='Courier'>youbot_slam.lib.berry_view</font>, the "
-               "same visibility model the scorer uses. Annotating with the "
-               "detector would teach its replacement to reproduce its "
-               "two-in-three false positives exactly.", "note"))
-    s.append(P("<b>Limitation, stated plainly:</b> a model trained only on "
-               "rendered images transfers imperfectly. Synthetic data stops "
-               "overfitting; it does not replace real images. Plan for "
-               "fine-tuning."))
-
-    s.append(P("3.2 Public datasets - real images, today, no site access", "h2"))
+    s.append(P("3.1 Public datasets - real images, today, no site access", "h2"))
     s.append(P("Names and descriptions below come from published work. "
                "<b>Verify the current URL and the licence before use</b> - "
-               "hosting and terms change, and several are research-only."))
+               "hosting and terms change, and several are research-only. You "
+               "download them; the conversion is already written (section 3.2)."))
     s.append(TBL([
         ["Dataset", "What it is", "Notes"],
         ["StrawDI_Db1",
@@ -363,6 +340,54 @@ def build() -> str:
                "disease-focused and shot on plain backgrounds, which is poor "
                "context for this problem."))
 
+    s.append(P("3.2 Making a downloaded dataset usable: import_real.py", "h2"))
+    s.append(P("A list of dataset names is not a path. Every public set ships "
+               "in its own format and numbers its classes from 0 with its own "
+               "meanings: StrawDI gives per-instance <b>PNG masks</b>, Roboflow "
+               "gives YOLO boxes with <i>its</i> class ids, others give COCO "
+               "JSON or Pascal VOC XML. <font face='Courier'>import_real.py"
+               "</font> converts all four into our layout and our class ids, "
+               "so the day normally spent writing converters is already spent."))
+    s.append(P("<b>Always start with --inspect.</b> The first real problem with "
+               "a download is working out what it actually is - the archive "
+               "rarely matches its description. It reports the format it "
+               "detected, the image and label counts, the source class names "
+               "when the set carries them, and prints the exact import command "
+               "to run next.", "note"))
+    s.append(Preformatted(wrap_code(
+        "# 0. What did I actually download?\n"
+        "python3 ml/import_real.py --inspect ~/downloads/StrawDI_Db1\n"
+        "\n"
+        "# StrawDI-style: images + instance masks, NO ripeness information\n"
+        "python3 ml/import_real.py --src ~/downloads/StrawDI_Db1 --from strawdi \\\n"
+        "    --default-class ripe_strawberry --out ~/real/strawdi\n"
+        "\n"
+        "# Roboflow / Kaggle YOLO export: its class names -> ours\n"
+        "python3 ml/import_real.py --src ~/downloads/rf_strawberry --from yolo \\\n"
+        "    --map \"strawberry=ripe_strawberry,unripe=unripe_strawberry\" \\\n"
+        "    --out ~/real/roboflow\n"
+        "\n"
+        "# COCO JSON and Pascal VOC exports take the same --map\n"
+        "python3 ml/import_real.py --src ~/downloads/set_coco --from coco \\\n"
+        "    --map \"...\" --out ~/real/coco"), S["shell"]))
+    s.append(P("Two rules the tool enforces rather than guesses:"))
+    s.extend(BUL([
+        "<b>--map is required</b> for every format that carries class names, "
+        "and any source class not mapped is <b>dropped and reported</b>, never "
+        "silently folded into class 0. A set whose 'strawberry' means <i>any</i> "
+        "strawberry will poison unripe_strawberry, which exists precisely as a "
+        "hard negative.",
+        "<b>--default-class is required</b> for mask datasets, because they do "
+        "not label ripeness - a mask is a strawberry, full stop. Which class "
+        "they all land in is a decision, not a default, and the tool warns when "
+        "everything lands in ripe_strawberry so you know what the model is "
+        "being taught.",
+    ]))
+    s.append(P("Output is <font face='Courier'>&lt;out&gt;/images</font> and "
+               "<font face='Courier'>&lt;out&gt;/labels</font> in our class "
+               "ids, handed straight to <font face='Courier'>prepare_dataset.py"
+               "</font> as a <font face='Courier'>real</font> source."))
+
     s.append(P("3.3 Real photographs of the actual greenhouse - the ones that "
                "matter most", "h2"))
     s.append(P("Site access is not required to obtain these. Send this "
@@ -378,6 +403,33 @@ def build() -> str:
                "this size) and use them for fine-tuning and, crucially, as the "
                "<b>test set</b>. A score measured on rendered images does not "
                "predict a real greenhouse."))
+
+    s.append(P("3.4 The digital twin - a supplement, not the training set", "h2"))
+    s.append(P("Once the real data is in, the simulator fills gaps in it. Its "
+               "one advantage is perfect ground truth: the world knows where "
+               "all 127 berries are, so it writes its own labels, thousands of "
+               "them, overnight."))
+    s.append(Preformatted(wrap_code(
+        "ros2 launch youbot_gazebo gazebo.launch.py\n"
+        "ros2 run youbot_slam dataset_capture --ros-args \\\n"
+        "    -p session:=twin_morning -p target_frames:=2000\n"
+        "\n"
+        "# record the conditions of each session - half the value of the set\n"
+        "ros2 topic pub -1 /dataset/conditions std_msgs/String \\\n"
+        "  \"{data: 'warm light, sun low from the west, north row shaded'}\""),
+        S["shell"]))
+    s.append(P("<b>Labels never come from the colour detector.</b> They are "
+               "projected from the ground-truth berry catalogue through "
+               "<font face='Courier'>youbot_slam.lib.berry_view</font>, the "
+               "same visibility model the scorer uses. Annotating with the "
+               "detector would teach its replacement to reproduce its "
+               "two-in-three false positives exactly.", "note"))
+    s.append(P("Use it for what real data cannot give: extreme viewpoints, "
+               "conditions no photographs exist for, and frames where the berry "
+               "count has to be exactly right. Do not let it become the bulk of "
+               "the training set, and <b>never</b> put it in the test set - "
+               "<font face='Courier'>prepare_dataset.py</font> refuses that "
+               "outright."))
 
     # ---------------------------------------------------------- 4 glass
     s.append(PageBreak())
@@ -414,12 +466,18 @@ def build() -> str:
         "python3 -m venv ~/venv-ml && source ~/venv-ml/bin/activate\n"
         "pip install -r ml/requirements.txt\n"
         "\n"
+        "# 0. Convert the REAL datasets you downloaded (see section 3.2).\n"
+        "python3 ml/import_real.py --inspect ~/downloads/StrawDI_Db1\n"
+        "python3 ml/import_real.py --src ~/downloads/StrawDI_Db1 --from strawdi \\\n"
+        "    --default-class ripe_strawberry --out ~/real/strawdi\n"
+        "\n"
         "# 1. Merge every source into one YOLO tree with honest splits.\n"
+        "#    REAL sources first - they are the training set.\n"
         "python3 ml/prepare_dataset.py \\\n"
-        "    --source ~/youbot_datasets/twin_morning:synthetic \\\n"
-        "    --source ~/youbot_datasets/twin_evening:synthetic \\\n"
-        "    --source ~/downloads/strawdi_yolo:real \\\n"
+        "    --source ~/real/strawdi:real \\\n"
+        "    --source ~/real/roboflow:real \\\n"
         "    --source ~/photos_serre_annotated:real \\\n"
+        "    --source ~/youbot_datasets/twin_morning:synthetic \\\n"
         "    --out ~/strawberry_ds\n"
         "\n"
         "# 2. Widen the daylight range offline (recommended - see section 6).\n"
@@ -529,8 +587,9 @@ def build() -> str:
                "these files, so the listings are by construction the code that "
                "is in the tree. Regenerate after any change."))
 
-    for f in ("classes.yaml", "requirements.txt", "prepare_dataset.py",
-              "augment_daylight.py", "train.py", "predict_to_labels.py"):
+    for f in ("classes.yaml", "requirements.txt", "import_real.py",
+              "prepare_dataset.py", "augment_daylight.py", "train.py",
+              "predict_to_labels.py"):
         listing(f, s)
 
     doc.build(s)

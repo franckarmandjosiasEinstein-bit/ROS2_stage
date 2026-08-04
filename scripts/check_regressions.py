@@ -1170,6 +1170,66 @@ def check_bumper_clearance() -> None:
           "or the guard will veto the direction the escape just chose")
 
 
+def check_real_data_path() -> None:
+    """Real images must stay the training set, and stay reachable.
+
+    The failure this comes from is not a crash, it is a plan that quietly
+    inverted itself. The instruction was "train on real strawberries"; what
+    got built was a synthetic capture pipeline, with the public datasets named
+    in a README and no way to use them. A list of dataset names is not a path:
+    StrawDI ships PNG masks, Roboflow ships its own class ids, and between the
+    name and a usable label file sits a day of converter writing.
+
+    So two things are checked. That the converter exists and refuses to guess
+    the two things it must not guess -- the class mapping and, for mask sets,
+    the ripeness class. And that the handover documents still say real first,
+    because the handover is what the person doing the training reads."""
+    print("\nreal training data")
+    ml = os.path.join(ROOT, "ml")
+
+    def mlread(name):
+        with open(os.path.join(ml, name)) as f:
+            return f.read()
+
+    check("the real-dataset importer exists",
+          os.path.exists(os.path.join(ml, "import_real.py")),
+          "without it 'use StrawDI' is a name, not a path")
+    imp = mlread("import_real.py")
+
+    for fmt in ("strawdi", "yolo", "coco", "voc"):
+        check(f"it reads the {fmt} layout", f'"{fmt}"' in imp)
+    check("--inspect exists, so a download can be identified before import",
+          '"--inspect"' in imp,
+          "the archive rarely matches its description")
+    check("an unmapped source class is dropped, loudly",
+          "DROPPED" in imp,
+          "silently folding it into class 0 mislabels the whole set")
+    check("a class-carrying format cannot be imported without --map",
+          "--map is required" in imp or "requires --map" in imp,
+          "one set's class 0 is not another's")
+    check("a mask dataset cannot be imported without --default-class",
+          "--default-class" in imp and "ripeness" in imp,
+          "masks carry no ripeness; which class they land in is a decision")
+
+    readme = mlread("README.md")
+    pdfgen = mlread("make_handover_pdf.py")
+    check("the README puts real images before the twin",
+          readme.index("Public datasets") < readme.index("digital twin"),
+          "the order of that section is the instruction that was missed once")
+    check("the README documents the importer",
+          "import_real.py" in readme)
+    check("the handover PDF says real first, twin as supplement",
+          "supplement, not the training set" in pdfgen)
+    check("the handover PDF lists the importer's source",
+          '"import_real.py"' in pdfgen,
+          "the colleague doing the training reads the PDF, not the tree")
+    check("the generated PDF is newer than the sources it was built from",
+          os.path.getmtime(os.path.join(ml, "training_handover.pdf"))
+          >= max(os.path.getmtime(os.path.join(ml, n))
+                 for n in ("import_real.py", "make_handover_pdf.py")),
+          "regenerate with: python3 ml/make_handover_pdf.py")
+
+
 def main() -> int:
     print("pre-flight regression checks")
     check_xml_wellformed()
@@ -1191,6 +1251,7 @@ def main() -> int:
     check_latex_builds()
     check_drive_model_chain()
     check_label_source()
+    check_real_data_path()
     check_fruit_projection()
 
     print()
