@@ -271,7 +271,7 @@ class SafetyNode(Node):
             my = min(my, self._fy - abs(cy))
         return mx, my
 
-    def _watch_pin(self, want, got) -> None:
+    def _watch_pin(self, want, got, blocked, fenced) -> None:
         """Say so when a real command arrives and nothing reaches the wheels.
 
         The guard can cancel a command three ways and only two of them speak.
@@ -300,15 +300,27 @@ class SafetyNode(Node):
             return
         x, y, yaw = self._pose
         mx, my = self._fence_margin(x, y, yaw)
+        # Name the layer that actually did it, from what each one returned --
+        # not from an assumption written into the message.
+        if fenced:
+            why = ("the preventive FENCE is holding the base: rotating from "
+                   "here sweeps a corner out, so the turn is refused, and the "
+                   "follower will not translate until it has turned")
+        elif blocked:
+            why = ("the BRAKE is holding the base -- something is inside the "
+                   "swept corridor (see the 'Translation held' line for "
+                   "where). The fence is not involved")
+        else:
+            why = ("NEITHER the brake nor the fence touched this command, so "
+                   "it arrived at (or below) zero already -- look upstream, "
+                   "at whoever is publishing it")
         self.get_logger().warn(
             "PINNED for %.0f s: (%+.2f, %+.2f, %+.2f) keeps arriving and "
             "NOTHING reaches the wheels. Pose (%+.2f, %+.2f, %+.0f deg); the "
             "footprint has %.03f m to the x fence and %.03f m to the y fence. "
-            "The preventive fence is holding the base -- rotating from here "
-            "sweeps a corner out, so the turn is refused, and the follower "
-            "will not translate until it has turned."
+            "%s."
             % (held, want[0], want[1], want[2], x, y, math.degrees(yaw),
-               mx, my),
+               mx, my, why),
             throttle_duration_sec=10.0)
 
     def _fence(self):
@@ -465,7 +477,19 @@ class SafetyNode(Node):
         # Preventive fence LAST, so it also vets the recentring push: that one
         # is the reason the base drifted into the margin in the first place --
         # it shoves sideways off a flank without knowing where the wall is.
+        #
+        # Keep what the fence was HANDED, so _watch_pin can tell which layer
+        # actually stopped the base. The first version of that message simply
+        # asserted "the preventive fence is holding the base", and it was
+        # wrong most of the time: it fired whenever the brake cancelled a
+        # translation and the follower happened to command no rotation, which
+        # is the ordinary protective stop. The log then reported the base
+        # PINNED by the fence 4.03 m away from the fence. A diagnostic that
+        # names the wrong subsystem is worse than none: it sends the next
+        # hour of debugging in the wrong direction.
+        pre = (vx, vy, wz)
         vx, vy, wz = self._keep_inside(vx, vy, wz)
+        fenced = any(abs(a - b) > 1e-6 for a, b in zip(pre, (vx, vy, wz)))
         out.linear.x, out.linear.y, out.angular.z = vx, vy, wz
         self.pub.publish(out)
         # NOT an override. The brake scales the commanded direction down; the
@@ -475,7 +499,7 @@ class SafetyNode(Node):
         # berry sitting at offset +0.01 -- dead centre -- because standing
         # next to a gutter naturally trips the brake.
         self.override_pub.publish(Bool(data=False))
-        self._watch_pin(want, (vx, vy, wz))
+        self._watch_pin(want, (vx, vy, wz), blocked, fenced)
 
         if blocked:
             if self._blocked_since is None:
