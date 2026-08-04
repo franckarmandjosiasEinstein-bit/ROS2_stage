@@ -1,0 +1,15 @@
+# Private keys are generated on first run and must never be committed.
+# A repository that has held a private key must be treated as having
+# published it -- rotating is the only fix, so the cheap defence is here.
+keys/
+*.pem
+
+# Runtime output: the Cloud's store, photographs, exports.
+store/
+*.db
+
+# Python
+__pycache__/
+*.egg-info/
+build/
+dist/

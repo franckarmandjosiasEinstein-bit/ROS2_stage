@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agri-cloud"
+version = "0.1.0"
+description = "Smart-agriculture: a mobile robot node reporting sealed plant measurements to a Cloud"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=41",   # ECDH / ECDSA / AES-GCM  (agri.crypto_ecc)
+    "qrcode>=7.4",        # QR encoding             (agri.qrcodec)
+    "pillow>=10",         # images                  (qrcode, photos)
+    "paho-mqtt>=1.6",     # robot <-> Cloud transport
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# The Cloud verifies every QR it receives, so it needs a DECODER. zxing-cpp
+# is listed first because it reads all 48 station codes; OpenCV's detector
+# fails to locate two of them (see agri/qrcodec.py). Either alone will work,
+# both together is what the test suite runs against.
+cloud = ["zxing-cpp>=2.2", "opencv-python-headless>=4.8"]
+
+[project.scripts]
+agri-cloud = "agri.cloud.server:main"
+agri-world = "agri.world.make_world:main"
+agri-keys = "agri.keys:main"
+
+[tool.setuptools.packages.find]
+include = ["agri*"]
+
+[tool.setuptools.package-data]
+"agri.cloud" = ["dashboard/*"]
