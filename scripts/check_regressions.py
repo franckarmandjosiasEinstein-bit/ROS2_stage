@@ -46,6 +46,14 @@ def read(*parts) -> str:
         return f.read()
 
 
+def _const(src: str, name: str) -> float:
+    """Value of a module-level numeric constant, or nan if it is not there.
+    Checking the NUMBER and not just the name is what catches a threshold
+    quietly tuned to zero."""
+    m = re.search(rf"^{name}\s*=\s*([-+]?[\d.]+)", src, re.M)
+    return float(m.group(1)) if m else float("nan")
+
+
 # --------------------------------------------------------------------------
 def check_xml_wellformed() -> None:
     """`--` inside an XML comment is illegal, and the resulting ExpatError
@@ -906,6 +914,32 @@ def check_fruit_map() -> None:
     check("and only when it is actually short of the goal",
           "d < ARRIVAL_TOLERANCE" in mis,
           "a normal arrival must stay a normal arrival")
+
+    # ...and only when the completion is about the CURRENT goal. It normally
+    # is not: _tick sees the same arrival first and advances, so by the time
+    # path_done is handled self._goal is the NEXT waypoint -- never driven
+    # toward, no plan published for it, a whole greenhouse away. The handler
+    # then abandoned it unseen. Reach (-4.25, -1.78) at 1785843518.627; at
+    # 1785843518.646, nineteen milliseconds later, "the plan ended 8.58 m
+    # short of goal survey (+4.25, -1.78)". Every arrival ate the waypoint
+    # after it: four of eight survey stations, half the patrol, and 93
+    # clusters proposed with none corroborated because the second viewpoint
+    # was always at a station that got skipped.
+    done = re.search(r"def _on_path_done\(self.*?(?=\n    def )", mis, re.S)
+    done = done.group(0) if done else ""
+    check("a completion is ignored unless the goal was actually SENT",
+          "self._goal_sent" in done,
+          "_set_goal updates self._goal a tick before _send_goal publishes "
+          "it; a stale completion landing in that window abandons a goal "
+          "the robot has never seen")
+    check("and unless it has been live long enough to be about that goal",
+          "PATH_DONE_GRACE" in done and "PATH_DONE_GRACE" in mis,
+          "the follower's 'done' refers to the path it just drove, not to "
+          "whatever the mission has moved on to")
+    check("the grace period outlasts a planning cycle",
+          _const(mis, "PATH_DONE_GRACE") >= 2.0,
+          "planning_node takes over a second to publish the first plan for a "
+          "new goal; a shorter grace lets the old completion through anyway")
 
     check("an empty map fails OPEN and says so",
           "the fruit map is EMPTY" in mis,

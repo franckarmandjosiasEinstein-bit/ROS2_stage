@@ -88,6 +88,11 @@ ARRIVAL_TOLERANCE = 0.30   # m
 DEDUP_DIST = 0.6           # m: merge detections into one crate
 GOAL_TIMEOUT = 60.0        # s: abandon a goal we can't reach, advance to next
                            # (long enough for the far depot diagonal)
+PATH_DONE_GRACE = 3.0      # s a goal must have been live before "the plan
+                           # finished" can possibly be about THAT goal. The
+                           # follower's completion refers to the path it just
+                           # drove, and the mission has usually moved on by the
+                           # time it arrives -- see _on_path_done.
 PICK_TIMEOUT = 20.0        # s: max wait for one arm pick cycle before resuming
 RIPE_MIN = 1               # ripe clusters in view to stop and align
 LOST_GRACE = 2.0           # s the fruit may be absent before alignment is
@@ -245,11 +250,35 @@ class MissionNode(Node):
         goal re-issued, at (-3.80, +0.60), for twenty-eight minutes. Take the
         follower at its word and move on, saying how short it fell so a
         systematic shortfall is visible rather than merely survived.
+
+        WHOSE PATH, THOUGH. The follower says "done" about the path it just
+        drove. By the time that lands here the mission has normally already
+        advanced -- _on_arrival fires from _tick within milliseconds of the
+        same arrival -- so self._goal is the NEXT waypoint, one the robot has
+        never driven toward and for which no plan has even been published. The
+        distance to it is then a whole greenhouse, and this handler abandoned
+        it on the spot. The log is unambiguous: reach (-4.25, -1.78), and 16 ms
+        later "the plan ended 8.58 m short of goal survey (+4.25, -1.78)".
+
+        So EVERY arrival silently consumed the waypoint after it. The survey
+        visited four of its eight stations, the scout half of its patrol, and
+        that is why 93 clusters were proposed and none corroborated: the second
+        viewpoint each one needed was at a station the robot never went to.
+
+        Two guards. The goal must actually have been SENT -- _set_goal updates
+        self._goal but _send_goal publishes it a tick later, and that window is
+        where the log's example lands -- and it must have been live long enough
+        for a plan to exist and be driven.
         """
         if not msg.data or self._goal is None or self._picking or self._aligning:
             return
         if self._pose is None:
             return
+        if not self._goal_sent or self._goal_time is None:
+            return                      # belongs to the previous goal
+        if self.get_clock().now().nanoseconds * 1e-9 - self._goal_time \
+                < PATH_DONE_GRACE:
+            return                      # too soon to be about this goal
         d = math.hypot(self._goal[0] - self._pose[0],
                        self._goal[1] - self._pose[1])
         if d < ARRIVAL_TOLERANCE:
