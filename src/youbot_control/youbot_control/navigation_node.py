@@ -66,6 +66,11 @@ class NavigationNode(Node):
         self.declare_parameter("base_length", 0.58)
         self.declare_parameter("base_width", 0.38)
         self.declare_parameter("min_valid_range", 0.30)
+        # How stale a pose may be before the follower refuses to steer on it.
+        # One second is twenty control periods: long enough to ride out a
+        # dropped message, short enough that a dead pose source is named
+        # within a second instead of after twelve minutes.
+        self.declare_parameter("pose_timeout", 1.0)       # s
         # Repeated stucks within this radius = the same trap, not bad luck.
         self.declare_parameter("trap_radius", 0.40)      # m
         self.declare_parameter("trap_count", 3)          # then give the goal up
@@ -82,9 +87,19 @@ class NavigationNode(Node):
         self._hl = float(self.get_parameter("base_length").value) / 2.0
         self._hw = float(self.get_parameter("base_width").value) / 2.0
         self._min_range = float(self.get_parameter("min_valid_range").value)
+        self._pose_timeout = float(self.get_parameter("pose_timeout").value)
         self._trap_r = float(self.get_parameter("trap_radius").value)
         self._trap_n = int(self.get_parameter("trap_count").value)
         self._pose = None
+        # When the last pose arrived. A pose that STOPS ARRIVING is invisible
+        # otherwise: self._pose keeps its final value, the follower keeps
+        # steering toward a lookahead point from a position the robot left
+        # long ago, and nothing in the log says why the robot is not moving.
+        # That is exactly what a run looked like -- the truth pose frozen at
+        # (-4.45, 1.86) for twelve minutes while the mission cheerfully issued
+        # goals and the planner cheerfully planned to them.
+        self._pose_t = None
+        self._pose_lost = False
         self._last_wp = None
         self._reached_logged = False
         self._held = False       # mission owns /cmd_vel during align + pick
@@ -116,6 +131,7 @@ class NavigationNode(Node):
     def _on_odom(self, msg: Odometry) -> None:
         p = msg.pose.pose
         self._pose = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
+        self._pose_t = self._now()
 
     def _on_scan(self, msg: LaserScan) -> None:
         pts = []
@@ -250,7 +266,37 @@ class NavigationNode(Node):
                     "-- nothing is driving. Check mission_node is alive.",
                     throttle_duration_sec=20.0)
             return
-        if self._pose is None or self.controller.is_finished():
+        if self._pose is None:
+            self.get_logger().warn(
+                "No pose has EVER arrived -- nothing can drive. Check the "
+                "pose source is publishing (slam_node / odom_tf).",
+                throttle_duration_sec=10.0)
+            self._publish(0.0, 0.0, 0.0)
+            return
+        # A pose that stopped arriving is worse than no pose at all: every
+        # consumer keeps working on a position the robot has left, and the
+        # only symptom is a robot that does not move. Refuse to steer on a
+        # stale pose, and NAME the fault.
+        age = self._now() - self._pose_t
+        if age > self._pose_timeout:
+            if not self._pose_lost:
+                self._pose_lost = True
+                self.get_logger().error(
+                    f"POSE STALE: nothing has arrived for {age:.1f} s. The "
+                    "robot is stopped on purpose -- steering on a stale pose "
+                    "drives blind. The pose source (slam_node) has gone "
+                    "silent; the mission and the planner do NOT know this and "
+                    "will keep issuing goals.")
+            else:
+                self.get_logger().error(
+                    f"POSE STALE for {age:.0f} s -- still stopped.",
+                    throttle_duration_sec=15.0)
+            self._publish(0.0, 0.0, 0.0)
+            return
+        if self._pose_lost:
+            self._pose_lost = False
+            self.get_logger().info("Pose is flowing again -- resuming.")
+        if self.controller.is_finished():
             self._publish(0.0, 0.0, 0.0)
             return
         status, vx, vy, wz = self.controller.step(*self._pose)

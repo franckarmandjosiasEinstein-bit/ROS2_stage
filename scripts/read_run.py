@@ -26,6 +26,7 @@ expensive failure in this project was a subsystem that was silently off.
 
 from __future__ import annotations
 
+import math
 import re
 import sys
 
@@ -191,6 +192,50 @@ def guard(lines, out):
     out.append(it)
 
 
+def moving(lines, out):
+    """Did the robot actually MOVE?
+
+    This item exists because a run passed every other test while the robot
+    stood still for twelve minutes. truth_monitor reported the same pose
+    (-4.45, 1.86, 93 deg) forty times over, the mission issued goals, the
+    planner planned to them, and nothing anywhere said "the base is not
+    moving". The reading grid did not catch it either, which is the more
+    embarrassing half.
+
+    The truth pose is the honest witness: it comes from the simulator, not
+    from any estimator that could itself be the thing that died.
+    """
+    it = Item("the robot moves", "a frozen base passes every other test")
+    poses = re.findall(r"truth pose ([-+]?[\d.]+), ([-+]?[\d.]+)", "".join(lines))
+    if len(poses) < 3:
+        it.detail = "fewer than three truth reports -- too short to tell"
+        out.append(it)
+        return
+    pts = [(float(x), float(y)) for x, y in poses]
+    # Longest run of consecutive IDENTICAL truth poses.
+    longest, run = 1, 1
+    for a, b in zip(pts, pts[1:]):
+        run = run + 1 if a == b else 1
+        longest = max(longest, run)
+    total = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+    if longest >= 5:
+        it.verdict = BAD
+        it.detail = (f"FROZEN: the same truth pose {pts[-1]} repeated "
+                     f"{longest} times in a row. The base stopped and nothing "
+                     "said so. Look for 'POSE STALE' -- and if it is absent, "
+                     "the pose was flowing and something else stopped the "
+                     "wheels.")
+    elif total < 5.0:
+        it.verdict = WARN
+        it.detail = (f"only {total:.1f} m of truth motion across the whole "
+                     "run -- barely moved")
+    else:
+        it.verdict = OK
+        it.detail = (f"{total:.1f} m of truth motion, longest stationary "
+                     f"stretch {longest} reports")
+    out.append(it)
+
+
 def timing(lines, out):
     """The time budget. Baseline: 39% of the harvest phase in failed aligns."""
     it = Item("time budget", "39% working is the number to beat")
@@ -214,7 +259,7 @@ def main(argv) -> int:
         lines = fh.readlines()
 
     items: list[Item] = []
-    for fn in (head, located, alignment, fruitmap, guard, timing):
+    for fn in (head, located, moving, alignment, fruitmap, guard, timing):
         fn(lines, items)
 
     print(f"\nrun verdict -- {argv[1]}, {len(lines)} lines\n")
@@ -233,11 +278,11 @@ def main(argv) -> int:
               "means anything.\n")
         return 1
     if fails:
-        print(f"  {len(fails)} of 6 failed. Fix those before reading the "
+        print(f"  {len(fails)} of 7 failed. Fix those before reading the "
               "numbers.\n")
         return 1
     if unknown:
-        print(f"  {len(unknown)} of 6 UNKNOWN -- the log does not say. That "
+        print(f"  {len(unknown)} of 7 UNKNOWN -- the log does not say. That "
               "is not a pass.\n")
         return 1
     print("  Nothing in the grid failed. The numbers are worth comparing.\n")
