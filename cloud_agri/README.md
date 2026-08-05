@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 117 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 121 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -47,9 +47,31 @@ its own; it never writes to them, and the test suite asserts that.
 
 ```bash
 cd cloud_agri
-pip install -e ".[cloud]"        # the [cloud] extra adds the QR decoders
 sudo apt install mosquitto mosquitto-clients      # the MQTT broker
+
+# Ubuntu 24.04 and any other PEP 668 distribution refuse a system-wide pip
+# install ("externally-managed-environment"). Use a virtual environment --
+# and create it with --system-site-packages, or ROS 2 will vanish from it.
+python3 -m venv --system-site-packages ~/.venvs/agri
+source ~/.venvs/agri/bin/activate
+pip install -e ".[cloud]"        # the [cloud] extra adds the QR decoders
 ```
+
+**`--system-site-packages` is not optional if you intend to run the robot.**
+`rclpy`, `sensor_msgs` and the rest of ROS 2 are installed system-wide by
+apt; a plain `python3 -m venv` hides them, and `ros2 launch agri_robot ...`
+then fails to import `rclpy` — or, with the venv deactivated, fails to import
+`agri`. With `--system-site-packages` one interpreter sees both. Order for a
+session that uses Gazebo:
+
+```bash
+source ~/.venvs/agri/bin/activate     # first: gives you agri
+source /opt/ros/jazzy/setup.bash      # then:  gives you ros2
+source install/setup.bash             # then:  gives you agri_robot
+```
+
+If you only want the offline demo and the dashboard, a plain venv is fine and
+ROS is never needed.
 
 `[cloud]` pulls in **zxing-cpp** and **opencv-python-headless**. The Cloud
 re-reads every QR image it receives and checks it against the numbers that
@@ -289,7 +311,7 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-117 checks, about ten seconds, nothing installed beyond the dependencies. It
+121 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the

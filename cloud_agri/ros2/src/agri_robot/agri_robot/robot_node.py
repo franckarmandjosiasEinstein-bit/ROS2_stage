@@ -47,7 +47,7 @@ from rclpy.node import Node
 
 from agri import keys
 from agri.protocol import (DEFAULT_BROKER, DEFAULT_PORT, QOS, TOPIC_REQUEST,
-                           TOPIC_STATUS)
+                           TOPIC_STATUS, mqtt_client)
 from agri.robot import Mission, RobotLink, Visitor
 from agri.sensors import GreenhouseField
 from agri_robot.driver import DriveError, GazeboDriver
@@ -95,12 +95,9 @@ class AgriRobot(Node):
 
     # ------------------------------------------------------------- startup
     def connect(self) -> bool:
-        import paho.mqtt.client as mqtt              # noqa: PLC0415
-
         host = self.get_parameter("broker").value
         port = int(self.get_parameter("broker_port").value)
-        self.client = mqtt.Client(client_id=f"agri-{self.robot_id}",
-                                  protocol=mqtt.MQTTv311)
+        self.client = mqtt_client(f"agri-{self.robot_id}")
         self.link = RobotLink(self.visitor, self.cloud_public, self.client,
                               log=self.get_logger().info)
 

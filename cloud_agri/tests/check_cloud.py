@@ -454,6 +454,47 @@ def check_end_to_end() -> None:
               len(cloud.rejected) == 1 and cloud.state()["summary"]["rejected"] == 1)
 
 
+def check_mqtt_compat() -> None:
+    """paho-mqtt 2.0 changed the Client constructor. Both sides build one.
+
+    This is the kind of break that never shows up in a test suite because
+    the suite runs offline: everything passes, and then the broker side
+    fails on the machine that has the newer paho -- which is the machine the
+    demonstration is on.
+    """
+    print("\nMQTT client construction (paho 1.x and 2.x)")
+    from agri.protocol import mqtt_client
+
+    server = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+            / "robot_node.py").read_text()
+    for name, src in (("the Cloud", server), ("the robot node", node)):
+        check(f"{name} builds its client through the compatibility helper",
+              "mqtt_client(" in src and "mqtt.Client(" not in src,
+              "calling mqtt.Client directly breaks on paho 2.x")
+
+    try:
+        import paho.mqtt.client  # noqa: F401
+    except ImportError:
+        check("paho is installed, so the helper can be exercised", False,
+              "pip install paho-mqtt")
+        return
+
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")          # a warning here IS the bug
+        try:
+            client = mqtt_client("preflight")
+            check("a client is built without a deprecation warning", True)
+        except Exception as exc:                # noqa: BLE001
+            check("a client is built without a deprecation warning", False,
+                  f"{type(exc).__name__}: {exc}")
+            return
+    check("and it has the four methods the system uses",
+          all(hasattr(client, m) for m in
+              ("publish", "subscribe", "will_set", "connect")))
+
+
 def check_aisles() -> None:
     """The route geometry, swept over every pair of stations.
 
@@ -705,7 +746,8 @@ def check_hygiene() -> None:
 def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_qr,
-               check_sensors, check_aisles, check_vision, check_world,
+               check_sensors, check_mqtt_compat, check_aisles, check_vision,
+               check_world,
                check_ros_package, check_end_to_end, check_demo,
                check_hygiene):
         fn()

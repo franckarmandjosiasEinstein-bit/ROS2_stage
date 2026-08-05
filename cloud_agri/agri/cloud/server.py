@@ -47,7 +47,7 @@ from agri.measurement import QUANTITIES
 from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, QOS,
                            TOPIC_ACK, TOPIC_REPORT, TOPIC_REQUEST,
                            TOPIC_STATUS, ProtocolError, expand_targets,
-                           make_request)
+                           make_request, mqtt_client)
 from agri.sensors import ANOMALIES
 
 DASHBOARD = Path(__file__).parent / "dashboard"
@@ -247,10 +247,8 @@ def main(argv: list[str] | None = None) -> int:
                          "comma-separated list. Then keep running.")
     args = ap.parse_args(argv)
 
-    import paho.mqtt.client as mqtt                  # noqa: PLC0415
-
     cloud = Cloud(Store(args.store), args.keys)
-    client = mqtt.Client(client_id="agri-cloud", protocol=mqtt.MQTTv311)
+    client = mqtt_client("agri-cloud")
 
     def publish(topic: str, payload: str) -> None:
         client.publish(topic, payload, qos=QOS)

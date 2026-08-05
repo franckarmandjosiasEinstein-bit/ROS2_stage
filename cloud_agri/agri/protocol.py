@@ -67,6 +67,35 @@ class ProtocolError(ValueError):
     pass
 
 
+def mqtt_client(client_id: str):
+    """A paho client, built the way THIS paho wants to be built.
+
+    paho-mqtt 2.0 added a mandatory first argument, `callback_api_version`,
+    and changed the signature of on_connect along with it. 2.1 still defaults
+    to the old behaviour but prints a DeprecationWarning every time, and a
+    later release will not default at all. Both sides of this system create a
+    client, so the version dance happens once, here, rather than twice and
+    differently.
+
+    VERSION1 is chosen deliberately over VERSION2: under V2, on_connect gets
+    a ReasonCode object instead of an integer, and the callbacks in server.py
+    and robot_node.py test it with `if rc:`. Moving to V2 means changing that
+    test in both places at the same moment -- a change worth making on
+    purpose, not as a side effect of somebody's pip upgrade.
+    """
+    import warnings                                    # noqa: PLC0415
+
+    import paho.mqtt.client as mqtt                    # noqa: PLC0415
+
+    api = getattr(mqtt, "CallbackAPIVersion", None)
+    if api is None:                                    # paho 1.x
+        return mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv311)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return mqtt.Client(api.VERSION1, client_id=client_id,
+                           protocol=mqtt.MQTTv311)
+
+
 # ---------------------------------------------------------------- request
 def make_request(request_id: str, targets: str | list[str]) -> dict[str, Any]:
     """A work order. `targets` is ALL, one label, or a list of labels."""
