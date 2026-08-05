@@ -13,18 +13,35 @@ until the generators have been run, which is a worse first impression than a
 clear error at launch.
 """
 
+import os
 from glob import glob
 from pathlib import Path
 
 from setuptools import find_packages, setup
 
 package_name = "agri_robot"
-# cloud_agri/, four levels up from ros2/src/agri_robot/setup.py
-PROJECT = Path(__file__).resolve().parents[3]
+HERE = Path(__file__).resolve().parent
+# cloud_agri/, three levels up from ros2/src/agri_robot/
+PROJECT = HERE.parents[2]
 
 
 def generated(kind: str, pattern: str) -> list:
-    files = sorted(str(p) for p in (PROJECT / kind).glob(pattern))
+    """The generated assets, as paths RELATIVE to this file's directory.
+
+    Relative is not a style choice. colcon asserts it:
+
+        AssertionError: 'data_files' must be relative,
+        '/.../cloud_agri/worlds/greenhouse_cloud.sdf' is absolute
+
+    -- and it asserts it at BUILD time, so an absolute path here does not
+    produce a subtly wrong install, it produces a package that will not
+    build at all. The paths climb out of the package with '../../..'
+    because the world and the robot belong to cloud_agri, not to this ROS
+    package: they are generated from the catalogue and are shared with the
+    Cloud and the test suite, which have no idea ROS exists.
+    """
+    files = sorted(os.path.relpath(p, HERE)
+                   for p in (PROJECT / kind).glob(pattern))
     return [(f"share/{package_name}/{kind}", files)] if files else []
 
 

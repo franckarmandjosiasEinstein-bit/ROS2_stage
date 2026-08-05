@@ -689,6 +689,37 @@ def check_ros_package() -> None:
 
     check("the node is exposed as a console script",
           "robot_node = agri_robot.robot_node:main" in setup)
+
+    # colcon runs exactly this assertion at BUILD time:
+    #   AssertionError: 'data_files' must be relative, '/...' is absolute
+    # so an absolute path here is not a subtly wrong install, it is a
+    # package that does not build. Run setup.py with setup() stubbed out and
+    # check every entry, which is cheaper than owning a ROS installation.
+    import runpy                                       # noqa: PLC0415
+    import setuptools                                  # noqa: PLC0415
+
+    captured: dict = {}
+    real_setup, cwd = setuptools.setup, os.getcwd()
+    setuptools.setup = lambda **kw: captured.update(kw)
+    try:
+        os.chdir(pkg)
+        runpy.run_path("setup.py", run_name="__main__")
+    finally:
+        setuptools.setup = real_setup
+        os.chdir(cwd)
+
+    entries = [(dest, src) for dest, srcs in captured.get("data_files", [])
+               for src in srcs]
+    check("setup.py declares some data_files at all", bool(entries))
+    absolute = [s for _, s in entries if os.path.isabs(s)]
+    check("every data_files path is relative, as colcon requires",
+          not absolute, f"absolute: {absolute}")
+    missing = [s for _, s in entries if not (pkg / s).exists()]
+    check("and every one of them exists", not missing, f"missing: {missing}")
+    installed = {os.path.basename(s) for _, s in entries}
+    check("the generated world and robot are among them",
+          {"greenhouse_cloud.sdf", "youbot_agri.urdf"} <= installed,
+          f"only {sorted(installed)}")
     check("the launch file installs and uses the GENERATED assets",
           "greenhouse_cloud.sdf" in launch and "youbot_agri.urdf" in launch
           and "worlds" in setup and "urdf" in setup)
