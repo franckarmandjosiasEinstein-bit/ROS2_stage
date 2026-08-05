@@ -121,9 +121,10 @@ mosquitto -p 1883 -v
 # 2. the Cloud
 agri-cloud --keys keys --store store            # dashboard on :8088
 
-# 3. the robot, in Gazebo
-cd ../          # the colcon workspace
-colcon build --symlink-install --packages-select agri_robot
+# 3. the robot, in Gazebo -- from the WORKSPACE root, not from cloud_agri/
+cd ..
+colcon build --symlink-install \
+    --base-paths cloud_agri/ros2/src --packages-select agri_robot
 source install/setup.bash
 ros2 launch agri_robot agri.launch.py
 ```
@@ -132,6 +133,20 @@ Then either press **SURVEY** on the dashboard, or:
 
 ```bash
 agri-cloud --keys keys --store store --request "P2,4R,P2,4L"
+```
+
+`--base-paths` is needed because `agri_robot` lives under
+`cloud_agri/ros2/src/`, not in the workspace's own `src/`, which is Phase B's
+and stays Phase B's. `install/`, `build/` and `log/` are shared, so the two
+projects coexist in one workspace without either knowing about the other.
+
+`--symlink-install` is worth the flag here: the launch file then resolves back
+into the source tree and finds the generated world and robot even if
+`setup.py`'s data files did not land where you expected. If it ever cannot
+find them, it says so and tells you to set `AGRI_HOME`:
+
+```bash
+export AGRI_HOME=/path/to/cloud_agri
 ```
 
 Stopping the launch stops everything, including the processes `gz sim` forks

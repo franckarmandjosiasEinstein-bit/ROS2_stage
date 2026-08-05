@@ -60,7 +60,25 @@ URDF = "urdf/youbot_agri.urdf"
 
 
 def _source_root() -> Path | None:
-    """cloud_agri/ in a source tree, for running without installing."""
+    """cloud_agri/ in a source tree, for running without installing.
+
+    Three ways, in order of how much they can be trusted:
+
+      AGRI_HOME       said explicitly by whoever is launching. Always wins.
+      walking up      works from a source checkout, and from an install made
+                      with --symlink-install, because __file__ then resolves
+                      back through the symlink into the source tree.
+      (nothing)       a plain colcon install, where the only copy is the one
+                      setup.py placed in share/.
+
+    The environment variable exists because that last case depends on
+    setup.py's data_files having worked, and that is exactly the kind of
+    thing that behaves differently on one machine. One export turns a
+    mysterious empty world into a fixed problem.
+    """
+    named = os.environ.get("AGRI_HOME")
+    if named and (Path(named) / WORLD).exists():
+        return Path(named)
     for parent in Path(__file__).resolve().parents:
         if (parent / WORLD).exists():
             return parent
@@ -68,16 +86,21 @@ def _source_root() -> Path | None:
 
 
 def _asset(rel: str, share: Path) -> Path:
-    """The installed copy if there is one, else the source tree."""
-    for base in (share, _source_root()):
+    """The source tree if we can find it, else the installed copy."""
+    for base in (_source_root(), share):
         if base is not None and (base / rel).exists():
             return base / rel
     raise RuntimeError(
-        f"{rel} is missing from {share} and from the source tree.\n"
-        "Generate the world and the robot first, from cloud_agri/:\n"
+        f"cannot find {rel}.\n"
+        f"  looked in {share}\n"
+        f"  and walked up from {Path(__file__).resolve().parent}\n"
+        "\n"
+        "If cloud_agri/ is somewhere this cannot see, say so:\n"
+        "    export AGRI_HOME=/path/to/cloud_agri\n"
+        "\n"
+        "If the file was never generated, generate it, from cloud_agri/:\n"
         "    python3 -m agri.world.make_world\n"
-        "    python3 -m agri.world.make_robot\n"
-        "then rebuild:  colcon build --symlink-install")
+        "    python3 -m agri.world.make_robot")
 
 
 def _share(package: str) -> Path | None:
