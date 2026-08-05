@@ -61,7 +61,7 @@ from PIL import Image as PILImage
 from sensor_msgs.msg import Image, JointState, LaserScan
 from std_msgs.msg import Float64
 
-from agri.aisles import route
+from agri.aisles import brake_clearance, route
 from agri.catalogue import SENSOR_OFFSET_X, Station
 from agri.vision import NadirCamera, find_cross
 
@@ -96,8 +96,16 @@ VISUAL_SETTLE = 0.008          # m: close enough, stop nudging
 #: Nothing should ever be in the aisle. If something is, stop -- do not
 #: swerve. A swerve near a 0.16 m clearance is how a robot ends up on a
 #: gutter, and this project has no reason to be clever about obstacles.
-BRAKE_RANGE = 0.35
-BRAKE_ARC = math.radians(35)
+#:
+#: The distances are measured from the robot's OUTLINE, not from the lidar,
+#: and only inside the corridor it is about to sweep. See
+#: agri.aisles.brake_clearance for why both of those matter, and for the two
+#: false brakes that paid for them.
+BRAKE_RANGE = 0.35             # m of clear floor wanted ahead of the bumper
+BRAKE_LOOK = 3.0               # m: beyond this a return cannot be relevant
+#: More negative than this and the return is inside the robot: the camera
+#: pedestal and the mast both cross the lidar's plane, 0.12 and 0.22 m ahead.
+SELF_HIT = -0.02
 BRAKE_PATIENCE = 8.0           # s of waiting before the leg is failed
 
 
@@ -191,18 +199,30 @@ class GazeboDriver:
         self._cmd.publish(Twist())
 
     def _blocked(self, wvx: float, wvy: float) -> bool:
-        """Something inside the braking arc, in the direction of travel."""
+        """Something in the corridor the robot is about to sweep.
+
+        The geometry is in agri.aisles.brake_clearance, not here, so it can
+        be exercised against the cases that actually matter -- the robot's
+        own pedestal, a gutter wall being driven past, a gutter end being
+        strafed past -- on a machine with no lidar in it.
+        """
         with self._lock:
             scan = self._scan
-        if scan is None or math.hypot(wvx, wvy) < 1e-3:
+        speed = math.hypot(wvx, wvy)
+        if scan is None or speed < 1e-3:
             return False
         _, _, yaw = self.base_pose()
         heading = _wrap(math.atan2(wvy, wvx) - yaw)      # body frame
+        dx, dy = math.cos(heading), math.sin(heading)
+
         for i, r in enumerate(scan.ranges):
-            if not (scan.range_min < r < BRAKE_RANGE):
-                continue
-            if abs(_wrap(scan.angle_min + i * scan.angle_increment
-                         - heading)) < BRAKE_ARC:
+            if not (scan.range_min < r < BRAKE_LOOK):
+                continue                                 # nothing, or miles off
+            a = scan.angle_min + i * scan.angle_increment
+            clear = brake_clearance(r * math.cos(a), r * math.sin(a), dx, dy)
+            if clear is None or clear < SELF_HIT:
+                continue                     # beside the corridor, or is us
+            if clear < BRAKE_RANGE:
                 return True
         return False
 

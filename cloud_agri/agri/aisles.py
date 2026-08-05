@@ -99,6 +99,61 @@ def route(sx: float, sy: float, tx: float, ty: float
 
 
 # ------------------------------------------------------------- validation
+#: The robot's outline in its OWN frame, relative to base_link:
+#: (xmin, ymin, xmax, ymax). Deliberately asymmetric -- the boom reaches
+#: SENSOR_OFFSET_X forward and the chassis BASE_HALF_LENGTH back -- because
+#: treating it as symmetric is what makes a brake stop for a gutter the tail
+#: passes 0.21 m clear of.
+BODY_BOX = (-BASE_HALF_LENGTH, -BASE_HALF_WIDTH,
+            +SENSOR_OFFSET_X, +BASE_HALF_WIDTH)
+
+
+def brake_clearance(px: float, py: float, dx: float, dy: float,
+                    margin: float = 0.03) -> float | None:
+    """How far a lidar return is beyond the robot, along the way it is going.
+
+    (px, py) is the return in the ROBOT's frame; (dx, dy) is the unit
+    direction of travel, also in the robot's frame. Returns None when the
+    point is not in the corridor the robot is about to sweep, and a negative
+    number when it is inside the robot's own outline.
+
+    WHY A CORRIDOR AND NOT A CONE
+
+    A cone of +/-35 degrees was the first version, and it stopped the robot
+    dead in every aisle: at 0.35 m of lateral clearance a gutter wall the
+    robot is driving PARALLEL to sits well inside a 35-degree cone, so the
+    brake fired on the very thing the route was designed to pass. A corridor
+    asks the only question that matters -- is this in the way? -- and a wall
+    you are driving alongside is not in the way.
+
+    WHY THE OUTLINE IS PROJECTED RATHER THAN APPROXIMATED
+
+    The corridor's edges are the extreme projections of the robot's own four
+    corners onto the axis across the travel direction. For a symmetric robot
+    a half-width would do; this one has a 0.50 m boom in front and 0.29 m of
+    chassis behind, so when it STRAFES the corridor is 0.79 m wide and not
+    centred on the base. Getting that wrong makes the robot brake at the east
+    headland for the gutter end its tail clears by 0.21 m.
+
+    WHY NEGATIVE MEANS IGNORE IT
+
+    The lidar sits inside the robot and sees the robot: the camera pedestal
+    and the mast both cross its plane, 0.12 and 0.22 m ahead. Those return
+    ranges far shorter than any obstacle ever will, so a raw range test
+    brakes permanently, from the first metre, for the robot's own body. A
+    return inside the outline can only be the robot.
+    """
+    ex, ey = -dy, dx                       # across the direction of travel
+    corners = [(BODY_BOX[0], BODY_BOX[1]), (BODY_BOX[0], BODY_BOX[3]),
+               (BODY_BOX[2], BODY_BOX[1]), (BODY_BOX[2], BODY_BOX[3])]
+    across = [cx * ex + cy * ey for cx, cy in corners]
+    lateral = px * ex + py * ey
+    if not (min(across) - margin <= lateral <= max(across) + margin):
+        return None                        # beside the corridor, not in it
+    front = max(cx * dx + cy * dy for cx, cy in corners)
+    return (px * dx + py * dy) - front
+
+
 def footprint(x: float, y: float) -> tuple[float, float, float, float]:
     """(x0, y0, x1, y1) of the robot when its sensor point is at (x, y).
 

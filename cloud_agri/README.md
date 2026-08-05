@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 129 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 138 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -349,7 +349,7 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-129 checks, about ten seconds, nothing installed beyond the dependencies. It
+138 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the

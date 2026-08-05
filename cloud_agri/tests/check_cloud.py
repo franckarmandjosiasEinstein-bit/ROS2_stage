@@ -569,6 +569,39 @@ def check_aisles() -> None:
           min(route_clearance(HEADLANDS[0], -1.85, s.x, s.y)
               for s in st) > 0.05)
 
+    # The lidar brake. Every case below is one the simulator actually
+    # produced or would have: the first version used a +/-35 degree cone on
+    # raw ranges and stopped dead on the first metre of the first leg, for
+    # the robot's own camera pedestal.
+    from agri.aisles import BODY_BOX, brake_clearance   # noqa: PLC0415
+
+    def verdict(px, py, dx, dy):
+        c = brake_clearance(px, py, dx, dy)
+        if c is None:
+            return "ignored"
+        return "self" if c < -0.02 else ("brake" if c < 0.35 else "free")
+
+    check("the outline is asymmetric: boom in front, chassis behind",
+          BODY_BOX[2] > -BODY_BOX[0],
+          "a symmetric half-width brakes for things the tail clears")
+    check("the camera pedestal is not mistaken for an obstacle",
+          verdict(0.12, 0.0, 1, 0) == "self",
+          "it crosses the lidar plane 0.12 m ahead and returns ~0.11 m")
+    check("nor is the mast", verdict(0.22, 0.0, 1, 0) == "self")
+    check("a gutter wall being driven PAST is not in the way",
+          verdict(0.61, 0.35, 1, 0) == "ignored"
+          and verdict(2.0, 0.35, 1, 0) == "ignored",
+          "a cone catches the wall the route was designed to pass")
+    check("a gutter end being STRAFED past is not in the way either",
+          verdict(-0.37, 0.45, 0, 1) == "ignored",
+          "at the east headland the tail clears it by 0.21 m")
+    check("but something genuinely ahead does stop it",
+          verdict(0.70, 0.0, 1, 0) == "brake")
+    check("and something genuinely in the strafe path does too",
+          verdict(0.10, 0.45, 0, 1) == "brake")
+    check("clear floor further off does not",
+          verdict(1.50, 0.0, 1, 0) == "free")
+
     same = route(-3.15, -1.75, 2.25, -1.75)
     check("a trip inside one aisle is a single leg", len(same) == 1, str(same))
     across = route(-3.15, -1.75, -3.15, -0.65)
@@ -750,9 +783,19 @@ def check_ros_package() -> None:
           not unused, f"assigned but never read: {unused}")
 
     # The driver must not quietly re-derive geometry that is tested elsewhere.
-    check("the driver takes its route from agri.aisles",
-          "from agri.aisles import route" in driver
-          and "HEADLAND" not in driver.split('"""')[2])
+    # The driver must not re-derive geometry that is tested in agri.aisles.
+    # Matched loosely on purpose: the first version pinned the exact import
+    # line and broke the moment a second name was imported from the module,
+    # which is a check failing for a reason that is not a defect.
+    check("the driver takes its geometry from agri.aisles",
+          re.search(r"^from agri\.aisles import .*\broute\b", driver, re.M)
+          and re.search(r"^from agri\.aisles import .*\bbrake_clearance\b",
+                        driver, re.M),
+          "route() and brake_clearance() are swept over every station pair "
+          "and every self-hit case by the suite; a private copy in the "
+          "driver would be tested by nothing")
+    check("and does not keep a private copy of the headland coordinates",
+          "HEADLAND" not in driver.split('"""')[2])
     from agri.catalogue import all_stations                 # noqa: PLC0415
     st = all_stations()
     tightest = min(abs(a.y - b.y) for i, a in enumerate(st)
