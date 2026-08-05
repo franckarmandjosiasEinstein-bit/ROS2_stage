@@ -48,7 +48,8 @@ from ament_index_python.packages import (PackageNotFoundError,
                                          get_package_share_directory)
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription, RegisterEventHandler)
+                            IncludeLaunchDescription, RegisterEventHandler,
+                            SetEnvironmentVariable)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -110,6 +111,36 @@ def _share(package: str) -> Path | None:
         return None
 
 
+def _python_path(src: Path | None) -> str:
+    """PYTHONPATH for the robot node, because it will NOT inherit yours.
+
+    colcon generates the console script with the shebang of the interpreter
+    that ran setup.py -- and colcon itself is a system package, so that is
+    /usr/bin/python3 even when a virtual environment is active. The node
+    therefore starts under the SYSTEM python, which has never heard of agri,
+    and dies on `from agri import keys` a second after the simulator opens.
+
+    Two additions fix it, and neither is a hack:
+
+      the source tree   agri/ is a plain package directory, importable by
+                        any interpreter that can see cloud_agri/.
+      VIRTUAL_ENV       where qrcode, zxing-cpp and paho actually live. An
+                        editable install's .pth file is NOT read from
+                        PYTHONPATH, which is why the source tree is added
+                        directly rather than relied upon through pip.
+    """
+    parts = []
+    if src is not None:
+        parts.append(str(src))
+    venv = os.environ.get("VIRTUAL_ENV")
+    if venv:
+        parts += sorted(str(p) for p in Path(venv).glob("lib/python3*/site-packages"))
+    inherited = os.environ.get("PYTHONPATH", "")
+    if inherited:
+        parts.append(inherited)
+    return os.pathsep.join(parts)
+
+
 def generate_launch_description() -> LaunchDescription:
     share = Path(get_package_share_directory("agri_robot"))
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
@@ -130,6 +161,7 @@ def generate_launch_description() -> LaunchDescription:
     use_gui = LaunchConfiguration("gui")
     sim_time = {"use_sim_time": True}
     default_keys = str((src or share) / "keys")
+    py_path = _python_path(src)
 
     gz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -143,6 +175,15 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(use_gui))
 
     actions = [
+        # THE LINE WHOSE ABSENCE MAKES THE ROBOT INVISIBLE.
+        #
+        # res_path was computed correctly and then never applied, so gz
+        # could not resolve model://youbot_gazebo/meshes/base.stl and the
+        # robot rendered as nothing at all -- while every other part of the
+        # launch reported success. A variable that is computed and unused is
+        # the one kind of bug that reads as finished work.
+        SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
+
         DeclareLaunchArgument("gui", default_value="true"),
         DeclareLaunchArgument("broker", default_value="localhost"),
         DeclareLaunchArgument("keys", default_value=default_keys),
@@ -173,6 +214,7 @@ def generate_launch_description() -> LaunchDescription:
 
         Node(package="agri_robot", executable="robot_node", name="agri_robot",
              output="screen",
+             additional_env={"PYTHONPATH": py_path},
              parameters=[{"broker": LaunchConfiguration("broker"),
                           "keys": LaunchConfiguration("keys"),
                           "standalone_targets": LaunchConfiguration("targets")},

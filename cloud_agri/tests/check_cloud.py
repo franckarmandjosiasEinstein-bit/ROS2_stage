@@ -729,6 +729,26 @@ def check_ros_package() -> None:
     check("shutdown reuses the Phase B killer rather than a second one",
           "kill_sim.sh" in launch)
 
+    # Both of these were computed correctly and then never applied. A
+    # variable that is assigned and not used reads as finished work, and
+    # neither failure names itself: the meshes silently do not render, and
+    # the node dies on an import a second after the simulator opens.
+    check("the resource path is actually SET, not merely computed",
+          'SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path)' in launch,
+          "without it gz cannot resolve model://youbot_gazebo/meshes/*.stl "
+          "and the robot renders as nothing")
+    check("the robot node is given a PYTHONPATH",
+          'additional_env={"PYTHONPATH": py_path}' in launch,
+          "colcon writes the console script with the SYSTEM python's shebang, "
+          "so the node does not inherit a virtual environment and cannot "
+          "import agri")
+    # Nothing else in this file may be computed and dropped.
+    assigned = set(re.findall(r"^    (\w+) = ", launch, re.M))
+    unused = sorted(n for n in assigned
+                    if len(re.findall(rf"\b{n}\b", launch)) < 2)
+    check("no other value in the launch file is computed and then dropped",
+          not unused, f"assigned but never read: {unused}")
+
     # The driver must not quietly re-derive geometry that is tested elsewhere.
     check("the driver takes its route from agri.aisles",
           "from agri.aisles import route" in driver

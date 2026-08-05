@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 126 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 129 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -154,6 +154,14 @@ agri-cloud --keys keys --store store --request "P2,4R,P2,4L"
 `cloud_agri/ros2/src/`, not in the workspace's own `src/`, which is Phase B's
 and stays Phase B's. `install/`, `build/` and `log/` are shared, so the two
 projects coexist in one workspace without either knowing about the other.
+
+The node does **not** inherit your virtual environment. colcon writes the
+console script with the shebang of the interpreter that ran `setup.py`, and
+colcon is a system package, so the node starts under `/usr/bin/python3` no
+matter what is activated. The launch file therefore hands it a `PYTHONPATH`
+built from `cloud_agri/` and from `$VIRTUAL_ENV`'s site-packages. Nothing to
+do — but it is why `VIRTUAL_ENV` must be set when you launch, i.e. keep the
+venv activated.
 
 `--symlink-install` is worth the flag here: the launch file then resolves back
 into the source tree and finds the generated world and robot even if
@@ -341,7 +349,7 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-126 checks, about ten seconds, nothing installed beyond the dependencies. It
+129 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the
