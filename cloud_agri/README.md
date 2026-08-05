@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 121 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 122 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -78,6 +78,21 @@ re-reads every QR image it receives and checks it against the numbers that
 travelled with it, so it needs a decoder. Both are listed because OpenCV
 fails to locate 2 of the 48 station codes and zxing reads all 48; either
 alone works, both is what the tests run against.
+
+**OpenCV is pinned below 5 on purpose.** `opencv-python-headless` 5.x
+declares `numpy>=2`, and installing that into a `--system-site-packages` venv
+on top of ROS 2 Jazzy shadows the system numpy 1.26 that every rosidl Python
+extension was *compiled* against. That is not a warning — it fails when the
+first `LaserScan` or `Odometry` is deserialised, inside a callback, after the
+simulator is already up. If pip has already done it to you:
+
+```bash
+pip install 'numpy<2' 'opencv-python-headless<5'
+python3 -c "import numpy, sensor_msgs.msg, nav_msgs.msg; print(numpy.__version__, 'ok')"
+```
+
+`check_cloud.py` checks the pin, and checks the loaded numpy whenever rclpy
+is importable in the same interpreter.
 
 ---
 
@@ -326,7 +341,7 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-121 checks, about ten seconds, nothing installed beyond the dependencies. It
+122 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the

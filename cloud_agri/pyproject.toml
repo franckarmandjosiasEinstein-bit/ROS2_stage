@@ -20,7 +20,19 @@ dependencies = [
 # is listed first because it reads all 48 station codes; OpenCV's detector
 # fails to locate two of them (see agri/qrcodec.py). Either alone will work,
 # both together is what the test suite runs against.
-cloud = ["zxing-cpp>=2.2", "opencv-python-headless>=4.8"]
+#
+# THE UPPER BOUND ON OPENCV IS NOT COSMETIC. opencv-python-headless 5.x
+# declares numpy>=2, and installing it into a --system-site-packages venv on
+# top of ROS 2 Jazzy shadows the system numpy 1.26 that every rosidl Python
+# extension was COMPILED against. The result is not a warning; it is
+# "A module that was compiled using NumPy 1.x cannot be run in NumPy 2.x"
+# the first time a LaserScan or an Odometry is deserialised -- i.e. after
+# the simulator is up, from inside a callback, which is the worst place to
+# discover a packaging problem. 4.x asks only for numpy>=1.26 and coexists.
+#
+# zxing-cpp has no numpy dependency at all, which is the other reason it is
+# the primary decoder rather than the fallback.
+cloud = ["zxing-cpp>=2.2", "opencv-python-headless>=4.8,<5"]
 
 [project.scripts]
 agri-cloud = "agri.cloud.server:main"

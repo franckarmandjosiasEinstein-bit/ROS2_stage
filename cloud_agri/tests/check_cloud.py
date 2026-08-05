@@ -454,6 +454,34 @@ def check_end_to_end() -> None:
               len(cloud.rejected) == 1 and cloud.state()["summary"]["rejected"] == 1)
 
 
+def check_numpy_abi() -> None:
+    """numpy 2 next to ROS 2 Jazzy is a runtime break, not a warning.
+
+    Every rosidl Python extension in Jazzy was compiled against numpy 1.26.
+    Import numpy 2 in the same interpreter and the failure arrives when a
+    message is first deserialised -- inside a callback, after the simulator
+    is up. So the dependency that drags numpy 2 in is pinned, and the pin is
+    checked here rather than remembered.
+    """
+    print("\nnumpy ABI, for the interpreter that also runs ROS")
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    check("opencv is capped below 5, which is the version that wants numpy 2",
+          "opencv-python-headless>=4.8,<5" in pyproject,
+          "opencv 5 declares numpy>=2 and shadows the system numpy that "
+          "rclpy's message extensions were compiled against")
+
+    try:
+        import numpy                                   # noqa: PLC0415
+        import rclpy                                   # noqa: F401,PLC0415
+    except ImportError:
+        print("        (rclpy is absent here, so there is nothing to clash)")
+        return
+    check("the installed numpy matches what ROS was built against",
+          int(numpy.__version__.split(".")[0]) < 2,
+          f"numpy {numpy.__version__} is loaded alongside rclpy. Fix it:\n"
+          "    pip install 'numpy<2' 'opencv-python-headless<5'")
+
+
 def check_mqtt_compat() -> None:
     """paho-mqtt 2.0 changed the Client constructor. Both sides build one.
 
@@ -746,7 +774,8 @@ def check_hygiene() -> None:
 def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_qr,
-               check_sensors, check_mqtt_compat, check_aisles, check_vision,
+               check_sensors, check_numpy_abi, check_mqtt_compat, check_aisles,
+               check_vision,
                check_world,
                check_ros_package, check_end_to_end, check_demo,
                check_hygiene):
