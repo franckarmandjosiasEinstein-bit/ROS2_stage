@@ -79,6 +79,30 @@ def check_labels() -> None:
     # Range checks: "P4,1R" parses cleanly and names a row that does not
     # exist. Accepting it would send the robot to a computed position in a
     # wall, so the parser refuses it rather than the caller remembering to.
+    # The brief asks the Cloud for "the data of a specific plant", and a
+    # plant is not a station: it has a measurement point on each side. A
+    # system that could only be asked for P2,5R would be answering a
+    # different question from the one it was given.
+    from agri.labels import expand_target                # noqa: PLC0415
+    from agri.protocol import expand_targets             # noqa: PLC0415
+
+    check("a plant means BOTH of its stations",
+          expand_target("P2,5") == ["P2,5R", "P2,5L"],
+          str(expand_target("P2,5")))
+    check("in the same order as a full sweep visits them",
+          all_labels()[:2] == expand_target("P1,1"))
+    check("a station still means just that station",
+          expand_target("P2,5R") == ["P2,5R"])
+    check("a plant is accepted through the Cloud's request path",
+          expand_targets("P3,8") == ["P3,8R", "P3,8L"])
+    check("plants and stations can be mixed in one request",
+          expand_targets(["P2,5", "P1,1R"])
+          == ["P2,5R", "P2,5L", "P1,1R"])
+    check("and asking for a plant twice does not visit it twice",
+          expand_targets(["P2,5", "P2,5R"]) == ["P2,5R", "P2,5L"])
+    refuses("a plant that does not exist is refused too",
+            lambda: expand_target("P4,1"), LabelError)
+
     refuses("row 4 does not exist", lambda: normalise("P4,1R"), LabelError)
     refuses("plant 9 does not exist", lambda: normalise("P1,9R"), LabelError)
     refuses("side M does not exist", lambda: normalise("P1,1M"), LabelError)

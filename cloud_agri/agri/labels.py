@@ -89,6 +89,35 @@ def normalise(text: str) -> str:
     return format_label(*parse_label(text))
 
 
+#: A PLANT, with no side: "P2,5". Same shape as a station label minus the
+#: R/L, and it names two stations rather than one.
+_RE_PLANT = re.compile(r"^\s*P\s*(\d+)\s*[,;.\-_ ]\s*(\d+)\s*$", re.I)
+
+
+def expand_target(text: str) -> list[str]:
+    """One thing a human or a Cloud asked for -> the stations it names.
+
+        "P2,5R"  ->  ["P2,5R"]              one side of one plant
+        "P2,5"   ->  ["P2,5R", "P2,5L"]     the PLANT, both sides
+
+    The second form exists because the brief is written in terms of plants:
+    the Cloud asks for the data of a given plant, or of all of them. A plant
+    is not a station -- it has a measurement point on each side of it -- so a
+    system that could only be asked for "P2,5R" would be answering a
+    different question from the one it was given, and the operator would have
+    to know to ask twice.
+
+    Order is R then L, matching all_labels(), so a request for a plant and a
+    sweep of the greenhouse visit the same two points in the same order.
+    """
+    stripped = (text or "").strip()
+    m = _RE_PLANT.match(stripped)
+    if m:
+        row, plant = int(m.group(1)), int(m.group(2))
+        return [format_label(row, plant, side) for side in SIDES]
+    return [normalise(stripped)]
+
+
 def all_labels() -> list[str]:
     """Every station, in survey order: row by row, plant by plant, R then L.
 

@@ -292,7 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Run the whole Cloud/robot chain offline.")
     ap.add_argument("targets", nargs="?", default="P1,1R,P1,1L,P2,4R,P2,4L,"
                                                   "P3,7R,P3,7L",
-                    help="ALL, or a comma-separated list of labels "
+                    help="ALL, a plant (P2,5 = both sides), or a comma-separated "
+                         "list of plants and stations "
                          "(default: a six-station tour that includes two "
                          "anomalies)")
     ap.add_argument("--work", type=Path, default=Path("demo_run"),
@@ -324,7 +325,14 @@ def _split_labels(text: str) -> list[str]:
     revisit. Resolved by the shape: a label is P<digits>,<digits><R|L>, so a
     comma that follows an R or an L is a separator and any other comma is
     part of a label.
+
+    That heuristic cannot work for a PLANT, which has no R or L to end on:
+    "P2,5,P1,1R" is genuinely two readings of the same characters. So a
+    semicolon is accepted as an unambiguous separator and wins outright when
+    it is present -- which is also what the launch file's targets:= uses.
     """
+    if ";" in text:
+        return [t.strip() for t in text.split(";") if t.strip()]
     out, buf = [], ""
     for part in text.split(","):
         buf = f"{buf},{part}" if buf else part

@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 138 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 145 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -144,11 +144,28 @@ source install/setup.bash
 ros2 launch agri_robot agri.launch.py
 ```
 
-Then either press **SURVEY** on the dashboard, or:
+### What the Cloud can ask for
+
+The brief is written in terms of plants, so the request is too:
+
+| asked for | stations visited |
+|---|---|
+| `ALL` | all 48, in survey order |
+| `P2,5` | **a plant**: `P2,5R` then `P2,5L` |
+| `P2,5R` | one side of one plant |
+| `P1,3;P3,7` | any mixture |
+
+A plant is not a station — it has a measurement point on each side of it — so
+asking for `P2,5` sends the robot to both. Press **SWEEP ALL 48** on the
+dashboard, type a plant into the box beside REQUEST, or issue it from the
+command line:
 
 ```bash
-agri-cloud --keys keys --store store --request "P2,4R,P2,4L"
+agri-cloud --keys keys --store store --request "P2,4"
 ```
+
+Every one of those is signed by the Cloud's private key before it leaves, and
+the robot refuses anything that is not.
 
 `--base-paths` is needed because `agri_robot` lives under
 `cloud_agri/ros2/src/`, not in the workspace's own `src/`, which is Phase B's
@@ -349,7 +366,7 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-138 checks, about ten seconds, nothing installed beyond the dependencies. It
+145 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the

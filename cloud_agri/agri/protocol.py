@@ -42,7 +42,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from agri.labels import LabelError, all_labels, normalise
+from agri.labels import (LabelError, all_labels, expand_target,
+                         normalise)
 from agri.measurement import utc_now
 
 SCHEMA = "agri-cloud/v1"
@@ -104,7 +105,12 @@ def make_request(request_id: str, targets: str | list[str]) -> dict[str, Any]:
 
 
 def expand_targets(targets: str | list[str]) -> list[str]:
-    """ALL / "P2,5R" / ["P2,5R", "p1,1l"] -> a canonical list of labels.
+    """What the Cloud was asked for -> the exact stations to visit.
+
+        ALL         every station, in survey order
+        "P2,5"      a PLANT: both of its stations, R then L
+        "P2,5R"     one station
+        [...]       any mixture of the above
 
     Resolved on the CLOUD side, before the request is signed, so the robot
     receives an explicit list and never has to interpret a wildcard. A robot
@@ -121,12 +127,13 @@ def expand_targets(targets: str | list[str]) -> list[str]:
     out, seen = [], set()
     for t in targets:
         try:
-            lab = normalise(t)
+            labels = expand_target(t)
         except LabelError as exc:
             raise ProtocolError(str(exc)) from exc
-        if lab not in seen:        # a repeated station is a typo, not a plan
-            seen.add(lab)
-            out.append(lab)
+        for lab in labels:
+            if lab not in seen:    # a repeated station is a typo, not a plan
+                seen.add(lab)
+                out.append(lab)
     return out
 
 

@@ -243,7 +243,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--store", type=Path, default=Path("store"))
     ap.add_argument("--keys", type=Path, default=Path("keys"))
     ap.add_argument("--request", metavar="TARGETS",
-                    help="issue one request at startup: ALL, or P2,5R, or a "
+                    help="issue one request at startup: ALL, a plant (P2,5, both "
+                         "sides), a single station (P2,5R), or a "
                          "comma-separated list. Then keep running.")
     args = ap.parse_args(argv)
 
