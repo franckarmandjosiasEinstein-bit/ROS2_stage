@@ -36,7 +36,7 @@ robot from a stationary ESP.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 225 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 235 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -311,11 +311,14 @@ prints that address at startup rather than `localhost`.
 
 **Dashboard authentication.** By default `agri-cloud` generates a random
 token and prints the full URL including it — share that URL with anyone who
-needs the dashboard. The token is checked on every API and page request
-(query parameter `?token=…` or `Authorization: Bearer …`). To choose your
-own token, pass `--dashboard-token SECRET`; to disable authentication
-entirely (useful for local-only demos), pass `--dashboard-token ''`.
-The offline demo (`agri.demo --serve`) runs without a token.
+needs the dashboard. The token is checked on every API request and on
+`/media/` (query parameter `?token=…` or `Authorization: Bearer …`), because
+a photograph and a CSV row are measurements just as much as the JSON that
+describes them, and a token that guards one but not the other guards
+nothing. To choose your own token, pass `--dashboard-token SECRET`; to
+disable authentication entirely (useful for local-only demos), pass
+`--dashboard-token ''`. The offline demo (`agri.demo --serve`) runs without
+a token.
 
 ROS 2's own DDS traffic never crosses the network: Gazebo, RViz and the
 bridge all stay on the robot's machine. So `ROS_DOMAIN_ID` is irrelevant
@@ -496,6 +499,18 @@ click target. Where that is still not enough, the map itself can be narrowed
 — **row**, **side**, or straight to a **named station** — from the three
 selectors above it.
 
+Two buttons under **session** end a run without going back to the terminal,
+which is the whole point of having a dashboard on a second machine.
+**ENREGISTRER** writes `store/measurements.csv` and downloads a copy through
+the browser — the same export the console's `csv` verb and the shutdown path
+produce, so a run stopped from the browser and a run stopped with Ctrl-C
+leave identical files behind. **QUITTER** exports first and then stops the
+Cloud; it is the one control on the page that cannot be undone, so it is the
+one button drawn in the alert colour and the only one that asks first. The
+robot is deliberately left running: it holds its own keys and its own
+mission, and killing it from a web page is not something the Cloud is
+entitled to do.
+
 ---
 
 ## 6. Four honest limitations
@@ -531,7 +546,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the 225 other checks to pass first.
+prioritised over getting the 235 other checks to pass first.
 
 ---
 
@@ -541,15 +556,16 @@ prioritised over getting the 225 other checks to pass first.
 python3 tests/check_cloud.py
 ```
 
-225 checks, about ten seconds, nothing installed beyond the dependencies. It
+235 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the
 generated world, the ROS package read as text (topic names, bridge entries,
 spawn point, entry points, the RViz layout, the Gazebo camera watchdog), the
 two-machine key handover including the copy nobody remembers, the dashboard's
-own geometry, the multi-node protocol (topic namespacing, wildcard matching,
-`node_kind`, the per-node status dict, dashboard auth), the whole chain end
-to end through a loopback broker, and the offline demo run as a subprocess.
+own geometry, its ENREGISTRER and QUITTER buttons driven over a real socket,
+the multi-node protocol (topic namespacing, wildcard matching, `node_kind`,
+the per-node status dict, dashboard auth), the whole chain end to end
+through a loopback broker, and the offline demo run as a subprocess.
 
 Every check in it is there because something actually went wrong.

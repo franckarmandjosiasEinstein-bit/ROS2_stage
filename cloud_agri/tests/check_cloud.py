@@ -23,6 +23,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import xml.dom.minidom
 from pathlib import Path
 
@@ -1197,6 +1198,104 @@ def check_dashboard() -> None:
           ":root must define the LIGHT palette, with dark as the override")
 
 
+def check_session_buttons() -> None:
+    """ENREGISTRER and QUITTER, exercised over a real socket.
+
+    String-matching the JavaScript would pass just as happily against a
+    button wired to an endpoint that answers 404, which is exactly the bug
+    worth catching: the operator presses it once, at the end of a run, and
+    finds out then whether the CSV exists.
+    """
+    print("\nthe dashboard's session buttons")
+    import urllib.error                                   # noqa: PLC0415
+    import urllib.request                                 # noqa: PLC0415
+    from functools import partial                         # noqa: PLC0415
+    from http.server import ThreadingHTTPServer           # noqa: PLC0415
+
+    from agri import keys                                 # noqa: PLC0415
+    from agri.cloud.server import Cloud, Handler          # noqa: PLC0415
+    from agri.cloud.store import Store                    # noqa: PLC0415
+
+    def post(url):
+        req = urllib.request.Request(url, data=b"", method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    def get(url):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        keys.bootstrap(d / "keys")
+        cloud = Cloud(Store(d / "store"), d / "keys")
+        stopped = []
+        token = "s3cret-token"
+        httpd = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            partial(Handler, cloud, lambda *a: None, token,
+                    lambda: stopped.append(True)))
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            code, body = post(f"{base}/api/export?token={token}")
+            check("ENREGISTRER exports the CSV", code == 200, f"{code} {body}")
+            check("and says where it went, on disk and over HTTP",
+                  body.get("path", "").endswith("measurements.csv")
+                  and body.get("url") == "/media/measurements.csv",
+                  str(body))
+            check("and the file it names really is there",
+                  Path(body["path"]).exists(), body.get("path"))
+
+            code, raw = get(f"{base}{body['url']}?token={token}")
+            check("and the browser can download it from that URL",
+                  code == 200 and raw.startswith(b"label,"), f"{code} {raw[:40]}")
+
+            # Measurements are measurements whether they arrive as JSON or as
+            # a file; a token that guards one and not the other guards nothing.
+            code, _ = get(f"{base}/media/measurements.csv")
+            check("media is behind the token too, not just /api",
+                  code == 401, f"got {code}, expected 401")
+            code, _ = post(f"{base}/api/export")
+            check("and so is the export itself", code == 401,
+                  f"got {code}, expected 401")
+
+            code, body = post(f"{base}/api/quit?token={token}")
+            check("QUITTER answers before it stops", code == 200, f"{code} {body}")
+            check("and actually triggers the shutdown", stopped == [True],
+                  "the button replied 200 and did nothing")
+        finally:
+            httpd.shutdown()
+
+    # A Cloud nobody owns the lifetime of must refuse, not kill its caller.
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        keys.bootstrap(d / "keys")
+        cloud = Cloud(Store(d / "store"), d / "keys")
+        httpd = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            partial(Handler, cloud, lambda *a: None, "", None))
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            code, body = post(f"{base}/api/quit")
+            check("a Cloud with no shutdown hook refuses instead of dying",
+                  code == 403, f"{code} {body}")
+        finally:
+            httpd.shutdown()
+
+    demo = (ROOT / "agri" / "demo.py").read_text()
+    check("and the offline demo is one of those",
+          'partial(Handler, cloud, publish, "", None)' in demo,
+          "the demo's dashboard must not be able to kill its own process")
+
+
 def check_multinode() -> None:
     """The protocol changes for multi-node support.
 
@@ -1342,7 +1441,7 @@ def main() -> int:
                check_vision,
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
-               check_multinode,
+               check_session_buttons, check_multinode,
                check_end_to_end,
                check_demo, check_hygiene):
         fn()

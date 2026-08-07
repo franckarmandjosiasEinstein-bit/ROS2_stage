@@ -152,6 +152,13 @@ button, input {
   padding: .5rem .7rem; cursor: pointer; letter-spacing: .12em; font-size: .74rem;
 }
 .cmd button:hover { background: var(--accent); color: var(--bg); }
+/* QUITTER is the one control on this page that cannot be undone, so it is
+   the one button that is not the accent colour. The alert colour is
+   otherwise reserved for data; this is the exception that earns it. */
+.cmd button.danger { background: transparent; color: var(--bad);
+                     border-color: var(--bad); }
+.cmd button.danger:hover { background: var(--bad); color: var(--bg); }
+.cmd-row button { flex: 1; }
 .cmd input { flex: 1; background: var(--bg-raise); color: var(--ink);
              border: 1px solid var(--line); padding: .5rem; min-width: 0; }
 .hint { color: var(--ink-dim); font-size: .68rem; }

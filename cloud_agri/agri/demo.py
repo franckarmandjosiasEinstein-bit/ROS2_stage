@@ -289,8 +289,11 @@ def run(targets: str | list[str], work: Path, explain: bool,
         def publish(topic: str, payload: str) -> None:
             bus.publish(topic, payload)
 
-        httpd = ThreadingHTTPServer(("", serve),
-                                    partial(Handler, cloud, publish, ""))
+        # No token, and no shutdown hook: the demo's dashboard is local and
+        # throwaway, and QUITTER must not kill an interpreter its caller
+        # still owns. The button answers 403 and says so.
+        httpd = ThreadingHTTPServer(
+            ("", serve), partial(Handler, cloud, publish, "", None))
         _rule(f"dashboard on http://localhost:{serve}")
         print("  The SURVEY / ROW buttons issue real requests: they are signed,"
               "\n  published, verified by the robot and driven, live."

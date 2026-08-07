@@ -29,7 +29,9 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
 import threading
+import time
 from collections import deque
 from datetime import datetime, timezone
 from functools import partial
@@ -182,9 +184,13 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "AgriCloud/1.0"
 
     def __init__(self, cloud: Cloud, publish, auth_token: str,
-                 *a, **kw) -> None:
+                 shutdown=None, *a, **kw) -> None:
         self.cloud, self.publish = cloud, publish
         self.auth_token = auth_token
+        # None when nothing owns the process's lifetime -- the offline demo
+        # and the tests both serve the dashboard without being allowed to
+        # kill the interpreter out from under their caller.
+        self.shutdown_cloud = shutdown
         super().__init__(*a, **kw)
 
     def log_message(self, fmt, *args) -> None:      # quiet: the MQTT side talks
@@ -233,14 +239,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._json([v.to_json()
                                for v in self.cloud.store.history(label)])
         if path.startswith("/media/"):
-            return self._file(self.cloud.store.root / path[len("/media/"):])
+            # Photographs, QR images and the CSV export are measurements, so
+            # they are behind the same token as the API that describes them.
+            if not self._check_auth():
+                return
+            name = path[len("/media/"):].split("?")[0]
+            return self._file(self.cloud.store.root / name)
         self._json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:                       # noqa: N802
-        if self.path.split("?")[0] != "/api/request":
+        path = self.path.split("?")[0]
+        if path not in ("/api/request", "/api/export", "/api/quit"):
             return self._json({"error": "not found"}, 404)
         if not self._check_auth():
             return
+        if path == "/api/export":
+            return self._export()
+        if path == "/api/quit":
+            return self._quit()
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -252,6 +268,42 @@ class Handler(BaseHTTPRequestHandler):
               f"{len(self.cloud.progress[rid]['targets'])} station(s)")
         return self._json({"request_id": rid,
                            "targets": self.cloud.progress[rid]["targets"]})
+
+    def _export(self) -> None:
+        """Write the CSV and say where it landed, on disk and over HTTP.
+
+        The same export the console's `csv` verb does and the same one the
+        shutdown path does, so a run stopped from the browser and a run
+        stopped with Ctrl-C leave identical files behind.
+        """
+        try:
+            path = self.cloud.store.export_csv()
+        except OSError as exc:
+            return self._json({"error": str(exc)}, 500)
+        measured, total = self.cloud.store.coverage()
+        print(f"cloud: exported {path}")
+        return self._json({"path": str(path), "url": "/media/" + path.name,
+                           "visits": len(self.cloud.store.all_visits()),
+                           "measured": measured, "total": total})
+
+    def _quit(self) -> None:
+        """Stop the Cloud from the dashboard.
+
+        The reply goes out BEFORE the process starts dying, or the browser
+        gets a connection reset and reports a failure for a shutdown that in
+        fact worked. The robot is deliberately left running: it holds its own
+        keys and its own mission, and killing it from a web page is not
+        something the Cloud is entitled to do.
+        """
+        if self.shutdown_cloud is None:
+            return self._json({"error": "this Cloud cannot be stopped "
+                                        "from the dashboard"}, 403)
+        self._json({"stopping": True})
+        try:
+            self.wfile.flush()
+        except OSError:
+            pass
+        self.shutdown_cloud()
 
     def _file(self, path: Path) -> None:
         # Refuse anything that climbs out of the directory it is served from.
@@ -484,11 +536,46 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     client.loop_start()
 
+    # ONE teardown, reached from two places: Ctrl-C in the console, and the
+    # dashboard's STOP button. Guarded because both can happen at once (the
+    # button fires, the operator then hits Ctrl-C), and exporting the CSV
+    # twice from two threads truncates the file the first one is writing.
+    done = threading.Lock()
+
+    def teardown() -> None:
+        if not done.acquire(blocking=False):
+            return
+        print("cloud: stopping")
+        try:
+            print(f"cloud: exported {cloud.store.export_csv()}")
+        except Exception as exc:                     # noqa: BLE001
+            print(f"cloud: could not export ({exc})")
+        client.loop_stop()
+        client.disconnect()
+
+    def shutdown_from_web() -> None:
+        # os._exit rather than sys.exit: the console owns the main thread and
+        # is blocked inside input(), which no exception raised on an HTTP
+        # worker thread can interrupt. Everything worth keeping is already on
+        # disk by then -- teardown() has written the CSV and closed MQTT.
+        #
+        # On its own thread, after a beat, so the handler can return and the
+        # reply can leave the socket first. Exiting from inside the handler
+        # resets the connection often enough to matter, and the browser then
+        # reports a failure for a shutdown that in fact worked.
+        teardown()
+
+        def bye() -> None:
+            time.sleep(0.3)
+            os._exit(0)
+
+        threading.Thread(target=bye, daemon=True).start()
+
     addr = _my_address()
     base_url = f"http://{addr}:{args.http_port}"
     httpd = ThreadingHTTPServer(
         ("", args.http_port),
-        partial(Handler, cloud, publish, auth_token))
+        partial(Handler, cloud, publish, auth_token, shutdown_from_web))
     if auth_token:
         print(f"cloud: dashboard on {base_url}?token={auth_token}")
         print(f"       (the token protects the API; pass --dashboard-token '' "
@@ -508,13 +595,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         Console(cloud, publish).run()
     finally:
-        print("cloud: stopping")
-        try:
-            print(f"cloud: exported {cloud.store.export_csv()}")
-        except Exception as exc:                     # noqa: BLE001
-            print(f"cloud: could not export ({exc})")
-        client.loop_stop()
-        client.disconnect()
+        teardown()
     return 0
 
 

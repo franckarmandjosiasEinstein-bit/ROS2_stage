@@ -340,9 +340,9 @@ function renderDetail(label) {
 
   const photo = document.getElementById("detail-photo");
   const qr = document.getElementById("detail-qr");
-  photo.src = s.photo ? "/media/" + s.photo : "";
+  photo.src = s.photo ? apiUrl("/media/" + s.photo) : "";
   photo.style.visibility = s.photo ? "visible" : "hidden";
-  qr.src = s.qr ? "/media/" + s.qr : "";
+  qr.src = s.qr ? apiUrl("/media/" + s.qr) : "";
   qr.style.visibility = s.qr ? "visible" : "hidden";
 }
 
@@ -377,6 +377,51 @@ async function request(targets) {
   }
 }
 
+/* ----------------------------------------------------------- session */
+async function save() {
+  const hint = document.getElementById("sessionhint");
+  hint.className = "hint";
+  hint.textContent = "exporting…";
+  try {
+    const r = await fetch(apiUrl("/api/export"), { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    hint.textContent = `${d.visits} visit(s), ${d.measured}/${d.total} stations → ${d.path}`;
+    // The file is already on the Cloud's disk; this only puts a copy in the
+    // browser's downloads, which is what someone looking at the dashboard
+    // from another machine actually wants.
+    const a = document.createElement("a");
+    a.href = apiUrl(d.url);
+    a.download = "measurements.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    hint.className = "hint bad";
+    hint.textContent = String(e.message || e);
+  }
+}
+
+async function quit() {
+  if (!confirm("Stop the Cloud?\n\nThe CSV is exported first. The robot keeps "
+               + "running and this page will go dead.")) return;
+  const hint = document.getElementById("sessionhint");
+  hint.className = "hint";
+  hint.textContent = "stopping…";
+  try {
+    const r = await fetch(apiUrl("/api/quit"), { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+  } catch (e) {
+    // A Cloud that dies before the reply is flushed looks exactly like a
+    // network error, and reporting one for a shutdown that worked would be
+    // worse than saying nothing: the next poll settles it either way.
+    hint.textContent = "stop requested";
+    return;
+  }
+  hint.textContent = "the Cloud has stopped — restart it with agri-cloud";
+}
+
 /* ------------------------------------------------------------ filters */
 document.getElementById("f-row").onchange = e => {
   S.row = e.target.value; renderMap();
@@ -394,6 +439,8 @@ document.getElementById("btn-one").onclick = () =>
 document.getElementById("target").addEventListener("keydown", e => {
   if (e.key === "Enter") document.getElementById("btn-one").click();
 });
+document.getElementById("btn-save").onclick = save;
+document.getElementById("btn-quit").onclick = quit;
 document.getElementById("detail-close").onclick = () => {
   S.selected = null;
   document.getElementById("detail").hidden = true;
