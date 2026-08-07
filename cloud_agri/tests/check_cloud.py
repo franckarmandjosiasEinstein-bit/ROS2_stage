@@ -478,6 +478,62 @@ def check_end_to_end() -> None:
               len(cloud.rejected) == 1 and cloud.state()["summary"]["rejected"] == 1)
 
 
+def check_telemetry() -> None:
+    """Position and speed travel with every reading, and the Cloud has a
+    console to order one from. Both were asked for explicitly."""
+    print("\nwhat the robot transmits about ITSELF")
+    import math                                        # noqa: PLC0415
+
+    from agri.measurement import Measurement           # noqa: PLC0415
+    from agri.protocol import make_status              # noqa: PLC0415
+
+    m = Measurement(
+        label="P2,5R",
+        values={"temperature": 21.4, "humidity": 63.2, "luminosity": 12480,
+                "co2": 431, "ph": 6.42},
+        pose=(-3.1497, -1.7503, math.radians(0.23)),
+        velocity=(0.004, -0.001, 0.0))
+
+    qr = m.to_qr_text()
+    check("the QR carries the position", "x=-3.150" in qr and "y=-1.750" in qr,
+          qr)
+    check("and the speed", "vx=0.004" in qr and "w=0.000" in qr, qr)
+    check("the QR still fits comfortably", len(qr) < 200, f"{len(qr)} chars")
+    # The Cloud re-reads the QR IMAGE and compares it with the numbers beside
+    # it, so a rounding difference between the two would be reported as a
+    # tampered report. This is the check that keeps them formatting alike.
+    check("the QR survives a round trip through itself",
+          Measurement.from_qr_text(qr).to_qr_text() == qr)
+    check("and a round trip through the JSON, character for character",
+          Measurement.from_dict(m.to_dict()).to_qr_text() == qr,
+          "to_dict rounds; to_qr_text must round to the same places or the "
+          "Cloud will reject its own robot's reports")
+
+    d = m.to_dict()
+    check("the JSON carries all three velocity components and the speed",
+          set(d["velocity"]) == {"vx", "vy", "wz", "speed"}, str(d["velocity"]))
+    check("the speed is the magnitude, not a component",
+          abs(d["velocity"]["speed"] - math.hypot(0.004, 0.001)) < 1e-3)
+
+    st = make_status("youbot-01", True, (-3.15, -1.75, 0.2), "driving",
+                     velocity=(0.31, -0.02, 0.0))
+    check("the live status heartbeat carries pose and speed",
+          st["pose"]["x"] == -3.15 and st["velocity"]["speed"] == 0.311,
+          str(st))
+
+    # The console is where the operator sits. Read as text: importing it is
+    # fine, but what matters is that the verbs exist and that an unknown
+    # line is treated as a request rather than an error.
+    console = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    for verb in ("status", "coverage", "show", "csv", "help", "quit"):
+        check(f"the Cloud console understands {verb!r}",
+              f'"{verb}"' in console)
+    check("and treats anything else as a set of targets",
+          "self.request(line)" in console)
+    check("the console owns the main thread, so orders can be typed live",
+          "Console(cloud, publish).run()" in console)
+
+
 def check_numpy_abi() -> None:
     """numpy 2 next to ROS 2 Jazzy is a runtime break, not a warning.
 
@@ -892,7 +948,8 @@ def check_hygiene() -> None:
 def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_qr,
-               check_sensors, check_numpy_abi, check_mqtt_compat, check_aisles,
+               check_sensors, check_telemetry, check_numpy_abi,
+               check_mqtt_compat, check_aisles,
                check_vision,
                check_world,
                check_ros_package, check_end_to_end, check_demo,

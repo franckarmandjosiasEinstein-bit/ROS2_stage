@@ -168,10 +168,24 @@ def make_ack(request_id: str, robot: str, state: str, label: str | None = None,
 
 
 # ----------------------------------------------------------------- status
-def make_status(robot: str, online: bool, pose=None, note: str = "") -> dict:
+def make_status(robot: str, online: bool, pose=None, note: str = "",
+                velocity=None) -> dict:
+    """Live telemetry: where the robot is and how fast it is going.
+
+    Sent on a timer, not only on arrival, so the Cloud can watch the robot
+    cross the greenhouse instead of learning about it forty minutes later.
+    Retained by the broker, so a dashboard opened at any moment immediately
+    knows whether there is a robot at all.
+    """
     d = {"schema": SCHEMA, "kind": "status", "robot": robot,
          "online": bool(online), "note": note, "at": utc_now()}
     if pose is not None:
         d["pose"] = {"x": round(pose[0], 3), "y": round(pose[1], 3),
                      "yaw_deg": round(pose[2], 1)}
+    if velocity is not None:
+        d["velocity"] = {"vx": round(velocity[0], 3),
+                         "vy": round(velocity[1], 3),
+                         "wz": round(velocity[2], 3),
+                         "speed": round((velocity[0] ** 2
+                                         + velocity[1] ** 2) ** 0.5, 3)}
     return d

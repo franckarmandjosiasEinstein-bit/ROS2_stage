@@ -65,6 +65,10 @@ class StoredVisit:
     request_id: str | None
     values: dict[str, float]
     pose: dict[str, float] | None
+    #: How fast the robot was going when it read. Stored because the brief
+    #: asks the robot to send it, and because it is the only field that can
+    #: tell you a reading was taken on the move.
+    velocity: dict[str, float] | None
     parking_error_m: float | None
     photo_path: str | None
     qr_path: str | None
@@ -75,6 +79,7 @@ class StoredVisit:
             "label": self.label, "timestamp": self.timestamp,
             "robot": self.robot, "request_id": self.request_id,
             "values": self.values, "pose": self.pose,
+            "velocity": self.velocity,
             "parking_error_m": self.parking_error_m,
             "photo": self.photo_path, "qr": self.qr_path,
             "flags": self.flags,
@@ -85,6 +90,7 @@ class StoredVisit:
         return cls(label=d["label"], timestamp=d["timestamp"],
                    robot=d.get("robot", "?"), request_id=d.get("request_id"),
                    values=d.get("values", {}), pose=d.get("pose"),
+                   velocity=d.get("velocity"),
                    parking_error_m=d.get("parking_error_m"),
                    photo_path=d.get("photo"), qr_path=d.get("qr"),
                    flags=d.get("flags", []))
@@ -144,6 +150,7 @@ class Store:
             label=m.label, timestamp=m.timestamp,
             robot=report.get("robot", "?"), request_id=report.get("request_id"),
             values=m.values, pose=report["measurement"].get("pose"),
+            velocity=report["measurement"].get("velocity"),
             parking_error_m=report.get("parking_error_m"),
             photo_path=photo_path, qr_path=qr_path,
             flags=[f"out_of_range:{q}" for q in m.out_of_range()])

@@ -92,10 +92,19 @@ class Measurement:
     label: str                       # "P2,5R"
     timestamp: str = field(default_factory=utc_now)
     values: dict[str, float] = field(default_factory=dict)   # by NAME
-    #: Where the robot actually stood, in metres. Kept because the difference
-    #: between this and the catalogue position is the only honest measure of
-    #: how well it parked, and the Cloud shows it.
+    #: Where the robot actually stood: (x, y, yaw) in metres and radians.
+    #: Kept because the difference between this and the catalogue position is
+    #: the only honest measure of how well it parked, and the Cloud shows it.
     pose: tuple[float, float, float] | None = None
+    #: How fast it was moving when it read: (vx, vy, wz), m/s and rad/s, in
+    #: the ROBOT's frame -- which is what odometry reports and what a
+    #: velocity command means.
+    #:
+    #: It should be near zero: the robot stops, settles, then measures. That
+    #: is exactly why it is worth transmitting. A reading taken at 0.3 m/s is
+    #: a reading taken somewhere between two places, and without this field
+    #: nothing downstream could ever tell.
+    velocity: tuple[float, float, float] | None = None
 
     def __post_init__(self) -> None:
         self.label = normalise(self.label)
@@ -106,10 +115,39 @@ class Measurement:
 
     # ------------------------------------------------------------ QR text
     def to_qr_text(self) -> str:
+        """The scannable payload: everything numeric, and nothing else.
+
+        Pose and velocity are in here as well as in the JSON, because the
+        brief asks for the numeric data to become a QR code and the robot's
+        position and speed are numeric data. It also makes the code
+        self-contained: scan it and you know which plant, when, what was
+        read, where the robot was and whether it was moving -- without the
+        file it travelled in.
+
+        The formats are fixed (3 decimals, 1 for degrees) so that the text
+        survives a round trip through to_dict()/from_dict(), which rounds to
+        the same places. The Cloud re-reads the QR IMAGE and compares it to
+        the numbers beside it, so a mismatch in rounding would be reported as
+        a tampered report.
+        """
         parts = [QR_MAGIC, self.label, self.timestamp]
         parts += [f"{q.key}={q.format(self.values[q.name])}"
                   for q in QUANTITIES]
+        if self.pose is not None:
+            parts += [f"x={self.pose[0]:.3f}", f"y={self.pose[1]:.3f}",
+                      f"yaw={math.degrees(self.pose[2]):.1f}"]
+        if self.velocity is not None:
+            parts += [f"vx={self.velocity[0]:.3f}",
+                      f"vy={self.velocity[1]:.3f}",
+                      f"w={self.velocity[2]:.3f}"]
         return "|".join(parts)
+
+    @property
+    def speed(self) -> float | None:
+        """Ground speed, frame-independent, for display."""
+        if self.velocity is None:
+            return None
+        return math.hypot(self.velocity[0], self.velocity[1])
 
     @classmethod
     def from_qr_text(cls, text: str) -> "Measurement":
@@ -119,15 +157,24 @@ class Measurement:
                 f"not an {QR_MAGIC} payload: {text[:40]!r}")
         label, ts = parts[1], parts[2]
         values: dict[str, float] = {}
+        extra: dict[str, float] = {}
         for token in parts[3:]:
             m = re.match(r"^([a-z0-9]+)=(-?[\d.]+)$", token)
             if not m:
                 raise MeasurementError(f"cannot read field {token!r}")
             key, raw = m.group(1), m.group(2)
-            if key not in BY_KEY:
+            if key in BY_KEY:
+                values[BY_KEY[key].name] = float(raw)
+            elif key in ("x", "y", "yaw", "vx", "vy", "w"):
+                extra[key] = float(raw)
+            else:
                 raise MeasurementError(f"unknown quantity {key!r}")
-            values[BY_KEY[key].name] = float(raw)
-        return cls(label=label, timestamp=ts, values=values)
+        pose = ((extra["x"], extra["y"], math.radians(extra["yaw"]))
+                if {"x", "y", "yaw"} <= extra.keys() else None)
+        velocity = ((extra["vx"], extra["vy"], extra["w"])
+                    if {"vx", "vy", "w"} <= extra.keys() else None)
+        return cls(label=label, timestamp=ts, values=values,
+                   pose=pose, velocity=velocity)
 
     # --------------------------------------------------------------- JSON
     def to_dict(self) -> dict[str, Any]:
@@ -141,6 +188,11 @@ class Measurement:
             d["pose"] = {"x": round(self.pose[0], 3),
                          "y": round(self.pose[1], 3),
                          "yaw_deg": round(math.degrees(self.pose[2]), 1)}
+        if self.velocity is not None:
+            d["velocity"] = {"vx": round(self.velocity[0], 3),
+                             "vy": round(self.velocity[1], 3),
+                             "wz": round(self.velocity[2], 3),
+                             "speed": round(self.speed, 3)}
         return d
 
     @classmethod
@@ -150,9 +202,13 @@ class Measurement:
             p = d["pose"]
             pose = (float(p["x"]), float(p["y"]),
                     math.radians(float(p["yaw_deg"])))
+        velocity = None
+        if isinstance(d.get("velocity"), dict):
+            v = d["velocity"]
+            velocity = (float(v["vx"]), float(v["vy"]), float(v["wz"]))
         return cls(label=d["label"], timestamp=d["timestamp"],
                    values={k: float(v) for k, v in d["values"].items()},
-                   pose=pose)
+                   pose=pose, velocity=velocity)
 
     # -------------------------------------------------------------- checks
     def out_of_range(self) -> list[str]:

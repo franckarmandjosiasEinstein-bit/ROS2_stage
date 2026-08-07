@@ -128,6 +128,7 @@ class GazeboDriver:
 
         self._lock = threading.Lock()
         self._odom: tuple[float, float, float] | None = None
+        self._twist: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._scan: LaserScan | None = None
         self._plant_img: Image | None = None
         self._floor_img: Image | None = None
@@ -151,9 +152,14 @@ class GazeboDriver:
         q = msg.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        t = msg.twist.twist
         with self._lock:
             self._odom = (msg.pose.pose.position.x,
                           msg.pose.pose.position.y, yaw)
+            # Straight from the odometry, in the robot's frame, unfiltered.
+            # A smoothed speed would look tidier and would hide the thing
+            # this field exists to catch: a reading taken while still rolling.
+            self._twist = (t.linear.x, t.linear.y, t.angular.z)
 
     def _on_scan(self, msg: LaserScan) -> None:
         with self._lock:
@@ -184,6 +190,11 @@ class GazeboDriver:
         x, y, yaw = self.base_pose()
         return (x + SENSOR_OFFSET_X * math.cos(yaw),
                 y + SENSOR_OFFSET_X * math.sin(yaw), yaw)
+
+    def velocity(self) -> tuple[float, float, float]:
+        """(vx, vy, wz) in the robot's frame. Travels with every report."""
+        with self._lock:
+            return self._twist
 
     def wait_ready(self, timeout: float = 30.0) -> None:
         end = time.time() + timeout

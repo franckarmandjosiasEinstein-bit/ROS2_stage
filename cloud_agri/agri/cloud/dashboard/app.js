@@ -76,9 +76,13 @@ function renderLink() {
   const r = S.state.robot || {};
   const on = !!r.online;
   document.getElementById("linkdot").className = "dot" + (on ? " on" : "");
-  document.getElementById("linktext").textContent = on
-    ? `${r.robot} online${r.pose ? ` // x ${r.pose.x} y ${r.pose.y}` : ""}`
-    : "no robot";
+  /* Position AND speed: the robot transmits both, so the link line shows
+     both. A moving robot with a stale-looking position is the one thing
+     this line has to be able to tell you at a glance. */
+  const where = r.pose ? ` // x ${r.pose.x} y ${r.pose.y}` : "";
+  const fast = r.velocity ? ` // ${r.velocity.speed.toFixed(2)} m/s` : "";
+  document.getElementById("linktext").textContent =
+    on ? `${r.robot} online${where}${fast}` : "no robot";
 }
 
 function tile(k, v, sub, warn) {
@@ -88,6 +92,7 @@ function tile(k, v, sub, warn) {
 
 function renderStrip() {
   const s = S.state.summary;
+  const v = (S.state.robot || {}).velocity;
   const [done, total] = s.coverage;
   document.getElementById("strip").innerHTML = [
     tile("coverage", `${done}<small>/${total}</small>`, "stations"),
@@ -97,6 +102,7 @@ function renderStrip() {
     tile("rejected", s.rejected, "refused", s.rejected > 0),
     tile("parking", s.mean_parking_m == null ? "—" : s.mean_parking_m,
          s.worst_parking_m == null ? "m" : `m mean / ${s.worst_parking_m} worst`),
+    tile("speed", v == null ? "—" : v.speed, "m/s now"),
   ].join("");
 }
 

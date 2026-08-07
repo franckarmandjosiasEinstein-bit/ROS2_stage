@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 145 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 161 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -133,8 +133,8 @@ python3 -m agri.keys                  # -> keys/{cloud,robot}_{private,public}.p
 # 1. the broker
 mosquitto -p 1883 -v
 
-# 2. the Cloud
-agri-cloud --keys keys --store store            # dashboard on :8088
+# 2. the Cloud -- this is the operator's seat
+agri-cloud --keys keys --store store            # console here, dashboard on :8088
 
 # 3. the robot, in Gazebo -- from the WORKSPACE root, not from cloud_agri/
 cd ..
@@ -143,6 +143,37 @@ colcon build --symlink-install \
 source install/setup.bash
 ros2 launch agri_robot agri.launch.py
 ```
+
+### Giving orders
+
+`agri-cloud` is a prompt, not just a daemon. The orders come from the process
+that holds the private key:
+
+```
+cloud> P2,4
+  request 7c1e0f42a9d3 signed and published -> 2 station(s): P2,4R, P2,4L
+cloud> status
+  robot   youbot-01  online  (busy)
+  at      x=-0.44  y=-1.75  yaw=0.0 deg
+  moving  0.312 m/s   (vx=0.312 vy=-0.004 wz=0.0)
+  request 7c1e0f42a9d3  driving   0/2  P2,4R
+cloud> show P2,4R
+  P2,4R   2026-08-05T11:42:07Z
+    temperature       22.4 degC
+    humidity          48.2 %RH
+    ...
+    parked       0.008 m from the cross
+    speed        0.002 m/s   (vx=0.002 vy=0.001 wz=0.0)
+cloud> ALL
+cloud> coverage
+cloud> csv
+cloud> quit
+```
+
+Anything that is not a verb is read as a target, because a plant name is what
+gets typed nine times out of ten. The dashboard's buttons do exactly the same
+thing over HTTP; the console exists because the operator's seat belongs in
+the process that signs.
 
 ### What the Cloud can ask for
 
@@ -283,6 +314,27 @@ reported it (this robot has no collision geometry). It was caught by
 `route_clearance()`, which the test suite now runs over all 2 256
 station-to-station routes on every run.
 
+### What the robot says about itself
+
+Every report carries the robot's **position and speed** at the instant of the
+reading, in the QR code as well as in the JSON:
+
+```
+AGRI1|P2,4R|2026-08-05T09:14:45Z|t=22.4|rh=48.2|lux=32001|co2=486|ph=6.26|x=-0.438|y=-0.547|yaw=0.0|vx=0.002|vy=0.001|w=0.000
+```
+
+The speed should be near zero — the robot stops, settles, then measures — and
+that is exactly why it is worth transmitting. A reading taken at 0.3 m/s is a
+reading taken somewhere between two places, and without this field nothing
+downstream could ever tell. It is unfiltered, straight from the odometry: a
+smoothed number would look tidier and would hide the thing the field exists
+to catch.
+
+Between measurements the same two numbers go out on `agri/v1/status` every
+five seconds, retained by the broker, so the Cloud can watch the robot cross
+the greenhouse rather than hear from it only on arrival. `cloud> status` and
+the dashboard's header line both read that.
+
 ### The measurement — `agri/measurement.py`, `agri/qrcodec.py`
 
 Five quantities: temperature, humidity, luminosity, CO₂, pH. The QR payload
@@ -366,7 +418,7 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-145 checks, about ten seconds, nothing installed beyond the dependencies. It
+161 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the

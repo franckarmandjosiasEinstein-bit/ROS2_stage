@@ -65,6 +65,15 @@ class Driver(Protocol):
     def pose(self) -> Pose:
         ...
 
+    def velocity(self) -> tuple[float, float, float]:
+        """(vx, vy, wz) in the robot's own frame, right now.
+
+        Reported with every measurement because the brief asks the robot to
+        send its position AND its speed, and because a reading taken while
+        moving is a reading taken somewhere between two places. It should be
+        near zero at a station -- that is the point of transmitting it.
+        """
+
 
 @dataclass
 class Visitor:
@@ -89,6 +98,10 @@ class Visitor:
         err = math.hypot(pose[0] - s.x, pose[1] - s.y)
 
         m = self.read_sensors(label, minutes, pose)
+        # Read the speed AFTER the sensors, not before: it is the speed at
+        # the moment of the reading that says whether the reading is a point
+        # measurement or a smear.
+        m.velocity = self.driver.velocity()
         jpeg, size = self.driver.photograph(s)
         report = build_report(m, jpeg, size, self.robot_id, request_id)
         envelope = seal_report(report, self.cloud_public_pem,
@@ -182,10 +195,14 @@ class RobotLink:
             total=total or (m.total if m else 0), detail=detail)), qos=QOS)
 
     def status(self, online: bool = True, note: str = "") -> None:
+        """Telemetry. Pose and velocity, on a timer, whether busy or not --
+        so the Cloud can watch the robot move rather than only hear from it
+        when it arrives somewhere."""
         pose = self.visitor.driver.pose()
         self.client.publish(TOPIC_STATUS, json.dumps(make_status(
             self.visitor.robot_id, online,
-            (pose[0], pose[1], math.degrees(pose[2])), note)),
+            (pose[0], pose[1], math.degrees(pose[2])), note,
+            velocity=self.visitor.driver.velocity())),
             qos=QOS, retain=True)
 
     def run_mission(self, minutes_provider: Callable[[], float]) -> None:
@@ -234,6 +251,7 @@ class SimulatedDriver:
         self.speed = speed
         self.dwell = dwell
         self._pose: Pose = (HEADLAND_WEST, -1.85, 0.0)   # the dock, west end
+        self._velocity = (0.0, 0.0, 0.0)
 
     def pose(self) -> Pose:
         return self._pose
@@ -245,7 +263,18 @@ class SimulatedDriver:
         yaw = 0.0 if s.x >= self._pose[0] else math.pi
         self._pose = (s.x + self.rng.gauss(0, self.park_sigma),
                       s.y + self.rng.gauss(0, self.park_sigma), yaw)
+        self._velocity = (self.rng.gauss(0, 0.004),
+                          self.rng.gauss(0, 0.004), 0.0)
         return self._pose
+
+    def velocity(self) -> tuple[float, float, float]:
+        """Parked, with the residual wobble of a base that has just stopped.
+
+        Not exactly zero, on purpose: a field that is always the same number
+        is a field nobody looks at, and one that is always EXACTLY zero would
+        hide the day the robot starts measuring while still rolling.
+        """
+        return self._velocity
 
     def photograph(self, s: Station) -> tuple[bytes, tuple[int, int]]:
         return synthetic_photo(s.label), (320, 240)
