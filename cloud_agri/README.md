@@ -36,7 +36,7 @@ robot from a stationary ESP.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 236 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 244 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -157,6 +157,30 @@ crosses are, plus the robot's own footprint including its sensor boom. That
 comparison is the point — a scan on its own is a pretty shape with no scale,
 and the moment the two stop lying on top of each other, either the odometry
 or the catalogue is wrong. `rviz:=false` turns it off.
+
+**If RViz is empty**, the launch window says why. `agri_viz` publishes the
+`map -> base_link` transform from `/odom`, and RViz greys out every display
+when its fixed frame has no transform — so an empty window has five possible
+causes that look identical. The node therefore logs when it starts, logs the
+first odometry it receives, and after 12 s of silence says so outright:
+
+```
+[viz_node-5] agri_viz: first /odom at x=-4.58 y=-1.85; map -> base_link is
+             live and RViz has its fixed frame
+```
+
+If that line never appears, run the live diagnostic **in a second terminal,
+while the launch is still running**:
+
+```bash
+bash cloud_agri/tests/check_live.sh
+```
+
+It checks, in order, that the launch is up, that `/odom` arrives, that the
+transform resolves, and that there is something to draw — and stops at the
+first thing that is not true. Run against a stopped launch it says so
+instead of reporting "frame map does not exist", which is true, useless, and
+indistinguishable from the real fault.
 
 The **Gazebo camera locks onto the robot** and stays locked. It has to be
 re-asserted rather than requested once: gz answers "yes" to the tracking
@@ -546,7 +570,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the 236 other checks to pass first.
+prioritised over getting the 244 other checks to pass first.
 
 ---
 
@@ -556,14 +580,15 @@ prioritised over getting the 236 other checks to pass first.
 python3 tests/check_cloud.py
 ```
 
-236 checks, about ten seconds, nothing installed beyond the dependencies —
-235 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
+244 checks, about ten seconds, nothing installed beyond the dependencies —
+243 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
 one thing that cannot be tested because there is no rclpy to clash with. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the
 generated world, the ROS package read as text (topic names, bridge entries,
-spawn point, entry points, the RViz layout, the Gazebo camera watchdog), the
+spawn point, entry points, the RViz layout, the Gazebo camera watchdog, the
+viz node's own startup and no-odometry logging), the
 two-machine key handover including the copy nobody remembers, the dashboard's
 own geometry, its ENREGISTRER and QUITTER buttons driven over a real socket,
 the multi-node protocol (topic namespacing, wildcard matching, `node_kind`,

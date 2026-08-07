@@ -31,6 +31,8 @@ mesh; they should not share a build graph.
 
 from __future__ import annotations
 
+import threading
+
 import rclpy
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
@@ -66,6 +68,13 @@ def _marker(mid: int, kind: int, scale, rgba, ns: str = "agri") -> Marker:
     return m
 
 
+#: How long to wait for the first /odom before saying so. Long enough that
+#: Gazebo has finished loading a 48-cross world on a slow laptop, short
+#: enough that the complaint arrives while the operator is still looking at
+#: the window they are wondering about.
+ODOM_GRACE_S = 12.0
+
+
 class Viz(Node):
     def __init__(self) -> None:
         super().__init__("agri_viz")
@@ -78,6 +87,40 @@ class Viz(Node):
         self.create_timer(2.0, self._publish_world)
         self._publish_world()
 
+        # SAY SOMETHING. This node published nothing to the log at all, and
+        # the two failures it can have -- dead on arrival, or alive but never
+        # hearing /odom -- both look like exactly one thing from the outside:
+        # an empty RViz. Neither is distinguishable from a wrong Fixed Frame,
+        # a wrong view, or a config RViz declined to parse, so diagnosing it
+        # meant a second terminal, ros2 topic hz, and knowing to run them
+        # WHILE the launch was up. Three log lines settle it from the launch
+        # window everyone already has open.
+        self._heard = 0
+        self.get_logger().info(
+            f"agri_viz: publishing {FRAME} -> base_link from /odom, and the "
+            "catalogue on /agri/stations. RViz draws nothing until the "
+            "first /odom arrives.")
+        # A WALL-CLOCK timer, deliberately, and the only one in this file
+        # that is not a ROS timer. use_sim_time is true here, so a ROS timer
+        # advances only when /clock does -- and /clock arriving is precisely
+        # what a dead bridge stops. The watchdog for "the simulation is not
+        # feeding me" cannot itself be driven by the simulation, or it stays
+        # silent in exactly the case it exists to report.
+        self._grace = threading.Timer(ODOM_GRACE_S, self._complain)
+        self._grace.daemon = True
+        self._grace.start()
+
+    def _complain(self) -> None:
+        """Name the cause of an empty RViz, once, instead of staying quiet."""
+        if self._heard:
+            return
+        self.get_logger().error(
+            f"agri_viz: no /odom after {ODOM_GRACE_S:.0f} s, so {FRAME} -> "
+            "base_link is NOT being published and RViz will stay empty -- "
+            "every display greys out for want of the fixed frame. The robot "
+            "itself is unaffected. Check the gz bridge is up and that "
+            "/odom has a publisher:  ros2 topic hz /odom")
+
     def _on_odom(self, msg: Odometry) -> None:
         t = TransformStamped()
         t.header.stamp = msg.header.stamp
@@ -87,6 +130,12 @@ class Viz(Node):
         t.transform.translation.y = msg.pose.pose.position.y
         t.transform.rotation = msg.pose.pose.orientation
         self.tf.sendTransform(t)
+        self._heard += 1
+        if self._heard == 1:
+            p = msg.pose.pose.position
+            self.get_logger().info(
+                f"agri_viz: first /odom at x={p.x:.2f} y={p.y:.2f}; "
+                f"{FRAME} -> base_link is live and RViz has its fixed frame")
 
     # ------------------------------------------------------------- markers
     def _publish_world(self) -> None:

@@ -958,6 +958,40 @@ def check_ros_package() -> None:
     check("it shows the lidar and the catalogue side by side",
           "/scan" in rviz and "/agri/stations" in rviz,
           "a scan on its own has no scale; the point is the comparison")
+    # An empty RViz has five causes that look identical from the window, and
+    # this node used to log NOTHING -- so "it is running but deaf" and "it
+    # died" and "the view is wrong" were indistinguishable without a second
+    # terminal and the presence of mind to use it while the launch was up.
+    check("the viz node says it started",
+          "agri_viz: publishing" in viz,
+          "a node that logs nothing cannot be told apart from a dead one")
+    check("and says when the odometry it needs first arrives",
+          "first /odom" in viz)
+    check("and complains, out loud, if it never does",
+          "no /odom after" in viz and "ODOM_GRACE_S" in viz,
+          "silence here is a blank RViz with no stated cause")
+    # use_sim_time is true for this node, so a ROS timer only advances when
+    # /clock does -- and /clock stopping is one of the faults the watchdog
+    # exists to report. A watchdog driven by the thing it watches is silent
+    # in precisely the case that matters.
+    check("the no-odometry watchdog runs on the wall clock",
+          "threading.Timer(ODOM_GRACE_S" in viz,
+          "a ROS timer here would never fire when the bridge is the fault")
+    check("and cannot hold the process open",
+          "_grace.daemon = True" in viz)
+
+    live = ROOT / "tests" / "check_live.sh"
+    check("there is a live diagnostic for the running system", live.exists())
+    text = live.read_text()
+    check("and it refuses to answer when the launch is not running",
+          "agri_viz is not running" in text and "exit 1" in text,
+          "measuring a system that was stopped a minute ago reports a fault "
+          "that is real, useless, and indistinguishable from the true one")
+    check("and it checks odometry before blaming the transform",
+          text.index("/odom delivered nothing") < text.index("does NOT resolve"),
+          "no /odom is the CAUSE of no map->base_link; reporting the "
+          "symptom first sends you to the wrong file")
+
     check("the viz node is exposed as a console script",
           "viz_node = agri_robot.viz_node:main" in setup)
     check("and the launch file starts it",
