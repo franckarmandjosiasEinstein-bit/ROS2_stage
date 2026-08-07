@@ -1318,8 +1318,15 @@ def check_hygiene() -> None:
     check("private keys are gitignored",
           "keys/" in gitignore and "*.pem" in gitignore,
           "a repository that has held a private key has published it")
-    tracked = list(ROOT.rglob("*.pem"))
-    check("and none is present in the tree", not tracked,
+    # A plain rglob also catches keys/ and demo_run/keys/ once the demo or
+    # the robot has actually run -- both are gitignored and are SUPPOSED to
+    # exist on disk at that point. What must never happen is one being
+    # tracked by git, which is the only thing "published" actually means.
+    import subprocess                                  # noqa: PLC0415
+    out = subprocess.run(["git", "ls-files", "*.pem"], cwd=ROOT,
+                         capture_output=True, text=True, check=False)
+    tracked = [line for line in out.stdout.splitlines() if line.strip()]
+    check("and none is tracked by git", not tracked,
           f"found {tracked}")
     check("the Phase B project is untouched",
           (ROOT.parent / "src" / "youbot_control").is_dir()
