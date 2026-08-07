@@ -71,8 +71,13 @@ class AgriRobot(Node):
 
         self.robot_id = p("robot_id")
         key_dir = Path(p("keys"))
-        self.robot_keys = keys.ensure("robot", key_dir)
-        self.cloud_public = keys.public_of("cloud", key_dir)
+        # See keys.bootstrap. generate=False on the CLOUD's public key is
+        # what stops a robot running on its own machine from inventing a
+        # Cloud identity and then refusing every real order as unsigned --
+        # which looks exactly like a broker that is not delivering.
+        keys.bootstrap(key_dir)
+        self.robot_keys = keys.ensure("robot", key_dir, generate=False)
+        self.cloud_public = keys.public_of("cloud", key_dir, generate=False)
 
         field = GreenhouseField()
         self.driver = GazeboDriver(self, sensors=field.read,

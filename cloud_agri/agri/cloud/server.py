@@ -59,8 +59,14 @@ class Cloud:
 
     def __init__(self, store: Store, key_dir: Path) -> None:
         self.store = store
-        self.cloud_keys = keys.ensure("cloud", key_dir)
-        self.robot_public = keys.public_of("robot", key_dir)
+        # Both pairs together into an empty directory, or nothing at all --
+        # see keys.bootstrap. generate=False on the ROBOT's public key is
+        # what stops a Cloud running on its own machine from inventing a
+        # robot identity and then rejecting the real robot's every report
+        # without either side saying why.
+        keys.bootstrap(key_dir)
+        self.cloud_keys = keys.ensure("cloud", key_dir, generate=False)
+        self.robot_public = keys.public_of("robot", key_dir, generate=False)
         self.robot_status: dict[str, Any] = {}
         self.progress: dict[str, Any] = {}
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
@@ -366,6 +372,26 @@ class Console:
 
 
 # ------------------------------------------------------------------- main
+def _my_address() -> str:
+    """This machine's address on the network the broker is reached over.
+
+    Not the hostname, which resolves to 127.0.1.1 on a stock Debian and
+    would send anyone who reads it back to their own machine. A UDP socket
+    "connected" to an outside address sends nothing, but does make the
+    kernel pick the interface it WOULD use, and its local address is the one
+    the robot and the browser can actually reach.
+    """
+    import socket                                        # noqa: PLC0415
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))       # TEST-NET-1: routed nowhere
+        return s.getsockname()[0]
+    except OSError:
+        return "localhost"                # no network at all; say so honestly
+    finally:
+        s.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Smart-agriculture Cloud")
     ap.add_argument("--broker", default=DEFAULT_BROKER)
@@ -419,9 +445,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     client.loop_start()
 
+    # "" binds every interface, so the dashboard is reachable from the
+    # robot's machine and from a phone on the same network. Printing
+    # "localhost" was wrong the moment the Cloud stopped being on the same
+    # computer as the browser, so print the address that actually works.
     httpd = ThreadingHTTPServer(("", args.http_port),
                                 partial(Handler, cloud, publish))
-    print(f"cloud: dashboard on http://localhost:{args.http_port}")
+    print(f"cloud: dashboard on http://{_my_address()}:{args.http_port}"
+          f"  (also http://localhost:{args.http_port} from this machine)")
     print(f"cloud: {len(all_labels())} stations known, "
           f"{cloud.store.coverage()[0]} already measured")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

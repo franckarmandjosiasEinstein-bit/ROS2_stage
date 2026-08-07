@@ -1015,6 +1015,92 @@ def check_ros_package() -> None:
           "SIGKILLed launch never runs OnShutdown at all")
 
 
+def check_two_machines() -> None:
+    """The Cloud on one computer and the robot on another.
+
+    This is the deployment the brief actually describes, and every check
+    here is about the ONE step that has no error message of its own: the
+    public keys have to be copied, and a side that quietly generates the
+    missing one produces a system where nothing works and nothing complains.
+    """
+    print("\nthe Cloud on a second machine")
+    from agri import keys                                # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        # 1. One machine: an empty directory gets BOTH pairs, together.
+        cloud_dir = d / "one"
+        check("an empty key directory is bootstrapped with both pairs",
+              keys.bootstrap(cloud_dir)
+              and all(p.exists() for r in keys.ROLES
+                      for p in keys.paths(r, cloud_dir)),
+              "the single-machine case must stay a single command")
+        check("and running again generates nothing",
+              keys.bootstrap(cloud_dir) is False,
+              "a second Cloud key makes every stored report undecryptable")
+
+        # 2. Two machines, done RIGHT: private half stays, public is copied.
+        robot_dir = d / "robot"
+        robot_dir.mkdir()
+        for name in ("robot_private.pem", "robot_public.pem",
+                     "cloud_public.pem"):
+            (robot_dir / name).write_bytes((cloud_dir / name).read_bytes())
+        check("a robot machine with the copied public key starts",
+              keys.public_of("cloud", robot_dir, generate=False)
+              == keys.public_of("cloud", cloud_dir),
+              "this is the whole deployment: copy the two public halves")
+        check("and it does NOT hold the Cloud's private key",
+              not (robot_dir / "cloud_private.pem").exists(),
+              "capturing the robot must not give away the Cloud")
+
+        # 3. Two machines, done WRONG: the copy was forgotten.
+        forgot = d / "forgot"
+        forgot.mkdir()
+        for name in ("robot_private.pem", "robot_public.pem"):
+            (forgot / name).write_bytes((cloud_dir / name).read_bytes())
+        check("a populated directory is NOT bootstrapped behind your back",
+              keys.bootstrap(forgot) is False,
+              "generating a Cloud identity here is the trap: the robot would "
+              "then refuse every real order as unsigned, silently")
+        refuses("and the forgotten copy is refused, not invented",
+                lambda: keys.public_of("cloud", forgot, generate=False),
+                FileNotFoundError)
+        try:
+            keys.public_of("cloud", forgot, generate=False)
+        except FileNotFoundError as exc:
+            msg = str(exc)
+        check("and the refusal says exactly what to copy where",
+              "scp cloud_public.pem" in msg and "python3 -m agri.keys" in msg,
+              msg)
+
+    # Neither running program may take the generating path.
+    server = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+            / "robot_node.py").read_text()
+    # Matched as CALLS, not as text: the comment beside each one names
+    # generate=False too, and counting the string counted the explanation.
+    loads = re.compile(r"keys\.(?:ensure|public_of)\([^)]*\)")
+    for who, src in (("Cloud", server), ("robot node", node)):
+        calls = loads.findall(src)
+        check(f"the {who} never generates the other side's key",
+              len(calls) == 2 and all("generate=False" in c for c in calls)
+              and "keys.bootstrap(" in src,
+              f"one own keypair, one counterparty public key, neither "
+              f"invented -- found {calls}")
+
+    # The address the operator is told to open has to be the one that works.
+    check("the dashboard binds every interface, not just loopback",
+          'ThreadingHTTPServer(("", args.http_port)' in server,
+          "a Cloud nobody can reach from the robot's machine is not a Cloud")
+    check("and prints an address that works from another machine",
+          "_my_address()" in server and "192.0.2.1" in server,
+          "printing localhost was true only while both ran on one computer")
+    check("both sides take the broker address from the command line",
+          "--broker" in server and '"broker"' in node,
+          "MQTT is why this is portable: neither side needs the other's "
+          "address, only the broker's")
+
+
 def check_dashboard() -> None:
     """The web page, checked as source rather than as a screenshot.
 
@@ -1169,7 +1255,8 @@ def main() -> int:
                check_mqtt_compat, check_aisles,
                check_vision,
                check_world,
-               check_ros_package, check_dashboard, check_end_to_end,
+               check_ros_package, check_two_machines, check_dashboard,
+               check_end_to_end,
                check_demo, check_hygiene):
         fn()
     print()

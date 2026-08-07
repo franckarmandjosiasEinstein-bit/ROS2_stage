@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 174 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 209 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -244,9 +244,68 @@ first; running it explicitly just means you can see the files, and see that
 published** — rotating is the only fix, so the cheap defence is to never let
 it happen. `check_cloud.py` asserts no `.pem` is in the tree.
 
-The robot and the Cloud each need the *other's public* key, so on two
-machines copy `cloud_public.pem` to the robot and `robot_public.pem` to the
-Cloud. On one machine they share the directory and there is nothing to do.
+### Putting the Cloud on another computer
+
+This is the deployment the brief actually describes, and it needs no code
+change — MQTT was chosen for exactly this. Neither side ever learns the
+other's address; both only need the **broker's**.
+
+```bash
+# on the CLOUD machine (say 192.168.1.20)
+mosquitto -c mosquitto.conf              # see the listener note below
+agri-cloud --broker localhost --keys keys --store store
+
+# on the ROBOT machine
+ros2 launch agri_robot agri.launch.py broker:=192.168.1.20
+```
+
+The broker can equally live on a third machine, or on the robot: pass the
+same `--broker` / `broker:=` address to both sides and it works.
+
+Three things to get right, and only the first has ever been anyone's
+fault twice:
+
+**Copy the public keys.** Each side needs its own private key and the
+*other side's public* one. On the robot machine:
+
+```bash
+scp cloudpc:cloud_agri/keys/cloud_public.pem  keys/
+scp keys/robot_public.pem  cloudpc:cloud_agri/keys/
+```
+
+Nothing is generated for you across two machines. That is deliberate: a key
+invented locally cannot match, and the failure has no symptom of its own —
+the robot refuses every order as unsigned and the Cloud rejects every
+report, both silently, which reads as a broker fault. `agri.keys` now
+refuses instead and prints the `scp` line you need. A directory that is
+completely empty is still bootstrapped with both pairs, so the
+one-machine case stays one command.
+
+**Mosquitto listens only on loopback by default** (2.x). A remote robot
+connecting to it gets a bare connection refusal. The smallest config that
+works on a lab network:
+
+```
+listener 1883 0.0.0.0
+allow_anonymous true
+```
+
+**There is no TLS and no broker password.** Anyone on the network can watch
+the traffic and publish on the topics. That is survivable here only because
+the payloads are already ECIES-sealed and signed — an eavesdropper reads
+ciphertext, and a forged request is refused for having no valid Cloud
+signature. But the *metadata* is in clear, and an attacker can flood the
+topics. On a real deployment, put mosquitto behind TLS with a password
+file; nothing in this project has to change for that.
+
+The dashboard binds every interface, so `http://192.168.1.20:8088` works
+from the robot's machine or a phone on the same network. `agri-cloud`
+prints that address at startup rather than `localhost`.
+
+ROS 2's own DDS traffic never crosses the network: Gazebo, RViz and the
+bridge all stay on the robot's machine. So `ROS_DOMAIN_ID` is irrelevant
+here, and the two computers do not need to be on the same subnet for ROS's
+sake — only reachable from the broker.
 
 ### Driving without a Cloud
 
@@ -450,12 +509,14 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-174 checks, about ten seconds, nothing installed beyond the dependencies. It
+209 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the
 generated world, the ROS package read as text (topic names, bridge entries,
-spawn point, entry points), the whole chain end to end through a loopback
-broker, and the offline demo run as a subprocess.
+spawn point, entry points, the RViz layout, the Gazebo camera watchdog), the
+two-machine key handover including the copy nobody remembers, the dashboard's
+own geometry, the whole chain end to end through a loopback broker, and the
+offline demo run as a subprocess.
 
 Every check in it is there because something actually went wrong.
