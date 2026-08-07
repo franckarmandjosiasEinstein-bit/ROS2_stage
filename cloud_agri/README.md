@@ -151,6 +151,14 @@ comparison is the point — a scan on its own is a pretty shape with no scale,
 and the moment the two stop lying on top of each other, either the odometry
 or the catalogue is wrong. `rviz:=false` turns it off.
 
+The **Gazebo camera locks onto the robot** and stays locked. It has to be
+re-asserted rather than requested once: gz answers "yes" to the tracking
+request before its render scene actually contains the entity, and it drops
+the track again on its own several minutes in — well inside a 48-station
+sweep. If the lock never takes, the camera falls back to an overview of the
+whole greenhouse from (0, −7, 11), which cannot fail because it names a pose
+rather than an entity.
+
 ### Giving orders
 
 `agri-cloud` is a prompt, not just a daemon. The orders come from the process
@@ -392,8 +400,25 @@ invent boundaries that are not in the numbers. Stations are scaled between
 each quantity's plausible bounds, not between the observed minimum and
 maximum, so a quiet day does not look like a crisis. An out-of-range station
 gets an amber **ring**, never a fill, so its value is still readable on the
-same scale as its neighbours. Both light and dark themes, because a projector
-in a bright room is where this gets looked at.
+same scale as its neighbours. The **light theme is the default** and the dark
+one follows the operating system, because a projector in a bright room is
+where this gets looked at.
+
+Colour alone is not enough, so **every measured station also carries its
+value in figures**, on a chip filled with that same ramp colour — the two
+readings come from one number and cannot disagree. A ramp answers "more or
+less than its neighbours"; only a figure answers "how much", which is what
+the operator is being asked to act on.
+
+The chips are what forced the last piece of layout. The two stations of an
+inner aisle (`P1,jL` and `P2,jR`) are **0.10 m apart** — that is real
+geometry, not a drawing choice, and it is why the crosses are found visually
+rather than driven to on odometry. At map scale their marks touch, so each
+chip is pushed 0.30 m *away from its own plant row*, with a hairline back to
+its cross: the pair ends up 0.50 m apart and the chip becomes the station's
+click target. Where that is still not enough, the map itself can be narrowed
+— **row**, **side**, or straight to a **named station** — from the three
+selectors above it.
 
 ---
 

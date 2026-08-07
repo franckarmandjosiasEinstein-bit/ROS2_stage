@@ -27,6 +27,29 @@
       <h2>greenhouse map</h2>
       <div class="quantity-picker" id="picker"></div>
     </div>
+    <!-- The two stations that share an inner aisle are 0.10 m apart: at map
+         scale their marks touch. These narrow the map to one row and/or one
+         side, which separates them completely. -->
+    <div class="filters">
+      <label>row
+        <select id="f-row">
+          <option value="">all</option>
+          <option value="1">R1</option>
+          <option value="2">R2</option>
+          <option value="3">R3</option>
+        </select>
+      </label>
+      <label>side
+        <select id="f-side">
+          <option value="">both</option>
+          <option value="R">R // south</option>
+          <option value="L">L // north</option>
+        </select>
+      </label>
+      <label>go to
+        <select id="f-jump"><option value="">station…</option></select>
+      </label>
+    </div>
     <div class="map-wrap">
       <svg id="map" viewBox="-5.4 -2.9 10.8 5.8" preserveAspectRatio="xMidYMid meet"></svg>
     </div>

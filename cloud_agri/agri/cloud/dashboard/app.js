@@ -12,7 +12,22 @@
  * like one where everything is wrong.
  */
 
-const S = { state: null, quantity: "temperature", selected: null };
+const S = { state: null, quantity: "temperature", selected: null,
+            row: "", side: "" };
+
+/* TEXT INSIDE THE FLIPPED MAP.
+ *
+ * The map is drawn in world metres and then flipped with scale(1,-1), so
+ * that +y is up and the picture matches the building. Everything inherits
+ * that flip -- including glyphs, which came out upside down and backwards.
+ * The row labels shipped like that.
+ *
+ * The fix is per-text and not per-group: translate the element's own
+ * baseline to the origin, flip back, and translate out again, which is what
+ * translate(0, 2y) scale(1,-1) does in one attribute. Un-flipping the whole
+ * text layer instead would mean maintaining a second set of coordinates,
+ * and the two would drift the first time a mark moved. */
+const upright = y => `transform="translate(0,${2 * y}) scale(1,-1)"`;
 
 /* Sequential ramps, dark -> bright, one per quantity. Each stays within a
  * single hue family so the eye reads magnitude rather than category. */
@@ -65,6 +80,7 @@ function render() {
   if (!S.state) return;
   renderStrip();
   renderPicker();
+  renderJump();
   renderMap();
   renderRequests();
   renderRejects();
@@ -134,6 +150,28 @@ function renderPicker() {
   });
 }
 
+/* Which stations the filters let through. The selected one always is:
+   hiding the station whose detail panel is open would leave the panel
+   describing a mark that is not on the map. */
+const visible = s => (!S.row || String(s.row) === S.row)
+                  && (!S.side || s.side === S.side)
+                  || s.label === S.selected;
+
+/* Every station by name, for when clicking the right one of a touching pair
+   is more trouble than reading a list. Rebuilt only when the set changes,
+   so it does not reset itself under the cursor on every 2 s poll. */
+function renderJump() {
+  const el = document.getElementById("f-jump");
+  const labels = (S.state.stations || []).map(s => s.label);
+  const key = labels.join(",");
+  if (el.dataset.key !== key) {
+    el.dataset.key = key;
+    el.innerHTML = `<option value="">station…</option>` +
+      labels.map(l => `<option value="${l}">${l}</option>`).join("");
+  }
+  el.value = S.selected || "";
+}
+
 /* The greenhouse, to scale. 9.90 x 4.90 m interior. */
 function renderMap() {
   const st = S.state.stations, Q = q();
@@ -148,16 +186,33 @@ function renderMap() {
     }
   });
   rows.forEach((y, i) => {
-    svg += `<text class="rowlab" x="-4.85" y="${y + 0.07}">R${i + 1}</text>`;
+    /* -0.08, not +0.07: a baseline sits BELOW the glyphs, and "below" on
+       screen is the smaller world y once the map is flipped. */
+    const yy = y - 0.08;
+    svg += `<text class="rowlab" x="-4.85" y="${yy}" ${upright(yy)}>R${i + 1}</text>`;
   });
 
-  st.forEach(s => {
+  st.filter(visible).forEach(s => {
     const v = s.values ? s.values[S.quantity] : null;
     const t = norm(v);
     const colour = s.measured ? ramp(S.quantity, t) : "none";
     const stroke = s.measured ? colour : "var(--ink-dim)";
-    const a = 0.085;   // half the arm of the drawn cross, in metres
+    /* Half the arm of the drawn cross, in metres. Bounded above by the
+       0.10 m between the two stations of an inner aisle: at 0.055 the two
+       crosses run into each other and read as one X, which is the same
+       mistake the PAINTED crosses were making at 0.09 (catalogue.py). */
+    const a = 0.045;
     const sel = S.selected === s.label ? " sel" : "";
+    /* WHICH SIDE OF THE CROSS THE CHIP GOES ON.
+       Away from the plant: R is south of its row, so its chip goes further
+       south; L is north, so its chip goes north. This is not decoration.
+       P1,jL and P2,jR share an inner aisle 0.10 m apart, and a chip is
+       0.22 m tall -- put both on the same side and one covers the other
+       exactly, which is the overlap that made the map unreadable. Pushed
+       apart this way they end up 0.50 m clear, and the chip becomes the
+       station's real click target, far easier to hit than the mark. */
+    const away = (s.side === "R" ? -1 : +1) * 0.30;
+    const cy = s.y + away;
     /* The value, in figures, next to the mark.
        A ramp answers "more or less than its neighbours"; only a number
        answers "how much", and the operator is being asked to act on the
@@ -168,19 +223,21 @@ function renderMap() {
     const label = v == null ? "" : fmt(v);
     const ink = v == null ? "" : (norm(v) > 0.55 ? "#0b1416" : "#f2fbfa");
     const chip = v == null ? "" : `
-      <rect class="chip" x="${s.x - 0.30}" y="${s.y - 0.44}" width="0.60"
+      <rect class="chip" x="${s.x - 0.30}" y="${cy - 0.11}" width="0.60"
             height="0.22" rx="0.05" fill="${colour}"/>
-      <text class="val" x="${s.x}" y="${s.y - 0.27}" fill="${ink}"
-            transform="translate(0,${2 * (s.y - 0.27)}) scale(1,-1)">${label}</text>`;
+      <line class="stem" x1="${s.x}" y1="${s.y}" x2="${s.x}" y2="${cy}"
+            stroke="${colour}"/>
+      <text class="val" x="${s.x}" y="${cy - 0.06}" fill="${ink}"
+            ${upright(cy - 0.06)}>${label}</text>`;
     svg += `<g class="station${sel}" data-label="${s.label}">
       <title>${s.label}${v == null ? " — not measured" :
         ` — ${S.quantity} ${v} ${Q ? Q.unit : ""}`}</title>
-      ${s.flags && s.flags.length ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.17"/>` : ""}
-      ${S.selected === s.label ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.2"/>` : ""}
+      ${s.flags && s.flags.length ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.13"/>` : ""}
+      ${S.selected === s.label ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.16"/>` : ""}
       <line class="cross" x1="${s.x - a}" y1="${s.y}" x2="${s.x + a}" y2="${s.y}" stroke="${stroke}"/>
       <line class="cross" x1="${s.x}" y1="${s.y - a}" x2="${s.x}" y2="${s.y + a}" stroke="${stroke}"/>
       ${chip}
-      <circle cx="${s.x}" cy="${s.y}" r="0.13" fill="transparent"/>
+      <circle cx="${s.x}" cy="${s.y}" r="0.05" fill="transparent"/>
     </g>`;
   });
 
@@ -227,6 +284,7 @@ function renderRejects() {
 async function select(label) {
   S.selected = label;
   document.getElementById("detail").hidden = false;
+  renderJump();
   renderMap();
   renderDetail(label);
   const r = await fetch("/api/history/" + encodeURIComponent(label));
@@ -295,6 +353,17 @@ async function request(targets) {
   }
 }
 
+/* ------------------------------------------------------------ filters */
+document.getElementById("f-row").onchange = e => {
+  S.row = e.target.value; renderMap();
+};
+document.getElementById("f-side").onchange = e => {
+  S.side = e.target.value; renderMap();
+};
+document.getElementById("f-jump").onchange = e => {
+  if (e.target.value) select(e.target.value);
+};
+
 document.getElementById("btn-all").onclick = () => request("ALL");
 document.getElementById("btn-one").onclick = () =>
   request(document.getElementById("target").value.trim());
@@ -304,6 +373,7 @@ document.getElementById("target").addEventListener("keydown", e => {
 document.getElementById("detail-close").onclick = () => {
   S.selected = null;
   document.getElementById("detail").hidden = true;
+  document.getElementById("f-jump").value = "";
   renderMap();
 };
 

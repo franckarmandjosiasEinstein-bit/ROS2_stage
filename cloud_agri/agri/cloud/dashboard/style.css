@@ -122,6 +122,21 @@ h2 { margin: 0; font-size: .74rem; letter-spacing: .18em; font-weight: 600;
 .quantity-picker button[aria-pressed="true"] {
   color: var(--bg); background: var(--accent); border-color: var(--accent);
 }
+/* Row / side / station selectors. The two stations of an inner aisle are
+   0.10 m apart, and no amount of drawing separates them completely, so the
+   map can be narrowed instead: one row, one side, or one named station. */
+.filters { display: flex; flex-wrap: wrap; gap: .8rem; margin: 0 0 .6rem; }
+.filters label { display: flex; align-items: center; gap: .35rem;
+                 color: var(--ink-dim); font-size: .68rem;
+                 letter-spacing: .12em; text-transform: uppercase; }
+.filters select {
+  font: inherit; font-size: .72rem; letter-spacing: .06em;
+  color: var(--ink); background: var(--bg-raise);
+  border: 1px solid var(--line); border-radius: 2px; padding: .18rem .4rem;
+  text-transform: none; cursor: pointer;
+}
+.filters select:focus-visible { outline: 2px solid var(--accent); }
+
 .scale { display: flex; align-items: center; gap: .5rem; margin-top: .5rem;
          color: var(--ink-dim); font-size: .7rem; }
 .scale .ramp { flex: 1; height: 8px; border: 1px solid var(--line); }
@@ -205,4 +220,8 @@ footer { padding: .6rem 1.1rem; color: var(--ink-dim); font-size: .7rem;
   font-family: var(--mono); font-size: .17px; font-weight: 700;
   text-anchor: middle; paint-order: stroke; pointer-events: none;
 }
-.station .halo { stroke-width: .05; }
+/* The chip is pushed 0.30 m off the mark so the R and L of one aisle stop
+   covering each other. A hairline back to the cross says which mark it
+   belongs to, which is the whole reason the offset is safe. */
+.stem { stroke-width: .012; opacity: .65; }
+.station.sel .chip { stroke: var(--accent); stroke-width: .03; }

@@ -49,7 +49,7 @@ from ament_index_python.packages import (PackageNotFoundError,
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
                             IncludeLaunchDescription, RegisterEventHandler,
-                            SetEnvironmentVariable)
+                            SetEnvironmentVariable, TimerAction)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -58,6 +58,81 @@ from launch_ros.actions import Node
 
 WORLD = "worlds/greenhouse_cloud.sdf"
 URDF = "urdf/youbot_agri.urdf"
+
+# Lock the Gazebo GUI camera onto the robot, and KEEP it locked.
+#
+# Copied from youbot_gazebo/launch/gazebo.launch.py rather than reinvented,
+# because every line of it was paid for once already:
+#
+#   /gui/follow is DEPRECATED in Harmonic. The GUI prints the replacement at
+#   startup -- "Tracking topic on [/gui/track]" -- and a watchdog that keeps
+#   re-issuing the deprecated service can detect the loss but never repair
+#   it. The topic is asserted first; the service is kept only for older gz.
+#
+#   The camera cannot lock onto an entity the GUI's render scene has not
+#   loaded yet, and it says so ("Target: 'youbot' not found") a second AFTER
+#   answering "data: true". So this retries instead of firing once.
+#
+#   The GUI drops the track on its own, minutes in. A 2 000 s sweep across 48
+#   stations is long enough for that to happen twice, so the assertion is
+#   repeated every 20 s -- a no-op when tracking is already healthy.
+#
+#   /gui/move_to/pose takes a POSE, so unlike everything else here it cannot
+#   fail for want of an entity. It frames the whole greenhouse from
+#   (0, -7, 11), which clears the 2.45 m south wall and sees the floor
+#   through the transparent roof. That is the fallback when tracking loses
+#   the race: a small yellow robot somewhere in frame beats a wall.
+#
+#   The loop dies with its parent. bash in `sleep 20` ignores signals until
+#   the sleep returns, and a SIGKILLed launch never runs OnShutdown at all,
+#   so the only reliable exit is to check that the launcher is still alive.
+#
+# The leading marker is load-bearing: Phase B's kill_sim.sh finds this
+# process by that exact string, so the same script cleans up after both
+# projects. Do not reword it.
+FOLLOW_ROBOT = (
+    ': gui_follow watchdog; '
+    'parent=$PPID; '
+    'gone() { ! kill -0 "$parent" 2>/dev/null; }; '
+    'req=\'data: "youbot"\'; '
+    'moveto() { gz service -s /gui/move_to --reqtype gz.msgs.StringMsg '
+    '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
+    'track() { gz topic -t /gui/track -m gz.msgs.TrackVisual '
+    '  -p \'name: "youbot", inherit_orientation: true, min_dist: 3.0, '
+    'max_dist: 9.0\' >/dev/null 2>&1; '
+    '  gz service -s /gui/follow --reqtype gz.msgs.StringMsg '
+    '  --reptype gz.msgs.Boolean --timeout 2000 --req "$req" >/dev/null 2>&1; }; '
+    'tracked() { timeout 3 gz topic -e -t /gui/currently_tracked -n 1 '
+    '  2>/dev/null | grep -q youbot; }; '
+    'ovr=\'pose: {position: {x: 0, y: -7, z: 11}, '
+    'orientation: {x: -0.3403, y: 0.3403, z: 0.6199, w: 0.6199}}\'; '
+    'overview() { gz service -s /gui/move_to/pose --reqtype gz.msgs.GUICamera '
+    '  --reptype gz.msgs.Boolean --timeout 2000 --req "$ovr" >/dev/null 2>&1; }; '
+    'locked=0; '
+    'for i in $(seq 1 40); do '
+    '  if gone; then exit 0; fi; '
+    '  overview; moveto; track; '
+    '  if tracked; then locked=1; break; fi; sleep 1; done; '
+    'if [ "$locked" = 1 ]; then '
+    '  echo "[view] Gazebo camera is following the robot (confirmed)."; '
+    'else '
+    '  overview; '
+    '  echo "[view] the Gazebo camera would not lock onto the robot, so it is '
+    'parked on an overview of the whole greenhouse instead -- the robot IS '
+    'there, small and yellow. To follow it: Entity Tree > right-click youbot '
+    '> Follow."; fi; '
+    'quiet=0; '
+    'while sleep 20; do '
+    '  if gone; then exit 0; fi; '
+    '  track; '
+    '  if tracked; then quiet=0; continue; fi; '
+    '  quiet=$((quiet + 1)); '
+    '  if [ "$quiet" = 3 ]; then '
+    '    echo "[view] the Gazebo camera lost the robot -- snapping back to '
+    'it. The robot itself is fine; check its pose in the RViz window."; '
+    '    moveto; fi; '
+    'done'
+)
 
 
 def _source_root() -> Path | None:
@@ -223,8 +298,21 @@ def generate_launch_description() -> LaunchDescription:
              output="screen", additional_env={"PYTHONPATH": py_path},
              parameters=[sim_time]),
 
+        # THE GAZEBO CAMERA. Without this it stays wherever the last session
+        # left it -- gz REWRITES ~/.gz/sim/8/gui.config on every exit with the
+        # camera's final pose and reads that back in preference to anything
+        # the world says -- so a robot that spends 2 000 s crossing a 10 x 5 m
+        # greenhouse spends most of it off screen. Delayed 6 s because the
+        # tracking request needs the GUI's render scene, not just its process.
+        TimerAction(period=6.0, actions=[ExecuteProcess(
+            cmd=["bash", "-c", FOLLOW_ROBOT], output="screen",
+            condition=IfCondition(use_gui))]),
+
+        # output="screen" on purpose: a config RViz cannot parse is dropped
+        # SILENTLY except for one line on stderr, and the symptom -- an empty
+        # Displays panel -- looks identical to a node that is not publishing.
         Node(package="rviz2", executable="rviz2", name="rviz2",
-             output="log", parameters=[sim_time],
+             output="screen", parameters=[sim_time],
              arguments=["-d", str(share / "config" / "agri.rviz")],
              condition=IfCondition(LaunchConfiguration("rviz"))),
 

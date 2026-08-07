@@ -35,6 +35,7 @@ import rclpy
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -43,6 +44,16 @@ from agri.catalogue import (CROSS_ARM, GUTTER_HALF_WIDTH, ROW_Y, WALL_X,
                             WALL_Y, all_stations)
 
 FRAME = "map"
+
+#: The world markers are static, so they are published TRANSIENT_LOCAL: a
+#: subscriber that connects late still gets the last message instead of
+#: waiting for the next one. config/agri.rviz asks for the same durability,
+#: and it has to -- a Transient Local subscriber and a Volatile publisher are
+#: INCOMPATIBLE in DDS, so RViz would receive nothing at all and the display
+#: would look exactly like a node that is not running.
+WORLD_QOS = QoSProfile(depth=1,
+                       history=HistoryPolicy.KEEP_LAST,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def _marker(mid: int, kind: int, scale, rgba, ns: str = "agri") -> Marker:
@@ -59,7 +70,8 @@ class Viz(Node):
     def __init__(self) -> None:
         super().__init__("agri_viz")
         self.tf = TransformBroadcaster(self)
-        self.stations = self.create_publisher(MarkerArray, "agri/stations", 1)
+        self.stations = self.create_publisher(MarkerArray, "agri/stations",
+                                              WORLD_QOS)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         # Latched-ish: the world does not move, but RViz may start late, so
         # republish slowly forever rather than once and hope.

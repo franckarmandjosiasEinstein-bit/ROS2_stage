@@ -948,6 +948,154 @@ def check_ros_package() -> None:
           "viz_node = agri_robot.viz_node:main" in setup)
     check("and the launch file starts it",
           "executable=\"viz_node\"" in launch and '"rviz"' in launch)
+    check("the viz node also gets a PYTHONPATH",
+          launch.count('additional_env={"PYTHONPATH": py_path}') >= 2,
+          "it imports agri.catalogue too, and dies on the system python "
+          "exactly like the robot node did")
+
+    # --- the RViz layout, which loaded ONE display out of five ----------
+    #
+    # Both mistakes below are silent: RViz drops what it cannot make sense
+    # of and shows an empty Displays panel, which looks identical to a node
+    # that is not publishing. That cost a debugging session, so the shape of
+    # the file is asserted rather than trusted.
+    vm = rviz.split("Visualization Manager:", 1)[-1].split("\nWindow Geometry")[0]
+    keys = re.findall(r"^  ([A-Z][^:\n]*):", vm, re.M)
+    check("the RViz config gives its display group an identity",
+          'Class: ""' in vm and "Name: root" in vm,
+          "RViz2 loads the tree by handing this node to DisplayGroup::load(); "
+          "with no Class and no Name it loads no children and only the Grid "
+          "survives (the Grid is built in)")
+    check("and no key under Visualization Manager appears twice",
+          len(keys) == len(set(keys)),
+          f"yaml-cpp keeps the LAST of a repeated key, so the earlier one "
+          f"and everything in it is discarded: {sorted(keys)}")
+    displays = re.findall(r"^    - Class: (\S+)", rviz, re.M)
+    check("every display names a real plugin class",
+          displays and all(d.startswith("rviz_default_plugins/")
+                           for d in displays),
+          f"{displays}")
+    check("the lidar display subscribes Best Effort",
+          re.search(r"/scan\n\s+Reliability Policy: Best Effort", rviz),
+          "the gz bridge publishes /scan Best Effort; a Reliable subscriber "
+          "receives nothing and looks exactly like a broken lidar")
+    # QoS has to MATCH, and a mismatch delivers nothing rather than warning.
+    check("the marker display and the marker publisher agree on durability",
+          ("TRANSIENT_LOCAL" in viz)
+          == bool(re.search(r"/agri/stations\n\s+Durability Policy: "
+                            r"Transient Local", rviz)),
+          "Transient Local subscriber + Volatile publisher is INCOMPATIBLE "
+          "in DDS: RViz would show nothing and say nothing")
+
+    # --- the Gazebo camera ----------------------------------------------
+    check("the launch file locks the Gazebo camera onto the robot",
+          "/gui/track" in launch,
+          "gz rewrites ~/.gz/sim/8/gui.config with the camera's last pose on "
+          "every exit, so without this the robot spends the run off screen")
+    # Compared as COMMANDS, not as text: both names also appear in the
+    # comment that explains why, and the comment explains the deprecated one
+    # first, which made an earlier version of this check fail on prose.
+    check("it uses the track TOPIC and not only the deprecated service",
+          launch.index("gz topic -t /gui/track")
+          < launch.index("gz service -s /gui/follow"),
+          "/gui/follow is deprecated in Harmonic: re-issuing it lets a "
+          "watchdog detect the loss but never repair it")
+    check("it keeps re-asserting rather than firing once",
+          "while sleep" in launch and "seq 1 40" in launch,
+          "the GUI answers 'data: true' before its render scene has the "
+          "entity, and drops the track again minutes later")
+    check("it has a fallback that cannot fail for want of an entity",
+          "/gui/move_to/pose" in launch)
+    check("and it follows the name the spawn actually gives the robot",
+          re.search(r'"-name", "(\w+)"', launch).group(1) == "youbot"
+          and 'name: "youbot"' in launch)
+    check("the camera watchdog dies with the launch",
+          "parent=$PPID" in launch,
+          "bash in `sleep 20` ignores signals until the sleep returns, and a "
+          "SIGKILLed launch never runs OnShutdown at all")
+
+
+def check_dashboard() -> None:
+    """The web page, checked as source rather than as a screenshot.
+
+    Two of these are re-checks of bugs the user found by looking at the
+    page, which is the worst way to find them.
+    """
+    print("\nthe dashboard")
+    from agri.catalogue import all_stations               # noqa: PLC0415
+
+    d = ROOT / "agri" / "cloud" / "dashboard"
+    js, html, css = ((d / n).read_text()
+                     for n in ("app.js", "index.html", "style.css"))
+
+    # --- mirrored text --------------------------------------------------
+    # The map is drawn in world metres inside scale(1,-1) so that +y is up.
+    # Glyphs inherit that flip and come out backwards; the row labels
+    # shipped that way. Every text element must undo it.
+    texts = re.findall(r"<text\b[^>]*>", js)
+    bare = [t for t in texts if "upright(" not in t]
+    check("every text on the map counter-flips the map's own transform",
+          texts and not bare,
+          f"these would render mirrored: {bare}")
+    check("and it is written once, in a helper, not per call site",
+          js.count("const upright =") == 1
+          and js.count('transform="scale(1,-1)"') == 1,
+          "one flip on the map's group, one helper that undoes it; a third "
+          "copy is a second place to get the sign wrong")
+
+    # --- overlapping stations -------------------------------------------
+    # P1,jL and P2,jR share an inner aisle 0.10 m apart. Their value chips
+    # are 0.22 m tall, so drawn on the same side one hides the other
+    # exactly. The fix pushes each chip AWAY from its own plant row.
+    off = float(re.search(r'const away = .*?\* ([\d.]+);', js).group(1))
+    high = float(re.search(r'height="([\d.]+)" rx=', js).group(1))
+    same_x = {}
+    for s in all_stations():
+        same_x.setdefault(round(s.x, 6), []).append(s)
+    marks = min(abs(a.y - b.y)
+                for g in same_x.values() for a in g for b in g if a is not b)
+    chips = min(abs((a.y + (-off if a.side == "R" else off))
+                    - (b.y + (-off if b.side == "R" else off)))
+                for g in same_x.values() for a in g for b in g if a is not b)
+    check("the closest two stations really do collide when drawn plainly",
+          marks < high,
+          f"{marks:.2f} m apart, chip {high:.2f} m tall -- if this ever "
+          "stops being true the offset below is no longer needed")
+    check("pushing each chip away from its own row separates them",
+          chips > high + 0.05,
+          f"gap between chip centres is {chips:.2f} m, chip is {high:.2f} m")
+    check("a stem says which mark each chip belongs to",
+          'class="stem"' in js and ".stem {" in css,
+          "an offset label with nothing tying it to its mark is worse than "
+          "an overlapping one")
+    check("the drawn cross is no wider than the gap between two stations",
+          2 * float(re.search(r"const a = ([\d.]+);", js).group(1)) <= marks,
+          "arms longer than the spacing make one X out of two crosses")
+
+    # --- the filters the operator asked for ------------------------------
+    check("the map can be narrowed to one row, one side, or one station",
+          all(f'id="{i}"' in html for i in ("f-row", "f-side", "f-jump")),
+          "no drawing separates marks 0.10 m apart at this scale; the map "
+          "has to be able to show fewer of them")
+    check("the filters are wired up",
+          all(f'getElementById("{i}")' in js
+              for i in ("f-row", "f-side", "f-jump")))
+    check("and the open station is never filtered out from under its panel",
+          "|| s.label === S.selected" in js,
+          "the detail panel would describe a mark that is not on the map")
+
+    # Generic, and the reason the three above cannot rot into false passes:
+    # every id app.js reaches for must exist in the page.
+    wanted = sorted(set(re.findall(r'getElementById\("([^"]+)"\)', js)))
+    missing = [i for i in wanted if f'id="{i}"' not in html]
+    check("every element app.js addresses exists in index.html",
+          not missing, f"missing: {missing}")
+
+    # The theme, which the operator said was too dark to read.
+    light = css.split("@media", 1)[0]
+    check("the default theme is the light one",
+          "--bg:" in light and "prefers-color-scheme: dark" in css,
+          ":root must define the LIGHT palette, with dark as the override")
 
 
 def _parses(src: str) -> bool:
@@ -1021,8 +1169,8 @@ def main() -> int:
                check_mqtt_compat, check_aisles,
                check_vision,
                check_world,
-               check_ros_package, check_end_to_end, check_demo,
-               check_hygiene):
+               check_ros_package, check_dashboard, check_end_to_end,
+               check_demo, check_hygiene):
         fn()
     print()
     if FAILURES:

@@ -3,15 +3,39 @@
 # Fixed frame is "map", which agri_viz publishes from /odom. Without that
 # node every display here greys out and RViz complains about a missing
 # transform rather than about the robot.
+#
+# WHY THIS FILE LOOKS SO MUCH LIKE youbot_bringup/config/youbot.rviz
+#
+# Because the first version did not, and RViz2 silently loaded ONE display
+# out of five -- the Grid -- and showed an empty scene. Two structural
+# mistakes, neither of which produces a warning:
+#
+#   Visualization Manager had no `Class` and no `Name: root`. RViz2 builds
+#   the display tree by handing that node to DisplayGroup::load(), and a
+#   group with no identity loads no children.
+#
+#   `Global Options` appeared TWICE under Visualization Manager. yaml-cpp
+#   keeps the last one, so the second (which only set Fixed Frame) replaced
+#   the first, and everything else in that block went with it.
+#
+# Phase B's file is known to work on this machine, so its skeleton is copied
+# exactly and only the displays inside it differ. If this ever needs
+# extending, the safe way is to open RViz, add the display by hand, and use
+# File > Save Config As -- what RViz writes is by definition what RViz reads.
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
     Property Tree Widget:
       Expanded: ~
     Tree Height: 600
+  - Class: rviz_common/Views
+    Name: Views
+    Expanded: false
 Visualization Manager:
+  Class: ""
+  Name: root
   Global Options:
-    Background Color: 15; 20; 22
+    Background Color: 38; 44; 48
     Fixed Frame: map
     Frame Rate: 30
   Displays:
@@ -20,54 +44,68 @@ Visualization Manager:
       Enabled: true
       Cell Size: 1
       Plane Cell Count: 12
-      Color: 40; 60; 60
-      Line Style:
-        Value: Lines
-    # What the robot actually perceives.
+      Color: 90; 105; 105
+    # What the robot actually perceives. Best Effort, because that is what
+    # the gz bridge publishes /scan with -- a Reliable subscriber gets
+    # nothing at all and looks exactly like a broken lidar.
     - Class: rviz_default_plugins/LaserScan
       Name: lidar
       Enabled: true
-      Topic:
-        Value: /scan
-        Depth: 5
-        Reliability Policy: Best Effort
       Size (m): 0.04
       Style: Points
       Color: 255; 220; 90
       Color Transformer: FlatColor
+      Topic:
+        Value: /scan
+        Reliability Policy: Best Effort
     # What the catalogue says is there: crosses, walls, gutters, footprint.
+    # Comparing the two is the whole point of having this window open.
     - Class: rviz_default_plugins/MarkerArray
       Name: stations and structure
       Enabled: true
       Topic:
         Value: /agri/stations
-        Depth: 5
+        Durability Policy: Transient Local
         Reliability Policy: Reliable
     - Class: rviz_default_plugins/RobotModel
       Name: robot
       Enabled: true
+      Visual Enabled: true
+      Alpha: 0.85
+      Description Source: Topic
       Description Topic:
         Value: /robot_description
-      Alpha: 0.85
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/Odometry
+      Name: odometry
+      Enabled: true
+      Keep: 1
+      Topic:
+        Value: /odom
+        Reliability Policy: Best Effort
+      Shape:
+        Value: Arrow
+        Color: 0; 200; 255
+        Shaft Length: 0.4
+        Head Length: 0.2
     - Class: rviz_default_plugins/TF
       Name: TF
       Enabled: false
-      Show Axes: true
-      Show Names: false
+      Show Names: true
   Tools:
     - Class: rviz_default_plugins/MoveCamera
-    - Class: rviz_default_plugins/Select
-  Global Options:
-    Fixed Frame: map
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
       Name: top down
       Scale: 90
       Target Frame: map
+      Angle: 0
       X: 0
       Y: 0
-      Angle: 0
 Window Geometry:
   Height: 900
   Width: 1200
