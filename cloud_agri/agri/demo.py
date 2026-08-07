@@ -50,8 +50,9 @@ from agri.crypto_ecc import generate_keypair, seal_json, sign_json
 from agri.envelope import open_envelope
 from agri.labels import all_labels
 from agri.measurement import QUANTITIES, Measurement
-from agri.protocol import (ALL, QOS, TOPIC_ACK, TOPIC_REPORT, TOPIC_REQUEST,
-                           TOPIC_STATUS, expand_targets, make_request)
+from agri.protocol import (ALL, QOS, TOPIC_ACK_ALL, TOPIC_REPORT_ALL,
+                           TOPIC_REQUEST, TOPIC_STATUS_ALL, expand_targets,
+                           make_request, topic_ack)
 from agri.robot import RobotLink, SimulatedDriver, Visitor
 from agri.sensors import GreenhouseField
 
@@ -64,6 +65,9 @@ class Bus:
     difference. Delivery is synchronous and in-order, which makes the demo
     reproducible; a real broker is neither, and the system is written not to
     care (every message carries its own request id).
+
+    Supports the MQTT single-level wildcard (+): subscribing to
+    agri/v1/report/+ delivers messages published on agri/v1/report/youbot-01.
     """
 
     def __init__(self) -> None:
@@ -71,10 +75,17 @@ class Bus:
         self.counts: dict[str, int] = defaultdict(int)
         self.retained: dict[str, bytes] = {}
 
+    @staticmethod
+    def _matches(pattern: str, topic: str) -> bool:
+        pp, tp = pattern.split("/"), topic.split("/")
+        return len(pp) == len(tp) and all(
+            a == "+" or a == b for a, b in zip(pp, tp))
+
     def subscribe(self, topic: str, fn: Callable[[bytes], None]) -> None:
         self.subs[topic].append(fn)
-        if topic in self.retained:                  # what "retained" means
-            fn(self.retained[topic])
+        for t, data in self.retained.items():
+            if self._matches(topic, t):
+                fn(data)
 
     def publish(self, topic: str, payload, qos: int = QOS,
                 retain: bool = False) -> None:
@@ -82,8 +93,10 @@ class Bus:
         self.counts[topic] += 1
         if retain:
             self.retained[topic] = data
-        for fn in self.subs[topic]:
-            fn(data)
+        for pat, fns in self.subs.items():
+            if self._matches(pat, topic):
+                for fn in fns:
+                    fn(data)
 
 
 def _rule(title: str) -> None:
@@ -169,10 +182,11 @@ def _attacks(cloud: Cloud, bus: Bus, envelope: dict, report: dict,
     print("  2. a request to go and measure, signed by someone who is")
     print("     not the Cloud")
     order = sign_json(make_request("forged-1", ["P1,1R"]), rogue.private_pem)
-    before = bus.counts[TOPIC_ACK]
+    ack_topic = topic_ack("youbot-01")
+    before = bus.counts[ack_topic]
     for fn in bus.subs[TOPIC_REQUEST]:
         fn(json.dumps(order).encode())
-    moved = bus.counts[TOPIC_ACK] > before
+    moved = bus.counts[ack_topic] > before
     print("     ->", "the robot ACCEPTED IT -- that is a hole" if moved
           else "the robot refused and did not move")
 
@@ -213,9 +227,9 @@ def run(targets: str | list[str], work: Path, explain: bool,
             link.run_mission(lambda: (time.time() % 86400) / 60.0)
 
     bus.subscribe(TOPIC_REQUEST, on_request)
-    bus.subscribe(TOPIC_REPORT, lambda p: print("  " + cloud.on_report(p)))
-    bus.subscribe(TOPIC_ACK, cloud.on_ack)
-    bus.subscribe(TOPIC_STATUS, cloud.on_status)
+    bus.subscribe(TOPIC_REPORT_ALL, lambda p: print("  " + cloud.on_report(p)))
+    bus.subscribe(TOPIC_ACK_ALL, cloud.on_ack)
+    bus.subscribe(TOPIC_STATUS_ALL, cloud.on_status)
     threading.Thread(target=worker, daemon=True).start()
 
     link.status(True, "ready at the dock")
@@ -275,7 +289,8 @@ def run(targets: str | list[str], work: Path, explain: bool,
         def publish(topic: str, payload: str) -> None:
             bus.publish(topic, payload)
 
-        httpd = ThreadingHTTPServer(("", serve), partial(Handler, cloud, publish))
+        httpd = ThreadingHTTPServer(("", serve),
+                                    partial(Handler, cloud, publish, ""))
         _rule(f"dashboard on http://localhost:{serve}")
         print("  The SURVEY / ROW buttons issue real requests: they are signed,"
               "\n  published, verified by the robot and driven, live."

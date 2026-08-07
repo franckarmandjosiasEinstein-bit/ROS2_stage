@@ -356,7 +356,7 @@ def check_end_to_end() -> None:
     from agri import keys
     from agri.cloud.store import Store
     from agri.cloud.server import Cloud
-    from agri.protocol import TOPIC_ACK, TOPIC_REPORT, TOPIC_REQUEST
+    from agri.protocol import TOPIC_REQUEST
     from agri.robot import RobotLink, SimulatedDriver, Visitor
     from agri.sensors import GreenhouseField
 
@@ -370,20 +370,20 @@ def check_end_to_end() -> None:
         field = GreenhouseField()
 
         class Loopback:
-            """A broker in a variable. Routes by topic, synchronously, so a
-            failure has a stack trace instead of a timeout."""
+            """A broker in a variable. Routes by topic prefix, synchronously,
+            so a failure has a stack trace instead of a timeout."""
 
             def __init__(self):
                 self.robot = None
 
             def publish(self, topic, payload, qos=1, retain=False):
-                if topic == TOPIC_REPORT:
-                    self.last = cloud.on_report(payload.encode()
-                                                if isinstance(payload, str)
-                                                else payload)
-                elif topic == TOPIC_ACK:
-                    cloud.on_ack(payload.encode() if isinstance(payload, str)
-                                 else payload)
+                data = payload.encode() if isinstance(payload, str) else payload
+                if topic.startswith("agri/v1/report/"):
+                    self.last = cloud.on_report(data)
+                elif topic.startswith("agri/v1/ack/"):
+                    cloud.on_ack(data)
+                elif topic.startswith("agri/v1/status/"):
+                    cloud.on_status(data)
 
         bus = Loopback()
         visitor = Visitor(robot_id="youbot-01",
@@ -477,6 +477,17 @@ def check_end_to_end() -> None:
         check("and the rejection is visible, not silent",
               len(cloud.rejected) == 1 and cloud.state()["summary"]["rejected"] == 1)
 
+        # 9. the state now carries a nodes dict, not a single robot
+        link.status(True, "idle")
+        state = cloud.state()
+        check("the state contains a nodes dict, not a single robot",
+              "nodes" in state and isinstance(state["nodes"], dict)
+              and "robot" not in state,
+              str(list(state.keys())))
+        check("the reporting robot appears in the nodes dict",
+              "youbot-01" in state["nodes"],
+              str(list(state["nodes"].keys())))
+
 
 def check_telemetry() -> None:
     """Position and speed travel with every reading, and the Cloud has a
@@ -520,6 +531,8 @@ def check_telemetry() -> None:
     check("the live status heartbeat carries pose and speed",
           st["pose"]["x"] == -3.15 and st["velocity"]["speed"] == 0.311,
           str(st))
+    check("the status carries a node_kind field",
+          st["node_kind"] == "mobile", str(st))
 
     # The console is where the operator sits. Read as text: importing it is
     # fine, but what matters is that the verbs exist and that an unknown
@@ -1090,7 +1103,7 @@ def check_two_machines() -> None:
 
     # The address the operator is told to open has to be the one that works.
     check("the dashboard binds every interface, not just loopback",
-          'ThreadingHTTPServer(("", args.http_port)' in server,
+          'ThreadingHTTPServer(' in server and '("", args.http_port)' in server,
           "a Cloud nobody can reach from the robot's machine is not a Cloud")
     check("and prints an address that works from another machine",
           "_my_address()" in server and "192.0.2.1" in server,
@@ -1184,6 +1197,72 @@ def check_dashboard() -> None:
           ":root must define the LIGHT palette, with dark as the override")
 
 
+def check_multinode() -> None:
+    """The protocol changes for multi-node support.
+
+    Today there is one mobile robot. The protocol is designed for N fixed
+    nodes (ESP) and 1-4 mobile nodes, so the topics, the state and the
+    dashboard must already carry those abstractions.
+    """
+    print("\nmulti-node protocol")
+    from agri.protocol import (KIND_FIXED, KIND_MOBILE, TOPIC_ACK_ALL,
+                               TOPIC_REPORT_ALL, TOPIC_REQUEST,
+                               TOPIC_STATUS_ALL, make_status,
+                               node_id_from_topic, topic_ack, topic_report,
+                               topic_status)
+
+    check("topics are namespaced by node_id",
+          topic_status("bot-1") == "agri/v1/status/bot-1"
+          and topic_report("bot-1") == "agri/v1/report/bot-1"
+          and topic_ack("bot-1") == "agri/v1/ack/bot-1")
+    check("the Cloud subscribes with wildcards",
+          TOPIC_STATUS_ALL == "agri/v1/status/+"
+          and TOPIC_REPORT_ALL == "agri/v1/report/+"
+          and TOPIC_ACK_ALL == "agri/v1/ack/+")
+    check("the request topic stays flat (addresses the fleet)",
+          TOPIC_REQUEST == "agri/v1/request"
+          and "/" not in TOPIC_REQUEST.split("request", 1)[1])
+    check("node_id is extractable from a namespaced topic",
+          node_id_from_topic("agri/v1/status/bot-1") == "bot-1"
+          and node_id_from_topic("agri/v1/report/esp-42") == "esp-42"
+          and node_id_from_topic("agri/v1/request") is None)
+    check("every status message carries node_kind",
+          make_status("bot-1", True)["node_kind"] == KIND_MOBILE
+          and make_status("esp-1", True, node_kind=KIND_FIXED)["node_kind"]
+              == KIND_FIXED)
+
+    server = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+            / "robot_node.py").read_text()
+    robot = (ROOT / "agri" / "robot.py").read_text()
+    check("the Cloud subscribes to wildcard topics",
+          "TOPIC_STATUS_ALL" in server and "TOPIC_REPORT_ALL" in server
+          and "TOPIC_ACK_ALL" in server)
+    check("the Cloud stores nodes in a dict, not a single variable",
+          "self.nodes:" in server and "dict[str," in server)
+    check("the robot publishes on its own subtopic",
+          "topic_ack(" in robot and "topic_report(" in robot
+          and "topic_status(" in robot)
+    check("the robot node's will_set uses a namespaced topic",
+          "topic_status(" in node and "node_kind" in node)
+
+    js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    check("the dashboard reads nodes, not a single robot",
+          "S.state.nodes" in js and "S.state.robot" not in js)
+
+    check("the dashboard sends an auth token with API calls",
+          "apiUrl(" in js and "token" in js,
+          "the dashboard is now accessible from the network; the API "
+          "needs a token or anyone can order a measurement")
+    check("the dashboard handles a 401 response",
+          "401" in js,
+          "a missing or wrong token should prompt for the right one, "
+          "not show a blank page")
+    check("the Cloud accepts a --dashboard-token argument",
+          "--dashboard-token" in server,
+          "the API endpoint must be protectable")
+
+
 def _parses(src: str) -> bool:
     import ast                                        # noqa: PLC0415
     try:
@@ -1256,6 +1335,7 @@ def main() -> int:
                check_vision,
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
+               check_multinode,
                check_end_to_end,
                check_demo, check_hygiene):
         fn()

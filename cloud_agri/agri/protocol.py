@@ -15,10 +15,23 @@ decorative.
 
 TOPICS
 
-    agri/v1/request        Cloud -> robot   signed, not encrypted
-    agri/v1/ack            robot -> Cloud   plain: progress, no payload
-    agri/v1/report         robot -> Cloud   sealed: the measurement
-    agri/v1/status         robot -> Cloud   plain, retained: am I alive
+    agri/v1/request              Cloud -> nodes   signed, not encrypted
+    agri/v1/ack/<node_id>        node  -> Cloud   plain: progress, no payload
+    agri/v1/report/<node_id>     node  -> Cloud   sealed: the measurement
+    agri/v1/status/<node_id>     node  -> Cloud   plain, retained: am I alive
+
+Each node publishes on its own subtopic; the Cloud subscribes with an MQTT
+wildcard (agri/v1/status/+) to hear every one. Requests stay on a flat topic
+because a request addresses the fleet, not a specific node.
+
+NODE KINDS
+
+Every status message carries a `node_kind` field: `"mobile"` for a robot
+that drives between stations, `"fixed"` for an ESP microcontroller bolted
+to a post. The Cloud uses this to implement a priority rule: when a mobile
+node is parked at a station, its reading is preferred over the fixed node's.
+Today there is one mobile and zero fixed; the field is carried now so that
+adding fixed nodes later does not change the protocol.
 
 WHY THE REQUEST IS SIGNED AND NOT ENCRYPTED
 
@@ -48,10 +61,35 @@ from agri.measurement import utc_now
 
 SCHEMA = "agri-cloud/v1"
 
+# Cloud -> all nodes: flat, because a request addresses the fleet.
 TOPIC_REQUEST = "agri/v1/request"
-TOPIC_ACK = "agri/v1/ack"
-TOPIC_REPORT = "agri/v1/report"
-TOPIC_STATUS = "agri/v1/status"
+
+# Node -> Cloud: namespaced by node_id. The Cloud subscribes with +.
+TOPIC_STATUS_ALL = "agri/v1/status/+"
+TOPIC_ACK_ALL = "agri/v1/ack/+"
+TOPIC_REPORT_ALL = "agri/v1/report/+"
+
+KIND_MOBILE = "mobile"
+KIND_FIXED = "fixed"
+
+
+def topic_status(node_id: str) -> str:
+    return f"agri/v1/status/{node_id}"
+
+
+def topic_ack(node_id: str) -> str:
+    return f"agri/v1/ack/{node_id}"
+
+
+def topic_report(node_id: str) -> str:
+    return f"agri/v1/report/{node_id}"
+
+
+def node_id_from_topic(topic: str) -> str | None:
+    """Extract the node_id from a namespaced topic, or None."""
+    parts = topic.split("/")
+    return parts[3] if len(parts) == 4 and parts[:2] == ["agri", "v1"] else None
+
 
 #: "measure everything", spelled one way so both sides recognise it.
 ALL = "ALL"
@@ -169,16 +207,21 @@ def make_ack(request_id: str, robot: str, state: str, label: str | None = None,
 
 # ----------------------------------------------------------------- status
 def make_status(robot: str, online: bool, pose=None, note: str = "",
-                velocity=None) -> dict:
-    """Live telemetry: where the robot is and how fast it is going.
+                velocity=None, node_kind: str = KIND_MOBILE) -> dict:
+    """Live telemetry: where the node is and how fast it is going.
 
     Sent on a timer, not only on arrival, so the Cloud can watch the robot
     cross the greenhouse instead of learning about it forty minutes later.
     Retained by the broker, so a dashboard opened at any moment immediately
-    knows whether there is a robot at all.
+    knows whether there is a node at all.
+
+    `node_kind` is KIND_MOBILE for a driving robot, KIND_FIXED for a
+    stationary sensor (ESP). The Cloud uses it to prioritise mobile readings
+    when both a mobile and a fixed node report for the same station.
     """
-    d = {"schema": SCHEMA, "kind": "status", "robot": robot,
-         "online": bool(online), "note": note, "at": utc_now()}
+    d = {"schema": SCHEMA, "kind": "status", "node_kind": node_kind,
+         "robot": robot, "online": bool(online), "note": note,
+         "at": utc_now()}
     if pose is not None:
         d["pose"] = {"x": round(pose[0], 3), "y": round(pose[1], 3),
                      "yaw_deg": round(pose[2], 1)}

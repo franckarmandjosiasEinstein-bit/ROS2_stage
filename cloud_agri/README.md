@@ -7,7 +7,7 @@ the lot with elliptic-curve cryptography and sends it back. The Cloud opens
 it, checks it, files it, and draws it.
 
 ```
-   CLOUD  ──── signed request ────►  ROBOT      agri/v1/request
+   CLOUD  ──── signed request ────►  NODE(S)    agri/v1/request
      ▲                                 │
      │                                 ├─ drive to the cross (odometry, then
      │                                 │   the floor camera on the marker)
@@ -15,8 +15,15 @@ it, checks it, files it, and draws it.
      │                                 ├─ photograph the plant
      │                                 ├─ numbers ─► QR code
      │                                 └─ {QR, photo, numbers} ─► ECC seal
-     └──── sealed JSON ────────────────┘         agri/v1/report
+     └──── sealed JSON ────────────────┘         agri/v1/report/<node_id>
 ```
+
+Topics are namespaced by `node_id` for robot→Cloud messages
+(`agri/v1/status/<node_id>`, `.../ack/<node_id>`, `.../report/<node_id>`);
+the Cloud subscribes with MQTT wildcards (`+`) to hear all nodes. Requests
+stay flat because they address the fleet. Every status message carries a
+`node_kind` field (`"mobile"` / `"fixed"`) so the Cloud can tell a driving
+robot from a stationary ESP.
 
 ---
 
@@ -29,7 +36,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 209 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 225 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -302,6 +309,14 @@ The dashboard binds every interface, so `http://192.168.1.20:8088` works
 from the robot's machine or a phone on the same network. `agri-cloud`
 prints that address at startup rather than `localhost`.
 
+**Dashboard authentication.** By default `agri-cloud` generates a random
+token and prints the full URL including it — share that URL with anyone who
+needs the dashboard. The token is checked on every API and page request
+(query parameter `?token=…` or `Authorization: Bearer …`). To choose your
+own token, pass `--dashboard-token SECRET`; to disable authentication
+entirely (useful for local-only demos), pass `--dashboard-token ''`.
+The offline demo (`agri.demo --serve`) runs without a token.
+
 ROS 2's own DDS traffic never crosses the network: Gazebo, RViz and the
 bridge all stay on the robot's machine. So `ROS_DOMAIN_ID` is irrelevant
 here, and the two computers do not need to be on the same subnet for ROS's
@@ -404,10 +419,12 @@ downstream could ever tell. It is unfiltered, straight from the odometry: a
 smoothed number would look tidier and would hide the thing the field exists
 to catch.
 
-Between measurements the same two numbers go out on `agri/v1/status` every
-five seconds, retained by the broker, so the Cloud can watch the robot cross
-the greenhouse rather than hear from it only on arrival. `cloud> status` and
-the dashboard's header line both read that.
+Between measurements the same two numbers go out on
+`agri/v1/status/<node_id>` every five seconds, retained by the broker, so the
+Cloud can watch the robot cross the greenhouse rather than hear from it only
+on arrival. `cloud> status` and the dashboard's header line both read that.
+With multiple nodes the Cloud tracks each one separately in a
+`nodes: dict[node_id, status]`.
 
 ### The measurement — `agri/measurement.py`, `agri/qrcodec.py`
 
@@ -481,7 +498,7 @@ selectors above it.
 
 ---
 
-## 6. Two honest limitations
+## 6. Four honest limitations
 
 **The readings are synthesised.** Gazebo has no humidity probe. Temperature,
 humidity, luminosity, CO₂ and pH come from `agri/sensors.py` — a seeded field
@@ -501,6 +518,21 @@ the localisation story: it is the only sensor that actually verifies the
 robot is where it says it is, and its residual is reported for every single
 visit.
 
+**The store is append-only JSONL.** Queries scan linearly, and the CSV
+export rebuilds from scratch each time. For 48 stations measured once or
+twice a day this is fine; for a production system with hundreds of nodes
+running continuously, a proper database (SQLite at least) would be the
+natural evolution. The interface is narrow enough — `file()`, `all_visits()`,
+`coverage()` — that the swap is local to `agri/cloud/store.py`.
+
+**`driver.py` has no offline test.** It is the one file that genuinely needs
+Gazebo — it talks to ROS topics, reads laser scans and camera images, and
+commands wheel velocities. Everything around it (the mission logic, the
+measurement, the crypto, the store) is tested offline in `check_cloud.py`;
+the driver is tested by running the simulator. Writing a mock odometry
+source and a mock camera feed for it is a natural next step, but it was not
+prioritised over getting the 225 other checks to pass first.
+
 ---
 
 ## 7. Before you demonstrate
@@ -509,14 +541,15 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-209 checks, about ten seconds, nothing installed beyond the dependencies. It
+225 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the
 generated world, the ROS package read as text (topic names, bridge entries,
 spawn point, entry points, the RViz layout, the Gazebo camera watchdog), the
 two-machine key handover including the copy nobody remembers, the dashboard's
-own geometry, the whole chain end to end through a loopback broker, and the
-offline demo run as a subprocess.
+own geometry, the multi-node protocol (topic namespacing, wildcard matching,
+`node_kind`, the per-node status dict, dashboard auth), the whole chain end
+to end through a loopback broker, and the offline demo run as a subprocess.
 
 Every check in it is there because something actually went wrong.

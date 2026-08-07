@@ -13,7 +13,15 @@
  */
 
 const S = { state: null, quantity: "temperature", selected: null,
-            row: "", side: "" };
+            row: "", side: "", token: "" };
+
+/* Auth token: read from the URL's ?token= parameter if present. Stored in
+   memory and sent with every API fetch. The page itself loads without it;
+   only the /api/* endpoints check. */
+(function () {
+  const p = new URLSearchParams(window.location.search);
+  if (p.has("token")) S.token = p.get("token");
+})();
 
 /* TEXT INSIDE THE FLIPPED MAP.
  *
@@ -63,9 +71,17 @@ function norm(value) {
 }
 
 /* ------------------------------------------------------------- fetch */
+function apiUrl(path) {
+  return S.token ? `${path}${path.includes("?") ? "&" : "?"}token=${S.token}` : path;
+}
+
 async function poll() {
   try {
-    const r = await fetch("/api/state");
+    const r = await fetch(apiUrl("/api/state"));
+    if (r.status === 401) {
+      S.token = prompt("Dashboard token:") || "";
+      return poll();
+    }
     S.state = await r.json();
     render();
     document.getElementById("foot").textContent =
@@ -89,16 +105,22 @@ function render() {
 }
 
 function renderLink() {
-  const r = S.state.robot || {};
-  const on = !!r.online;
-  document.getElementById("linkdot").className = "dot" + (on ? " on" : "");
-  /* Position AND speed: the robot transmits both, so the link line shows
-     both. A moving robot with a stale-looking position is the one thing
-     this line has to be able to tell you at a glance. */
-  const where = r.pose ? ` // x ${r.pose.x} y ${r.pose.y}` : "";
-  const fast = r.velocity ? ` // ${r.velocity.speed.toFixed(2)} m/s` : "";
-  document.getElementById("linktext").textContent =
-    on ? `${r.robot} online${where}${fast}` : "no robot";
+  const nodes = S.state.nodes || {};
+  const ids = Object.keys(nodes);
+  if (!ids.length) {
+    document.getElementById("linkdot").className = "dot";
+    document.getElementById("linktext").textContent = "no node";
+    return;
+  }
+  const anyOn = ids.some(k => nodes[k].online);
+  document.getElementById("linkdot").className = "dot" + (anyOn ? " on" : "");
+  document.getElementById("linktext").textContent = ids.map(k => {
+    const r = nodes[k];
+    const kind = r.node_kind || "?";
+    const where = r.pose ? ` x ${r.pose.x} y ${r.pose.y}` : "";
+    const fast = r.velocity ? ` ${r.velocity.speed.toFixed(2)} m/s` : "";
+    return `${r.robot || k} (${kind}) ${r.online ? "online" : "OFFLINE"}${where}${fast}`;
+  }).join("  |  ");
 }
 
 function tile(k, v, sub, warn) {
@@ -108,7 +130,9 @@ function tile(k, v, sub, warn) {
 
 function renderStrip() {
   const s = S.state.summary;
-  const v = (S.state.robot || {}).velocity;
+  const nodes = S.state.nodes || {};
+  const first = Object.values(nodes)[0] || {};
+  const v = first.velocity;
   const [done, total] = s.coverage;
   document.getElementById("strip").innerHTML = [
     tile("coverage", `${done}<small>/${total}</small>`, "stations"),
@@ -287,7 +311,7 @@ async function select(label) {
   renderJump();
   renderMap();
   renderDetail(label);
-  const r = await fetch("/api/history/" + encodeURIComponent(label));
+  const r = await fetch(apiUrl("/api/history/" + encodeURIComponent(label)));
   renderHistory(await r.json());
   document.getElementById("detail").scrollIntoView({ behavior: "smooth",
                                                      block: "nearest" });
@@ -339,7 +363,7 @@ async function request(targets) {
   hint.className = "hint";
   hint.textContent = "signing and publishing…";
   try {
-    const r = await fetch("/api/request", {
+    const r = await fetch(apiUrl("/api/request"), {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targets }),
     });

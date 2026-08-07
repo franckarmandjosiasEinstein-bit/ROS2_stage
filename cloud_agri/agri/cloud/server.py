@@ -45,9 +45,9 @@ from agri.envelope import EnvelopeError, new_request_id, open_envelope
 from agri.labels import all_labels, normalise
 from agri.measurement import QUANTITIES
 from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, QOS,
-                           TOPIC_ACK, TOPIC_REPORT, TOPIC_REQUEST,
-                           TOPIC_STATUS, ProtocolError, expand_targets,
-                           make_request, mqtt_client)
+                           TOPIC_ACK_ALL, TOPIC_REPORT_ALL, TOPIC_REQUEST,
+                           TOPIC_STATUS_ALL, ProtocolError, expand_targets,
+                           make_request, mqtt_client, node_id_from_topic)
 from agri.sensors import ANOMALIES
 
 DASHBOARD = Path(__file__).parent / "dashboard"
@@ -67,7 +67,7 @@ class Cloud:
         keys.bootstrap(key_dir)
         self.cloud_keys = keys.ensure("cloud", key_dir, generate=False)
         self.robot_public = keys.public_of("robot", key_dir, generate=False)
-        self.robot_status: dict[str, Any] = {}
+        self.nodes: dict[str, dict[str, Any]] = {}
         self.progress: dict[str, Any] = {}
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
         self.accepted = 0
@@ -131,11 +131,13 @@ class Cloud:
             if d.get("total"):
                 self.progress[rid]["total"] = d["total"]
 
-    def on_status(self, payload: bytes) -> None:
+    def on_status(self, payload: bytes, node_id: str = "") -> None:
         try:
-            self.robot_status = json.loads(payload)
+            d = json.loads(payload)
         except Exception:                            # noqa: BLE001
-            pass
+            return
+        nid = node_id or d.get("robot", "?")
+        self.nodes[nid] = d
 
     # ---------------------------------------------------------------- view
     def state(self) -> dict[str, Any]:
@@ -167,7 +169,7 @@ class Cloud:
                         "coverage": [measured, total],
                         "accepted": self.accepted,
                         "rejected": len(self.rejected)},
-            "robot": self.robot_status,
+            "nodes": dict(self.nodes),
             "requests": list(self.progress.values())[-8:],
             "rejected": list(self.rejected)[-8:],
             "anomalies": {k: list(v) for k, v in ANOMALIES.items()},
@@ -179,8 +181,10 @@ class Cloud:
 class Handler(BaseHTTPRequestHandler):
     server_version = "AgriCloud/1.0"
 
-    def __init__(self, cloud: Cloud, publish, *a, **kw) -> None:
+    def __init__(self, cloud: Cloud, publish, auth_token: str,
+                 *a, **kw) -> None:
         self.cloud, self.publish = cloud, publish
+        self.auth_token = auth_token
         super().__init__(*a, **kw)
 
     def log_message(self, fmt, *args) -> None:      # quiet: the MQTT side talks
@@ -196,6 +200,22 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj: Any, code: int = 200) -> None:
         self._send(code, json.dumps(obj).encode(), "application/json")
 
+    def _check_auth(self) -> bool:
+        """Return True if the request is authorised, or send 401."""
+        if not self.auth_token:
+            return True
+        from urllib.parse import parse_qs, urlparse  # noqa: PLC0415
+        qs = parse_qs(urlparse(self.path).query)
+        token = qs.get("token", [""])[0]
+        if not token:
+            auth = self.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                token = auth[7:]
+        if token == self.auth_token:
+            return True
+        self._json({"error": "unauthorized"}, 401)
+        return False
+
     def do_GET(self) -> None:                        # noqa: N802
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
@@ -203,9 +223,13 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/static/"):
             return self._file(DASHBOARD / Path(path[8:]).name)
         if path == "/api/state":
+            if not self._check_auth():
+                return
             return self._json(self.cloud.state())
         if path.startswith("/api/history/"):
-            label = path[len("/api/history/"):].replace("%2C", ",")
+            if not self._check_auth():
+                return
+            label = path[len("/api/history/"):].split("?")[0].replace("%2C", ",")
             return self._json([v.to_json()
                                for v in self.cloud.store.history(label)])
         if path.startswith("/media/"):
@@ -213,8 +237,10 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:                       # noqa: N802
-        if self.path != "/api/request":
+        if self.path.split("?")[0] != "/api/request":
             return self._json({"error": "not found"}, 404)
+        if not self._check_auth():
+            return
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -316,18 +342,21 @@ class Console:
               + (" ..." if len(labels) > 8 else ""))
 
     def status(self) -> None:
-        st = self.cloud.robot_status
-        if not st:
-            print("  no robot has reported yet -- is the robot node running?")
-        else:
+        if not self.cloud.nodes:
+            print("  no node has reported yet -- is the robot running?")
+        for nid, st in self.cloud.nodes.items():
+            kind = st.get("node_kind", "?")
             p, v = st.get("pose", {}), st.get("velocity", {})
-            print(f"  robot   {st.get('robot')}  "
+            print(f"  node    {nid} ({kind})  "
                   f"{'online' if st.get('online') else 'OFFLINE'}"
                   f"  ({st.get('note', '')})")
-            print(f"  at      x={p.get('x')}  y={p.get('y')}  "
-                  f"yaw={p.get('yaw_deg')} deg")
-            print(f"  moving  {v.get('speed', '?')} m/s"
-                  f"   (vx={v.get('vx')} vy={v.get('vy')} wz={v.get('wz')})")
+            if p:
+                print(f"  at      x={p.get('x')}  y={p.get('y')}  "
+                      f"yaw={p.get('yaw_deg')} deg")
+            if v:
+                print(f"  moving  {v.get('speed', '?')} m/s"
+                      f"   (vx={v.get('vx')} vy={v.get('vy')} "
+                      f"wz={v.get('wz')})")
             print(f"  said    {st.get('at')}")
         for p in list(self.cloud.progress.values())[-3:]:
             print(f"  request {p['request_id']}  {p['state']:<9} "
@@ -393,17 +422,26 @@ def _my_address() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import secrets                                       # noqa: PLC0415
+
     ap = argparse.ArgumentParser(description="Smart-agriculture Cloud")
     ap.add_argument("--broker", default=DEFAULT_BROKER)
     ap.add_argument("--broker-port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--http-port", type=int, default=8088)
     ap.add_argument("--store", type=Path, default=Path("store"))
     ap.add_argument("--keys", type=Path, default=Path("keys"))
+    ap.add_argument("--dashboard-token", default=None,
+                    help="token for dashboard API access. Generated at random "
+                         "if not given. Pass an empty string to disable auth.")
     ap.add_argument("--request", metavar="TARGETS",
                     help="issue one request at startup: ALL, a plant (P2,5, both "
                          "sides), a single station (P2,5R), or a "
                          "comma-separated list. Then keep running.")
     args = ap.parse_args(argv)
+
+    auth_token = args.dashboard_token
+    if auth_token is None:
+        auth_token = secrets.token_urlsafe(16)
 
     cloud = Cloud(Store(args.store), args.keys)
     client = mqtt_client("agri-cloud")
@@ -415,10 +453,10 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             print(f"cloud: broker refused the connection (rc={rc})")
             return
-        for topic in (TOPIC_REPORT, TOPIC_ACK, TOPIC_STATUS):
+        for topic in (TOPIC_REPORT_ALL, TOPIC_ACK_ALL, TOPIC_STATUS_ALL):
             cl.subscribe(topic, qos=QOS)
         print(f"cloud: connected to {args.broker}:{args.broker_port}, "
-              f"listening on {TOPIC_REPORT}")
+              f"listening on {TOPIC_REPORT_ALL}")
         if args.request:
             rid, signed = cloud.build_request(
                 args.request if args.request.upper() == ALL
@@ -428,12 +466,13 @@ def main(argv: list[str] | None = None) -> int:
                   " station(s)")
 
     def on_message(_cl, _u, msg):
-        if msg.topic == TOPIC_REPORT:
+        nid = node_id_from_topic(msg.topic) or "?"
+        if msg.topic.startswith("agri/v1/report/"):
             print("cloud:", cloud.on_report(msg.payload))
-        elif msg.topic == TOPIC_ACK:
+        elif msg.topic.startswith("agri/v1/ack/"):
             cloud.on_ack(msg.payload)
-        elif msg.topic == TOPIC_STATUS:
-            cloud.on_status(msg.payload)
+        elif msg.topic.startswith("agri/v1/status/"):
+            cloud.on_status(msg.payload, nid)
 
     client.on_connect, client.on_message = on_connect, on_message
     try:
@@ -445,14 +484,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     client.loop_start()
 
-    # "" binds every interface, so the dashboard is reachable from the
-    # robot's machine and from a phone on the same network. Printing
-    # "localhost" was wrong the moment the Cloud stopped being on the same
-    # computer as the browser, so print the address that actually works.
-    httpd = ThreadingHTTPServer(("", args.http_port),
-                                partial(Handler, cloud, publish))
-    print(f"cloud: dashboard on http://{_my_address()}:{args.http_port}"
-          f"  (also http://localhost:{args.http_port} from this machine)")
+    addr = _my_address()
+    base_url = f"http://{addr}:{args.http_port}"
+    httpd = ThreadingHTTPServer(
+        ("", args.http_port),
+        partial(Handler, cloud, publish, auth_token))
+    if auth_token:
+        print(f"cloud: dashboard on {base_url}?token={auth_token}")
+        print(f"       (the token protects the API; pass --dashboard-token '' "
+              "to disable)")
+    else:
+        print(f"cloud: dashboard on {base_url}")
+        print("       WARNING: no dashboard token — anyone on the network "
+              "can issue requests")
     print(f"cloud: {len(all_labels())} stations known, "
           f"{cloud.store.coverage()[0]} already measured")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

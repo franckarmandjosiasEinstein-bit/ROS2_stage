@@ -40,9 +40,9 @@ from agri.catalogue import Station, nearest_station, station
 from agri.crypto_ecc import CryptoError, verify_json
 from agri.envelope import PARK_TOLERANCE, build_report, seal_report, synthetic_photo
 from agri.measurement import Measurement
-from agri.protocol import (QOS, TOPIC_ACK, TOPIC_REPORT, TOPIC_REQUEST,
-                           TOPIC_STATUS, ProtocolError, check_request,
-                           make_ack, make_status)
+from agri.protocol import (QOS, TOPIC_REQUEST, ProtocolError, check_request,
+                           make_ack, make_status, topic_ack, topic_report,
+                           topic_status)
 
 Pose = tuple[float, float, float]          # x, y, yaw(rad)
 
@@ -189,10 +189,13 @@ class RobotLink:
     def ack(self, request_id: str, state: str, label: str | None = None,
             total: int = 0, detail: str = "") -> None:
         m = self.mission
-        self.client.publish(TOPIC_ACK, json.dumps(make_ack(
-            request_id, self.visitor.robot_id, state, label,
-            done=m.done if m else 0,
-            total=total or (m.total if m else 0), detail=detail)), qos=QOS)
+        self.client.publish(
+            topic_ack(self.visitor.robot_id),
+            json.dumps(make_ack(
+                request_id, self.visitor.robot_id, state, label,
+                done=m.done if m else 0,
+                total=total or (m.total if m else 0), detail=detail)),
+            qos=QOS)
 
     def status(self, online: bool = True, note: str = "") -> None:
         """Telemetry. Pose and velocity, on a timer, whether busy or not --
@@ -220,8 +223,10 @@ class RobotLink:
             velocity = self.visitor.driver.velocity()
         except Exception as exc:                     # noqa: BLE001
             note = f"{note} (no odometry yet: {exc})".strip()
-        self.client.publish(TOPIC_STATUS, json.dumps(make_status(
-            self.visitor.robot_id, online, pose, note, velocity=velocity)),
+        self.client.publish(
+            topic_status(self.visitor.robot_id),
+            json.dumps(make_status(self.visitor.robot_id, online, pose, note,
+                                   velocity=velocity)),
             qos=QOS, retain=True)
 
     def run_mission(self, minutes_provider: Callable[[], float]) -> None:
@@ -240,7 +245,8 @@ class RobotLink:
                 self.log(f"robot: {label} FAILED ({exc})")
                 self.ack(m.request_id, "failed", label, detail=str(exc))
                 continue
-            self.client.publish(TOPIC_REPORT, json.dumps(envelope), qos=QOS)
+            self.client.publish(topic_report(self.visitor.robot_id),
+                                json.dumps(envelope), qos=QOS)
             m.done += 1
             self.log(f"robot: {note}")
             self.ack(m.request_id, "sent", label)

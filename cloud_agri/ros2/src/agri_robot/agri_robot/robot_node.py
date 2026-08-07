@@ -47,7 +47,7 @@ from rclpy.node import Node
 
 from agri import keys
 from agri.protocol import (DEFAULT_BROKER, DEFAULT_PORT, QOS, TOPIC_REQUEST,
-                           TOPIC_STATUS, mqtt_client)
+                           mqtt_client, topic_status)
 from agri.robot import Mission, RobotLink, Visitor
 from agri.sensors import GreenhouseField
 from agri_robot.driver import DriveError, GazeboDriver
@@ -109,9 +109,9 @@ class AgriRobot(Node):
         # Last will: if this process dies, the broker tells the Cloud. A
         # dashboard that shows a robot as online because nobody said
         # otherwise is worse than one that shows nothing.
-        self.client.will_set(TOPIC_STATUS, json.dumps({
+        self.client.will_set(topic_status(self.robot_id), json.dumps({
             "schema": "agri-cloud/v1", "kind": "status",
-            "robot": self.robot_id, "online": False,
+            "node_kind": "mobile", "robot": self.robot_id, "online": False,
             "note": "connection lost", "at": ""}), qos=QOS, retain=True)
 
         # BOTH callbacks are wrapped. paho does not guard them: an exception
