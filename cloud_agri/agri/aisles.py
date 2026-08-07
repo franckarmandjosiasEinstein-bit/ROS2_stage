@@ -154,6 +154,44 @@ def brake_clearance(px: float, py: float, dx: float, dy: float,
     return (px * dx + py * dy) - front
 
 
+#: How close a lidar return has to be to a wall or a gutter before it is
+#: taken to BE that wall or gutter rather than something standing on it.
+#: Wide enough for the odometry error and the beam's own resolution, far
+#: narrower than anything the brake exists to stop for.
+STRUCTURE_TOLERANCE = 0.12
+
+
+def known_structure(wx: float, wy: float,
+                    tol: float = STRUCTURE_TOLERANCE) -> bool:
+    """Is this WORLD point part of the greenhouse itself?
+
+    The brake exists for things that should not be there. The walls and the
+    gutters should be there, they are in the catalogue, and route_clearance()
+    has already proved every route passes them by at least 0.08 m. Braking
+    for them is not caution, it is refusing to move.
+
+    THIS IS THE FIX FOR TWO REAL FAILURES, AND THEY LOOKED DIFFERENT.
+
+    Every leg to a headland stopped. The robot has to back its tail to
+    within 0.08 m of the end wall to fit in the 0.95 m gap, and the brake
+    wanted 0.35 m of clear floor behind it, so it refused at 0.27 m short
+    and the mission logged "something is in the aisle". Something was: the
+    building.
+
+    And a leg that shifts sideways while going forward -- 0.10 m across
+    while travelling 0.66 m along, which is what moving between the two
+    stations of an inner aisle looks like -- tilts the swept corridor by
+    8.6 degrees and swings it onto the gutter the robot is driving BESIDE.
+    Same wall, different geometry, same wrong answer.
+
+    Neither is an obstacle. Both are on the map.
+    """
+    if abs(wx) >= WALL_X - tol or abs(wy) >= WALL_Y - tol:
+        return True
+    return any(ox0 - tol <= wx <= ox1 + tol and oy0 - tol <= wy <= oy1 + tol
+               for ox0, oy0, ox1, oy1 in _obstacles())
+
+
 def footprint(x: float, y: float) -> tuple[float, float, float, float]:
     """(x0, y0, x1, y1) of the robot when its sensor point is at (x, y).
 

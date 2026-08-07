@@ -18,24 +18,32 @@
  */
 
 :root {
-  --bg:        #070b0d;
-  --bg-panel:  #0d1417;
-  --bg-raise:  #131d21;
-  --line:      #1e2d33;
-  --ink:       #cfe6e5;
-  --ink-dim:   #6d8a8c;
-  --accent:    #22e0c8;
-  --accent-dk: #0d6f66;
-  --alert:     #ffb03a;
-  --bad:       #ff5d5d;
+  /* LIGHT IS THE DEFAULT, and that is a decision, not an oversight.
+     The dark palette reads better on a laptop at night and worse in every
+     other circumstance this gets looked at: a lit room, a projector, a
+     printout, a screenshot in a report. The science-fiction character comes
+     from the type, the spacing and the accent, none of which need a black
+     background to survive. Dark is one click away and follows the system
+     setting for anyone who prefers it. */
+  --bg:        #eef3f4;
+  --bg-panel:  #ffffff;
+  --bg-raise:  #f5fafa;
+  --line:      #c3d6d8;
+  --ink:       #0d2226;
+  --ink-dim:   #587376;
+  --accent:    #0a8375;
+  --accent-dk: #6fcfc2;
+  --alert:     #a85e00;
+  --bad:       #c02b2b;
   --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #eef4f4; --bg-panel: #ffffff; --bg-raise: #f4f9f9;
-    --line: #c8dada; --ink: #10262a; --ink-dim: #5d7a7d;
-    --accent: #0b8f80; --accent-dk: #7fd8cc; --alert: #b06a00;
+    --bg: #070b0d; --bg-panel: #0d1417; --bg-raise: #131d21;
+    --line: #1e2d33; --ink: #cfe6e5; --ink-dim: #6d8a8c;
+    --accent: #22e0c8; --accent-dk: #0d6f66; --alert: #ffb03a;
+    --bad: #ff5d5d;
   }
 }
 :root[data-theme="dark"] {
@@ -55,8 +63,8 @@ body {
   font-family: var(--mono); font-size: 13px; line-height: 1.5;
   /* faint scan grid: atmosphere, no information */
   background-image:
-    linear-gradient(transparent 95%, rgba(34,224,200,.035) 95%),
-    linear-gradient(90deg, transparent 95%, rgba(34,224,200,.035) 95%);
+    linear-gradient(transparent 95%, rgba(10,131,117,.045) 95%),
+    linear-gradient(90deg, transparent 95%, rgba(10,131,117,.045) 95%);
   background-size: 28px 28px;
 }
 
@@ -187,3 +195,14 @@ footer { padding: .6rem 1.1rem; color: var(--ink-dim); font-size: .7rem;
 .station .halo { fill: none; stroke: var(--alert); stroke-width: .045; }
 .station.sel .halo { stroke: var(--accent); }
 .rowlab { fill: var(--ink-dim); font-size: .22px; letter-spacing: .04px; }
+
+/* ------------------------------------------------- values on the map */
+/* The number matters more than the mark it sits beside, so it is drawn
+   last, on a chip filled with the same ramp colour. Both readings then
+   come from one value and cannot disagree. */
+.chip { stroke: var(--bg-panel); stroke-width: .012; }
+.val {
+  font-family: var(--mono); font-size: .17px; font-weight: 700;
+  text-anchor: middle; paint-order: stroke; pointer-events: none;
+}
+.station .halo { stroke-width: .05; }

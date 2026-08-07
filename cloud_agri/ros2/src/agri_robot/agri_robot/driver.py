@@ -61,7 +61,7 @@ from PIL import Image as PILImage
 from sensor_msgs.msg import Image, JointState, LaserScan
 from std_msgs.msg import Float64
 
-from agri.aisles import brake_clearance, route
+from agri.aisles import brake_clearance, known_structure, route
 from agri.catalogue import SENSOR_OFFSET_X, Station
 from agri.vision import NadirCamera, find_cross
 
@@ -108,6 +108,14 @@ BRAKE_LOOK = 3.0               # m: beyond this a return cannot be relevant
 SELF_HIT = -0.02
 BRAKE_PATIENCE = 8.0           # s of waiting before the leg is failed
 
+# --- the camera head ----------------------------------------------------
+PAN_TIMEOUT = 6.0              # s before shooting regardless
+PAN_QUIET = 0.004              # rad of movement per sample that counts as still
+PAN_STILL = 0.3                # s of stillness before the shutter
+#: Only worth a line in the log beyond this. The controller settles a couple
+#: of degrees short of its command and that is expected, not a fault.
+PAN_WARN = math.radians(8)
+
 
 def _wrap(a: float) -> float:
     return math.atan2(math.sin(a), math.cos(a))
@@ -134,6 +142,8 @@ class GazeboDriver:
         self._floor_img: Image | None = None
         self._pan: float | None = None
         self.last_sighting = None
+        #: (clearance, bearing deg, range m) of whatever last stopped it.
+        self._blocked_by: tuple[float, float, float] | None = None
         self.visual_used = 0
         self.visual_missed = 0
 
@@ -207,7 +217,17 @@ class GazeboDriver:
 
     # ------------------------------------------------------------- motion
     def stop(self) -> None:
-        self._cmd.publish(Twist())
+        """Zero the wheels. Safe to call while the node is being torn down.
+
+        On Ctrl-C rclpy invalidates the context before shutdown() runs, and
+        publishing then raises RCLError -- so the last thing the run printed
+        was a traceback about a failed publish, which reads like a crash and
+        is only a race with the interpreter exiting.
+        """
+        try:
+            self._cmd.publish(Twist())
+        except Exception:                            # noqa: BLE001
+            pass
 
     def _blocked(self, wvx: float, wvy: float) -> bool:
         """Something in the corridor the robot is about to sweep.
@@ -222,20 +242,34 @@ class GazeboDriver:
         speed = math.hypot(wvx, wvy)
         if scan is None or speed < 1e-3:
             return False
-        _, _, yaw = self.base_pose()
+        bx, by, yaw = self.base_pose()
         heading = _wrap(math.atan2(wvy, wvx) - yaw)      # body frame
         dx, dy = math.cos(heading), math.sin(heading)
+        c, sn = math.cos(yaw), math.sin(yaw)
 
+        worst = None
         for i, r in enumerate(scan.ranges):
             if not (scan.range_min < r < BRAKE_LOOK):
                 continue                                 # nothing, or miles off
             a = scan.angle_min + i * scan.angle_increment
-            clear = brake_clearance(r * math.cos(a), r * math.sin(a), dx, dy)
+            px, py = r * math.cos(a), r * math.sin(a)
+            clear = brake_clearance(px, py, dx, dy)
             if clear is None or clear < SELF_HIT:
                 continue                     # beside the corridor, or is us
-            if clear < BRAKE_RANGE:
-                return True
-        return False
+            if clear >= BRAKE_RANGE:
+                continue
+            # In the way -- unless it is the greenhouse. The walls and the
+            # gutters are in the catalogue and every route has already been
+            # proved to clear them; braking for them is not caution, it is
+            # refusing to move. See agri.aisles.known_structure.
+            if known_structure(bx + c * px - sn * py, by + sn * px + c * py):
+                continue
+            if worst is None or clear < worst[0]:
+                worst = (clear, math.degrees(a), r)
+        if worst is None:
+            return False
+        self._blocked_by = worst
+        return True
 
     def _drive(self, tx: float, ty: float, tol: float, what: str) -> None:
         """Hold yaw at 0 and close on (tx, ty) -- a SENSOR-point target."""
@@ -275,9 +309,18 @@ class GazeboDriver:
                 blocked_since = blocked_since or time.time()
                 self.stop()
                 if time.time() - blocked_since > BRAKE_PATIENCE:
+                    # Say WHAT stopped it. "Something is in the aisle" sent
+                    # two debugging sessions looking for an obstacle that
+                    # was the building; a bearing, a range and a pose would
+                    # have named it in one.
+                    clear, bearing, rng = self._blocked_by or (0, 0, 0)
+                    px, py, pyaw = self.pose()
                     raise DriveError(
-                        f"{what}: something is in the aisle {BRAKE_RANGE:.2f} m "
-                        "ahead and has not moved")
+                        f"{what}: blocked with {clear:.2f} m of clearance by "
+                        f"a return at {rng:.2f} m, bearing {bearing:+.0f} deg, "
+                        f"while at ({px:+.2f}, {py:+.2f}, "
+                        f"{math.degrees(pyaw):+.0f} deg) -- and it is not on "
+                        "the catalogue's walls or gutters")
                 time.sleep(period)
                 continue
             blocked_since = None
@@ -344,16 +387,36 @@ class GazeboDriver:
         """Point the head at the plant, wait for it to STOP, then shoot."""
         want = s.pan_for(self.pose()[2])
         self._pan_cmd.publish(Float64(data=float(want)))
-        end = time.time() + 6.0
+
+        # SETTLED MEANS STOPPED MOVING, NOT ARRIVED.
+        #
+        # The first version waited for the angle to reach the target within
+        # 0.02 rad and gave up after six seconds -- at every single station,
+        # in every run. It was asking the wrong question. The head is driven
+        # by a position controller with soft gains against a spring-free
+        # joint: it settles a couple of degrees short and stays there. Phase
+        # B measured the same thing and wrote it down (+81 deg for a +90
+        # command). What matters for a photograph is that the head is STILL,
+        # and that the angle it stopped at is known -- not that it obeyed.
+        last, still_since, end = None, None, time.time() + PAN_TIMEOUT
         while time.time() < end:
             with self._lock:
                 got = self._pan
-            if got is not None and abs(_wrap(got - want)) < 0.02:
-                break
+            if got is not None:
+                if last is not None and abs(_wrap(got - last)) < PAN_QUIET:
+                    still_since = still_since or time.time()
+                    if time.time() - still_since > PAN_STILL:
+                        break
+                else:
+                    still_since = None
+                last = got
             time.sleep(0.05)
         else:
-            self.log(f"{s.label}: the head did not settle at "
-                     f"{math.degrees(want):+.0f} deg; photographing anyway")
+            self.log(f"{s.label}: the head never stopped moving in "
+                     f"{PAN_TIMEOUT:.0f} s; photographing anyway")
+        if last is not None and abs(_wrap(last - want)) > PAN_WARN:
+            self.log(f"{s.label}: head asked for {math.degrees(want):+.0f} deg, "
+                     f"settled at {math.degrees(last):+.0f} deg")
         # One more camera period after the head stops: an image published
         # while it was still moving carries an unknown angle and a blur.
         time.sleep(0.35)

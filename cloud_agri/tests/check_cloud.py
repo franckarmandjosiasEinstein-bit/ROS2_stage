@@ -682,6 +682,36 @@ def check_aisles() -> None:
     check("clear floor further off does not",
           verdict(1.50, 0.0, 1, 0) == "free")
 
+    # The brake must not fire on the greenhouse itself. Both of these were
+    # real: every leg to a headland stopped 0.27 m short of the end wall,
+    # and a leg that shifted sideways while going forward tilted the
+    # corridor onto the gutter it was driving beside.
+    from agri.aisles import HEADLANDS, known_structure   # noqa: PLC0415
+    from agri.catalogue import (SENSOR_OFFSET_X, WALL_X,  # noqa: PLC0415
+                                WALL_Y)
+
+    check("the end wall is recognised as the building",
+          known_structure(-WALL_X, 0.0) and known_structure(WALL_X, 0.0))
+    check("so are the side walls and the gutters",
+          known_structure(0.0, WALL_Y) and known_structure(0.0, -1.0)
+          and known_structure(-4.0, -1.2))
+    check("clear floor is not",
+          not known_structure(-2.0, -0.6) and not known_structure(-4.4, -1.85))
+    check("and no station stands on what the brake would ignore",
+          not any(known_structure(s.x, s.y) for s in st),
+          "a station taken for structure is a station the robot may drive "
+          "into something to reach")
+
+    # The headland is the case that failed. Prove the wall really is inside
+    # the brake's range there, so the check is about the fix and not about
+    # an imaginary problem.
+    base = HEADLANDS[0] - SENSOR_OFFSET_X
+    c = brake_clearance(-WALL_X - base, 0.0, -1, 0)
+    check("at the west headland the end wall IS within braking range",
+          c is not None and -0.02 <= c < 0.35,
+          f"clearance {c}; if this ever stops being true the fix below is "
+          "guarding nothing")
+
     same = route(-3.15, -1.75, 2.25, -1.75)
     check("a trip inside one aisle is a single leg", len(same) == 1, str(same))
     across = route(-3.15, -1.75, -3.15, -0.65)

@@ -106,6 +106,18 @@ function renderStrip() {
   ].join("");
 }
 
+/* Short enough to fit beside a cross, honest enough to act on. Luminosity
+   runs to 80 000 and CO2 to 5 000; printed in full they overlap the next
+   station and the map becomes a wall of digits. */
+function fmt(v) {
+  if (v == null) return "";
+  const a = Math.abs(v);
+  if (a >= 10000) return (v / 1000).toFixed(1) + "k";
+  if (a >= 1000) return Math.round(v).toString();
+  if (a >= 100) return v.toFixed(0);
+  return v.toFixed(1);
+}
+
 function renderPicker() {
   const p = document.getElementById("picker");
   if (p.dataset.built) return;
@@ -146,6 +158,20 @@ function renderMap() {
     const stroke = s.measured ? colour : "var(--ink-dim)";
     const a = 0.085;   // half the arm of the drawn cross, in metres
     const sel = S.selected === s.label ? " sel" : "";
+    /* The value, in figures, next to the mark.
+       A ramp answers "more or less than its neighbours"; only a number
+       answers "how much", and the operator is being asked to act on the
+       value, not to admire the gradient. The chip is filled with the ramp
+       colour so the two readings agree by construction -- and the text is
+       black or white depending on that fill, which is the only way a
+       number on a coloured chip stays readable at both ends of a scale. */
+    const label = v == null ? "" : fmt(v);
+    const ink = v == null ? "" : (norm(v) > 0.55 ? "#0b1416" : "#f2fbfa");
+    const chip = v == null ? "" : `
+      <rect class="chip" x="${s.x - 0.30}" y="${s.y - 0.44}" width="0.60"
+            height="0.22" rx="0.05" fill="${colour}"/>
+      <text class="val" x="${s.x}" y="${s.y - 0.27}" fill="${ink}"
+            transform="translate(0,${2 * (s.y - 0.27)}) scale(1,-1)">${label}</text>`;
     svg += `<g class="station${sel}" data-label="${s.label}">
       <title>${s.label}${v == null ? " — not measured" :
         ` — ${S.quantity} ${v} ${Q ? Q.unit : ""}`}</title>
@@ -153,6 +179,7 @@ function renderMap() {
       ${S.selected === s.label ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.2"/>` : ""}
       <line class="cross" x1="${s.x - a}" y1="${s.y}" x2="${s.x + a}" y2="${s.y}" stroke="${stroke}"/>
       <line class="cross" x1="${s.x}" y1="${s.y - a}" x2="${s.x}" y2="${s.y + a}" stroke="${stroke}"/>
+      ${chip}
       <circle cx="${s.x}" cy="${s.y}" r="0.13" fill="transparent"/>
     </g>`;
   });

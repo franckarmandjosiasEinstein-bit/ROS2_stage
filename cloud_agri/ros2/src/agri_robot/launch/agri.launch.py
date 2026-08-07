@@ -220,7 +220,8 @@ def generate_launch_description() -> LaunchDescription:
         # TF map->base_link, and the catalogue's own view of the greenhouse
         # as markers. RViz needs the first to draw anything at all.
         Node(package="agri_robot", executable="viz_node", name="agri_viz",
-             output="screen", parameters=[sim_time]),
+             output="screen", additional_env={"PYTHONPATH": py_path},
+             parameters=[sim_time]),
 
         Node(package="rviz2", executable="rviz2", name="rviz2",
              output="log", parameters=[sim_time],
