@@ -109,6 +109,23 @@ class AgriRobot(Node):
             "robot": self.robot_id, "online": False,
             "note": "connection lost", "at": ""}), qos=QOS, retain=True)
 
+        # BOTH callbacks are wrapped. paho does not guard them: an exception
+        # raised inside one unwinds its network thread, and from then on the
+        # client publishes (from other threads) but never READS. The robot
+        # looks alive on the broker and ignores every order. Nothing in the
+        # log says so, which is what makes it worth a decorator.
+        def guarded(fn):
+            def wrapper(*a, **kw):
+                try:
+                    return fn(*a, **kw)
+                except Exception as exc:             # noqa: BLE001
+                    self.get_logger().error(
+                        f"{fn.__name__} raised {type(exc).__name__}: {exc} "
+                        "-- swallowed, because letting it out would stop this "
+                        "node hearing the Cloud")
+            return wrapper
+
+        @guarded
         def on_connect(cl, _u, _f, rc, *_):
             if rc:
                 self.get_logger().error(f"broker refused the connection (rc={rc})")
@@ -118,6 +135,7 @@ class AgriRobot(Node):
                 f"connected to {host}:{port}, listening on {TOPIC_REQUEST}")
             self.link.status(True, "ready")
 
+        @guarded
         def on_message(_cl, _u, msg):
             if msg.topic == TOPIC_REQUEST:
                 self._take(msg.payload)

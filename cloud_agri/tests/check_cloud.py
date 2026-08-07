@@ -889,6 +889,45 @@ def check_ros_package() -> None:
     check("the node says out loud that the readings are synthesised",
           "SYNTHESISED" in node)
 
+    # An exception raised inside a paho callback unwinds paho's network
+    # thread. The client then still PUBLISHES, from other threads, so the
+    # broker and the dashboard both show a healthy robot -- while every
+    # request is delivered to a client that is no longer reading. This
+    # happened: status() asked for a pose before the first odometry arrived.
+    check("the MQTT callbacks cannot let an exception escape",
+          "def guarded(fn)" in node and "@guarded" in node,
+          "one raise inside on_connect stops this node ever hearing the "
+          "Cloud again, and nothing in the log says so")
+    robot = (ROOT / "agri" / "robot.py").read_text()
+    check("and status() never raises even with no odometry",
+          "NEVER RAISES" in robot and "except Exception" in robot)
+
+    # The 2D view. Without the TF nothing in RViz can be placed at all.
+    viz = (pkg / "agri_robot" / "viz_node.py").read_text()
+    rviz = (pkg / "config" / "agri.rviz").read_text()
+    check("viz_node.py is valid Python", _parses(viz))
+    check("something publishes map -> base_link",
+          "TransformBroadcaster" in viz and '"base_link"' in viz,
+          "RViz cannot draw a scan it cannot place")
+    check("the RViz layout is fixed to the frame that node publishes",
+          "Fixed Frame: map" in rviz and 'FRAME = "map"' in viz)
+    check("it shows the lidar and the catalogue side by side",
+          "/scan" in rviz and "/agri/stations" in rviz,
+          "a scan on its own has no scale; the point is the comparison")
+    check("the viz node is exposed as a console script",
+          "viz_node = agri_robot.viz_node:main" in setup)
+    check("and the launch file starts it",
+          "executable=\"viz_node\"" in launch and '"rviz"' in launch)
+
+
+def _parses(src: str) -> bool:
+    import ast                                        # noqa: PLC0415
+    try:
+        ast.parse(src)
+        return True
+    except SyntaxError:
+        return False
+
 
 def _const(src: str, name: str) -> float:
     m = re.search(rf"^{name}\s*=\s*([-\d.]+)", src, re.M)

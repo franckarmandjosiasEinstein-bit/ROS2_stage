@@ -29,7 +29,7 @@ it, checks it, files it, and draws it.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 161 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 169 pre-flight checks, none of which need a broker, ROS or a network |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -143,6 +143,13 @@ colcon build --symlink-install \
 source install/setup.bash
 ros2 launch agri_robot agri.launch.py
 ```
+
+RViz opens beside Gazebo with the **2D view**: the outline the lidar actually
+perceives, drawn on top of where the catalogue says the walls, gutters and 48
+crosses are, plus the robot's own footprint including its sensor boom. That
+comparison is the point — a scan on its own is a pretty shape with no scale,
+and the moment the two stop lying on top of each other, either the odometry
+or the catalogue is wrong. `rviz:=false` turns it off.
 
 ### Giving orders
 
@@ -418,7 +425,7 @@ visit.
 python3 tests/check_cloud.py
 ```
 
-161 checks, about ten seconds, nothing installed beyond the dependencies. It
+169 checks, about ten seconds, nothing installed beyond the dependencies. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the

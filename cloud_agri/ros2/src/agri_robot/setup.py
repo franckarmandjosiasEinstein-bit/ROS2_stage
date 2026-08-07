@@ -68,6 +68,7 @@ setup(
     entry_points={
         "console_scripts": [
             "robot_node = agri_robot.robot_node:main",
+            "viz_node = agri_robot.viz_node:main",
         ],
     },
 )

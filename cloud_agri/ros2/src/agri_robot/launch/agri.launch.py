@@ -185,6 +185,11 @@ def generate_launch_description() -> LaunchDescription:
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", res_path),
 
         DeclareLaunchArgument("gui", default_value="true"),
+        DeclareLaunchArgument(
+            "rviz", default_value="true",
+            description="Open the 2D lidar view beside Gazebo. This is where "
+                        "a robot that stopped for no visible reason explains "
+                        "itself."),
         DeclareLaunchArgument("broker", default_value="localhost"),
         DeclareLaunchArgument("keys", default_value=default_keys),
         DeclareLaunchArgument(
@@ -211,6 +216,16 @@ def generate_launch_description() -> LaunchDescription:
         Node(package="ros_gz_bridge", executable="parameter_bridge",
              name="gz_bridge", output="screen",
              parameters=[{"config_file": bridge_cfg}, sim_time]),
+
+        # TF map->base_link, and the catalogue's own view of the greenhouse
+        # as markers. RViz needs the first to draw anything at all.
+        Node(package="agri_robot", executable="viz_node", name="agri_viz",
+             output="screen", parameters=[sim_time]),
+
+        Node(package="rviz2", executable="rviz2", name="rviz2",
+             output="log", parameters=[sim_time],
+             arguments=["-d", str(share / "config" / "agri.rviz")],
+             condition=IfCondition(LaunchConfiguration("rviz"))),
 
         Node(package="agri_robot", executable="robot_node", name="agri_robot",
              output="screen",

@@ -197,12 +197,31 @@ class RobotLink:
     def status(self, online: bool = True, note: str = "") -> None:
         """Telemetry. Pose and velocity, on a timer, whether busy or not --
         so the Cloud can watch the robot move rather than only hear from it
-        when it arrives somewhere."""
-        pose = self.visitor.driver.pose()
+        when it arrives somewhere.
+
+        NEVER RAISES. This is called from the MQTT client's own callback the
+        moment the connection is established, which is before the simulator
+        has published a single odometry message. The first version let the
+        driver's "no odometry yet" propagate, and paho -- which does not
+        guard its callbacks -- killed its network thread on the way out. The
+        robot then sat there looking healthy: its timer kept publishing
+        status, because that runs on a different thread, while every request
+        the Cloud sent was delivered by the broker to a client that was no
+        longer reading. Forty minutes of a robot that will not move and a
+        log that says nothing.
+
+        A status with no position is still worth sending: "I am here and I
+        am connected" is exactly what the Cloud needs at that instant.
+        """
+        pose = velocity = None
+        try:
+            p = self.visitor.driver.pose()
+            pose = (p[0], p[1], math.degrees(p[2]))
+            velocity = self.visitor.driver.velocity()
+        except Exception as exc:                     # noqa: BLE001
+            note = f"{note} (no odometry yet: {exc})".strip()
         self.client.publish(TOPIC_STATUS, json.dumps(make_status(
-            self.visitor.robot_id, online,
-            (pose[0], pose[1], math.degrees(pose[2])), note,
-            velocity=self.visitor.driver.velocity())),
+            self.visitor.robot_id, online, pose, note, velocity=velocity)),
             qos=QOS, retain=True)
 
     def run_mission(self, minutes_provider: Callable[[], float]) -> None:

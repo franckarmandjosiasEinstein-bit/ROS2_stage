@@ -1,0 +1,75 @@
+# RViz layout for the 2D view: the lidar's greenhouse beside Gazebo's.
+#
+# Fixed frame is "map", which agri_viz publishes from /odom. Without that
+# node every display here greys out and RViz complains about a missing
+# transform rather than about the robot.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+    Tree Height: 600
+Visualization Manager:
+  Global Options:
+    Background Color: 15; 20; 22
+    Fixed Frame: map
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 12
+      Color: 40; 60; 60
+      Line Style:
+        Value: Lines
+    # What the robot actually perceives.
+    - Class: rviz_default_plugins/LaserScan
+      Name: lidar
+      Enabled: true
+      Topic:
+        Value: /scan
+        Depth: 5
+        Reliability Policy: Best Effort
+      Size (m): 0.04
+      Style: Points
+      Color: 255; 220; 90
+      Color Transformer: FlatColor
+    # What the catalogue says is there: crosses, walls, gutters, footprint.
+    - Class: rviz_default_plugins/MarkerArray
+      Name: stations and structure
+      Enabled: true
+      Topic:
+        Value: /agri/stations
+        Depth: 5
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/RobotModel
+      Name: robot
+      Enabled: true
+      Description Topic:
+        Value: /robot_description
+      Alpha: 0.85
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: false
+      Show Axes: true
+      Show Names: false
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Global Options:
+    Fixed Frame: map
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: top down
+      Scale: 90
+      Target Frame: map
+      X: 0
+      Y: 0
+      Angle: 0
+Window Geometry:
+  Height: 900
+  Width: 1200
+  Displays:
+    collapsed: false
