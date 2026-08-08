@@ -192,17 +192,32 @@ def check_request(payload: dict[str, Any]) -> tuple[str, list[str]]:
 
 # -------------------------------------------------------------------- ack
 def make_ack(request_id: str, robot: str, state: str, label: str | None = None,
-             done: int = 0, total: int = 0, detail: str = "") -> dict:
+             done: int = 0, total: int = 0, detail: str = "",
+             metres: float | None = None,
+             planned_m: float | None = None) -> dict:
     """Progress. Carries no measurement, so it needs no confidentiality.
 
     `state` is one of accepted / driving / measuring / sent / finished /
     failed. The Cloud shows it live; without it a whole-greenhouse sweep is
     forty minutes of silence and the operator cannot tell a working robot
     from a dead one.
+
+    `metres` is how far the base actually drove, integrated from odometry,
+    and `planned_m` is what the chosen order was expected to cost. Both are
+    sent only on the closing ack, and only when the driver counts them --
+    None means "this robot does not say", which is different from zero and
+    must not be exported as zero. They are here rather than in the report
+    because they belong to the MISSION: a report is about one station, and
+    the distance is the property of the whole trip.
     """
-    return {"schema": SCHEMA, "kind": "ack", "request_id": request_id,
-            "robot": robot, "state": state, "label": label,
-            "done": done, "total": total, "detail": detail, "at": utc_now()}
+    d = {"schema": SCHEMA, "kind": "ack", "request_id": request_id,
+         "robot": robot, "state": state, "label": label,
+         "done": done, "total": total, "detail": detail, "at": utc_now()}
+    if metres is not None:
+        d["metres"] = round(float(metres), 2)
+    if planned_m is not None:
+        d["planned_m"] = round(float(planned_m), 2)
+    return d
 
 
 # ----------------------------------------------------------------- status

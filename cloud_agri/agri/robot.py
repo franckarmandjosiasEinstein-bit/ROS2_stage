@@ -43,6 +43,7 @@ from agri.measurement import Measurement
 from agri.protocol import (QOS, TOPIC_REQUEST, ProtocolError, check_request,
                            make_ack, make_status, topic_ack, topic_report,
                            topic_status)
+from agri.survey import crossings, path_length, survey_order
 
 Pose = tuple[float, float, float]          # x, y, yaw(rad)
 
@@ -118,19 +119,47 @@ class Visitor:
 
 @dataclass
 class Mission:
-    """The queue behind a request. Deliberately dumb: one station at a time,
-    in the order the Cloud sent them, no reordering.
+    """The queue behind a request: one station at a time, to the end.
 
-    Reordering to shorten the route is the obvious improvement and it is
-    left out on purpose here: the Cloud already emits the stations in survey
-    order, and a robot that silently reorders makes the ack stream stop
-    matching the request, which is the first thing an operator reads.
+    THE ORDER IS THE ROBOT'S TO CHOOSE, AND IT SAYS SO OUT LOUD.
+
+    This used to drive the stations exactly as the Cloud listed them, and
+    carried a note saying reordering was left out on purpose so that the ack
+    stream would keep matching the request. That reasoning was worth about
+    228 metres a sweep.
+
+    Survey order -- P1,1R, P1,1L, P1,2R, P1,2L -- is right for a human
+    reading a list and wrong for a robot driving a building. The two sides of
+    one plant are separated by an 8 m gutter, so R to L means going to the
+    end of the row, crossing, and coming back; the survey order asks for that
+    forty-five times, and 87 % of the distance in a 48-station campaign was
+    that and nothing else.
+
+    The objection was real, so it is answered rather than accepted: `issued`
+    keeps the order as the Cloud sent it, every ack still names its station,
+    and the Cloud reports progress by label. Nothing an operator reads was
+    ever indexed by position.
     """
 
     request_id: str
     targets: list[str]
+    #: The order as received, kept so the two can be compared and so an
+    #: operator can always be shown what they actually asked for.
+    issued: list[str] = field(default_factory=list)
+    #: Metres the chosen order is expected to cost, from where the robot
+    #: stood when it accepted. Planned, not driven -- the driven figure is
+    #: measured from odometry and reported beside it.
+    planned_m: float = 0.0
     done: int = 0
     failures: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.issued:
+            self.issued = list(self.targets)
+
+    @property
+    def reordered(self) -> bool:
+        return self.targets != self.issued
 
     @property
     def total(self) -> int:
@@ -187,14 +216,16 @@ class RobotLink:
 
     # ----------------------------------------------------------- outbound
     def ack(self, request_id: str, state: str, label: str | None = None,
-            total: int = 0, detail: str = "") -> None:
+            total: int = 0, detail: str = "", metres: float | None = None,
+            planned_m: float | None = None) -> None:
         m = self.mission
         self.client.publish(
             topic_ack(self.visitor.robot_id),
             json.dumps(make_ack(
                 request_id, self.visitor.robot_id, state, label,
                 done=m.done if m else 0,
-                total=total or (m.total if m else 0), detail=detail)),
+                total=total or (m.total if m else 0), detail=detail,
+                metres=metres, planned_m=planned_m)),
             qos=QOS)
 
     def status(self, online: bool = True, note: str = "") -> None:
@@ -229,11 +260,59 @@ class RobotLink:
                                    velocity=velocity)),
             qos=QOS, retain=True)
 
+    def _odometer(self) -> float | None:
+        """Metres the base has driven since it started, if it counts them.
+
+        getattr rather than a method on the Driver protocol: the offline demo
+        and the test suite supply their own drivers, and a new REQUIRED
+        method would break every one of them for a number that is only ever
+        reported. A driver that cannot say returns None and the mission says
+        'planned' instead of 'driven'.
+        """
+        try:
+            return float(self.visitor.driver.distance_m())
+        except Exception:                            # noqa: BLE001
+            return None
+
+    def plan(self) -> None:
+        """Choose the order to drive the accepted stations in.
+
+        Separate from run_mission so the decision can be tested without a
+        simulator, and taken HERE rather than when the request arrives
+        because the best order depends on where the robot is standing now.
+        """
+        m = self.mission
+        if m is None:
+            return
+        try:
+            x, y, _ = self.visitor.driver.pose()
+        except Exception as exc:                     # noqa: BLE001
+            # No odometry yet is not a reason to refuse to drive. The issued
+            # order is a valid order; it is only a longer one.
+            self.log(f"robot: keeping the issued order ({exc})")
+            return
+        try:
+            m.targets = survey_order(m.issued, x, y)
+            m.planned_m = path_length(m.targets, x, y)
+        except Exception as exc:                     # noqa: BLE001
+            self.log(f"robot: could not reorder, driving as issued ({exc})")
+            m.targets = list(m.issued)
+            return
+        if m.reordered:
+            was = path_length(m.issued, x, y)
+            self.log(f"robot: {m.request_id} reordered to save "
+                     f"{was - m.planned_m:.0f} m "
+                     f"({was:.0f} -> {m.planned_m:.0f} m, "
+                     f"{crossings(m.issued, x, y)} -> "
+                     f"{crossings(m.targets, x, y)} gutter crossings)")
+
     def run_mission(self, minutes_provider: Callable[[], float]) -> None:
         """Work the queue to the end, publishing as it goes."""
         m = self.mission
         if m is None:
             return
+        self.plan()
+        started_m = self._odometer()
         for label in m.targets:
             self.ack(m.request_id, "driving", label)
             try:
@@ -251,10 +330,24 @@ class RobotLink:
             self.log(f"robot: {note}")
             self.ack(m.request_id, "sent", label)
         state = "finished" if not m.failures else "finished_with_failures"
-        self.ack(m.request_id, state,
-                 detail=f"{len(m.failures)} failure(s)" if m.failures else "")
+        # The distance is MEASURED where the driver counts it, and only
+        # planned where it does not. Reported on the closing ack so the
+        # Cloud can put it in requests.csv without asking for it.
+        ended_m = self._odometer()
+        driven = (round(ended_m - started_m, 2)
+                  if started_m is not None and ended_m is not None else None)
+        bits = []
+        if m.failures:
+            bits.append(f"{len(m.failures)} failure(s)")
+        if driven is not None:
+            bits.append(f"drove {driven:.1f} m")
+        elif m.planned_m:
+            bits.append(f"planned {m.planned_m:.1f} m")
+        self.ack(m.request_id, state, detail="; ".join(bits),
+                 metres=driven, planned_m=round(m.planned_m, 2) or None)
         self.log(f"robot: {m.request_id} {state} "
-                 f"({m.done}/{m.total})")
+                 f"({m.done}/{m.total})"
+                 + (f", {driven:.1f} m driven" if driven is not None else ""))
 
 
 # ----------------------------------------------------------- offline body

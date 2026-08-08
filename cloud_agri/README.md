@@ -38,7 +38,7 @@ robot from a stationary ESP.
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
 | `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
 | `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
-| `tests/check_cloud.py` | 339 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 383 pre-flight checks, none of which need a broker, ROS or a network |
 | `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
@@ -519,6 +519,85 @@ reported it (this robot has no collision geometry). It was caught by
 `route_clearance()`, which the test suite now runs over all 2 256
 station-to-station routes on every run.
 
+### The order of the stations, and the battery — `agri/survey.py`
+
+The Cloud lists stations in survey order — `P1,1R`, `P1,1L`, `P1,2R`, … —
+which is right for a human reading a list and wrong for a robot driving a
+building. The two sides of one plant are separated by a gutter 8 m long, so
+going from `R` to `L` means driving to the end of the row, crossing, and
+coming back. Over 48 stations the survey order asks for that 45 times.
+
+Measured against the real geometry, from the dock:
+
+| order | distance | gutter crossings |
+|---|---|---|
+| survey, as the Cloud issues it | 312 m | 45 |
+| swept band by band | 40 m | 3 |
+
+**272 m, 87 %.** At 0.45 m/s that is about ten minutes of a battery spent
+arriving at places the robot had already been standing next to. The first
+recorded full campaign took 1 505 s; most of it was this.
+
+The fix is not a planner. `aisles.py` already divides the free space into
+four bands, and every station is in exactly one:
+
+    band 0   P1,*R                      8 stations
+    band 1   P1,*L and P2,*R           16 stations
+    band 2   P2,*L and P3,*R           16 stations
+    band 3   P3,*L                      8 stations
+
+Within a band the robot drives freely; leaving one costs a headland trip
+whatever the destination. So the cheap route is to sweep a band end to end,
+cross once, and sweep the next one back. The only decisions left are which
+end to start at and which way to go — four combinations, all four measured
+against the same `route()` the driver will actually fly, shortest wins.
+
+**The order as issued is the fifth candidate, and it wins ties.** That makes
+"this can never lengthen a mission" a property of the code rather than a
+claim about it, and the suite checks it over 720 random subsets. A two-station
+request is returned untouched.
+
+The objection the old code recorded — that a robot which silently reorders
+makes the ack stream stop matching the request — was real, so it is answered
+rather than accepted: the mission keeps `issued` alongside `targets`, every
+ack still names its own station, and nothing an operator reads was ever
+indexed by position.
+
+#### What is measured and what is modelled
+
+This matters for the report, so it is worth being exact about.
+
+**Measured.** The distance driven, integrated from odometry in the driver
+(`distance_m()`), summed from successive positions rather than from the
+reported speed. It inherits the odometry's drift, which is the honest thing
+for it to do — it is what the robot believes it drove. A single step longer
+than `ODOM_JUMP_M` is a respawn, not a drive, and is not counted.
+
+**Modelled.** The energy. Gazebo models no battery and this robot has no
+current sensor, so a percentage ticking down would be a fabricated number
+sitting beside forty-eight real ones. Instead `agri/survey.py` states four
+constants in the open — `IDLE_W`, `DRIVE_W`, `CRUISE_MPS`, `BATTERY_WH` —
+labelled `ASSUMPTIONS, NOT MEASUREMENTS`, for someone to replace with a bench
+reading. The suite asserts `CRUISE_MPS` equals the driver's `V_MAX`, so the
+estimate cannot quietly drift away from the robot it describes.
+
+The shape of the model is the part worth trusting: idle power is drawn
+whether or not the robot moves, drive power only while it moves.
+
+    energy = IDLE_W x mission_seconds  +  DRIVE_W x driving_seconds
+
+**And that shape carries the real finding**, which is more useful in a report
+than the 87 %: on a 48-station sweep the robot spends far longer standing at
+crosses — settling, focusing, photographing, encoding a QR — than driving
+between them. Shortening the route removes drive energy and leaves idle
+energy untouched, so it attacks the smaller half of the bill. Cutting the
+mission further means attacking the per-station time, not the path.
+
+`requests.csv` keeps the two apart by name: `driven_m` and `planned_m` beside
+`energy_wh_est`, `idle_wh_est`, `drive_wh_est`. A request whose robot did not
+report a distance leaves those cells **empty**, not zero — "this robot does
+not count" and "it drove nothing" are different facts.
+
 ### What the robot says about itself
 
 Every report carries the robot's **position and speed** at the instant of the
@@ -696,7 +775,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the 338 other checks to pass first.
+prioritised over getting the 382 other checks to pass first.
 
 ---
 
@@ -706,8 +785,8 @@ prioritised over getting the 338 other checks to pass first.
 python3 tests/check_cloud.py
 ```
 
-339 checks, about fifteen seconds, nothing installed beyond the dependencies
-— 338 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
+383 checks, about fifteen seconds, nothing installed beyond the dependencies
+— 382 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
 one thing that cannot be tested because there is no rclpy to clash with. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,

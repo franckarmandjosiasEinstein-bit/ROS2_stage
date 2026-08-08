@@ -51,6 +51,7 @@ from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, QOS,
                            TOPIC_STATUS_ALL, ProtocolError, expand_targets,
                            make_request, mqtt_client, node_id_from_topic)
 from agri.sensors import ANOMALIES
+from agri.survey import energy_wh
 
 DASHBOARD = Path(__file__).parent / "dashboard"
 
@@ -93,7 +94,10 @@ class Cloud:
                               "state": "issued", "label": None, "detail": "",
                               "issued_at": msg["issued_at"],
                               "updated_at": msg["issued_at"],
-                              "completed_at": None, "elapsed_s": None}
+                              "completed_at": None, "elapsed_s": None,
+                              # None, not 0: until the robot says, the
+                              # distance is unknown rather than nothing.
+                              "metres": None, "planned_m": None}
         return rid, sign_json(msg, self.cloud_keys.private_pem)
 
     # ------------------------------------------------------------- inbound
@@ -155,6 +159,13 @@ class Cloud:
                  updated_at=d.get("at") or utc_now())
         if d.get("total"):
             p["total"] = d["total"]
+        # Distance arrives on the closing ack, and only from a robot that
+        # counts it. `is not None` rather than a truth test: a mission that
+        # genuinely drove 0.0 m -- one station the robot was already parked
+        # on -- is a real answer and must not be dropped for looking falsy.
+        for f in ("metres", "planned_m"):
+            if d.get(f) is not None:
+                p[f] = d[f]
         # A mission that ENDS without filing every report still ends, and the
         # record has to close or the dashboard shows it running for ever and
         # requests.csv carries a blank completion with nothing to explain it.
@@ -178,8 +189,17 @@ class Cloud:
     #: different rows -- one request covers 48 stations, and "when did the
     #: sweep finish" is not answerable by looking at 48 lines and taking a
     #: maximum, because a sweep that never finished has no line to look at.
+    #: driven_m is MEASURED (the robot's odometry, integrated); planned_m is
+    #: what the order it chose was expected to cost; the three energy columns
+    #: are DERIVED from driven_m and elapsed_s by agri.survey's stated model,
+    #: whose constants are assumptions and are named as such where they live.
+    #: Kept apart in the header so a reader can tell which is which without
+    #: opening the source.
     REQUEST_COLUMNS = ["request_id", "issued_at", "completed_at", "elapsed_s",
-                       "state", "done", "total", "targets"]
+                       "state", "done", "total",
+                       "driven_m", "planned_m",
+                       "energy_wh_est", "idle_wh_est", "drive_wh_est",
+                       "targets"]
 
     def export_requests_csv(self, path: Path | None = None) -> Path:
         import csv                                          # noqa: PLC0415
@@ -189,14 +209,41 @@ class Cloud:
             w = csv.writer(fh)
             w.writerow(self.REQUEST_COLUMNS)
             for p in self.progress.values():
+                metres, elapsed = p.get("metres"), p.get("elapsed_s")
+                # Energy needs BOTH a distance and a duration. With either
+                # missing the cells stay empty rather than being filled with
+                # a number computed from a zero that was never measured.
+                e = (energy_wh(metres, elapsed)
+                     if metres is not None and elapsed is not None else {})
                 w.writerow([p["request_id"], p.get("issued_at", ""),
                             p.get("completed_at") or "",
-                            "" if p.get("elapsed_s") is None else p["elapsed_s"],
+                            "" if elapsed is None else elapsed,
                             p.get("state", ""), p.get("done", 0),
-                            p.get("total", 0), ";".join(p.get("targets", []))])
+                            p.get("total", 0),
+                            "" if metres is None else metres,
+                            "" if p.get("planned_m") is None else p["planned_m"],
+                            e.get("total_wh", ""), e.get("idle_wh", ""),
+                            e.get("drive_wh", ""),
+                            ";".join(p.get("targets", []))])
         return path
 
     # ---------------------------------------------------------------- view
+    @staticmethod
+    def _with_energy(p: dict[str, Any]) -> dict[str, Any]:
+        """A progress record plus its energy estimate, if one can be made.
+
+        Derived on the way out rather than stored, so the model can change
+        without rewriting anything already recorded -- and so the stored
+        record keeps only what was measured. The key is absent, not zero,
+        when either input is missing; the dashboard tests for null.
+        """
+        metres, elapsed = p.get("metres"), p.get("elapsed_s")
+        if metres is None or elapsed is None:
+            return p
+        e = energy_wh(metres, elapsed)
+        return {**p, "energy_wh": e["total_wh"],
+                "energy_idle_wh": e["idle_wh"], "energy_drive_wh": e["drive_wh"]}
+
     def state(self) -> dict[str, Any]:
         """Everything the dashboard needs, in one call."""
         latest = self.store.latest_by_label()
@@ -230,7 +277,8 @@ class Cloud:
                         "accepted": self.accepted,
                         "rejected": len(self.rejected)},
             "nodes": dict(self.nodes),
-            "requests": list(self.progress.values())[-8:],
+            "requests": [self._with_energy(p)
+                         for p in list(self.progress.values())[-8:]],
             "rejected": list(self.rejected)[-8:],
             "anomalies": {k: list(v) for k, v in ANOMALIES.items()},
             "since": self.started,

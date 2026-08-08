@@ -322,11 +322,23 @@ function renderRequests() {
       ? `${r.state === "failed" ? "gave up" : "done"} ${clock(r.completed_at)}`
         + ` // after ${dur(r.elapsed_s)}`
       : `running // ${dur(live)} so far`;
+    /* Distance arrives only on the closing ack, and only from a robot that
+       counts it, so this line appears when there is something to say and is
+       absent otherwise -- rather than showing a reassuring 0.0 m for a robot
+       that never reported one. The energy is flagged "est" here, and only
+       here, because it is the one number on this page that is modelled
+       rather than measured. */
+    const trip = r.metres == null ? "" :
+      `<div class="when">drove ${r.metres.toFixed(1)} m`
+      + (r.planned_m != null ? ` // planned ${r.planned_m.toFixed(1)} m` : "")
+      + (r.energy_wh != null ? ` // ~${r.energy_wh.toFixed(1)} Wh est` : "")
+      + `</div>`;
     return `<div class="req">
       <div><span class="id">${r.request_id}</span> ${r.state}
         ${r.label ? `// ${r.label}` : ""} <span class="id">${r.done}/${r.total}</span></div>
       <div class="when" title="issued ${r.issued_at || "?"}">
         issued ${clock(r.issued_at)} // ${timing}</div>
+      ${trip}
       ${r.detail ? `<div class="id">${r.detail}</div>` : ""}
       <div class="prog"><i style="width:${pct}%"></i></div>
     </div>`;

@@ -77,6 +77,12 @@ DOCK_TOL = 0.015               # m, the last leg
 SETTLE_TIME = 0.4              # s of stillness before a pose is believed
 LEG_TIMEOUT = 60.0             # s per leg before giving up out loud
 
+#: A single odometry step longer than this was not driven -- the pose was
+#: reset or the model respawned. At 0.45 m/s and 14 Hz a real step is about
+#: 0.03 m, so this is two orders of magnitude of headroom and still far
+#: below the smallest teleport worth ignoring.
+ODOM_JUMP_M = 1.0
+
 # --- vision -------------------------------------------------------------
 #: The most the floor camera is ever allowed to move the robot.
 #:
@@ -146,6 +152,8 @@ class GazeboDriver:
         self._blocked_by: tuple[float, float, float] | None = None
         self.visual_used = 0
         self.visual_missed = 0
+        #: Metres the base has driven since this node started. See _on_odom.
+        self._driven = 0.0
 
         qos = 10
         self._cmd = node.create_publisher(Twist, "cmd_vel", qos)
@@ -163,9 +171,27 @@ class GazeboDriver:
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         t = msg.twist.twist
+        px, py = msg.pose.pose.position.x, msg.pose.pose.position.y
         with self._lock:
-            self._odom = (msg.pose.pose.position.x,
-                          msg.pose.pose.position.y, yaw)
+            # THE ODOMETER. Summed from successive positions rather than by
+            # integrating the reported speed, because the speed is sampled at
+            # 14 Hz and every sample is held for the whole interval -- which
+            # over a 1500 s mission accumulates a different kind of error
+            # than the path itself has. Distance between consecutive fixes is
+            # the same quantity the path is made of.
+            #
+            # It therefore inherits the odometry's drift, and that is the
+            # honest thing for it to do: it measures what the ROBOT believes
+            # it drove, which is what a battery estimate built on it should
+            # be based on. It is never reset -- a mission takes the
+            # difference between two readings.
+            if self._odom is not None:
+                step = math.hypot(px - self._odom[0], py - self._odom[1])
+                # A jump means the pose was teleported (a respawn, a reset),
+                # not driven. Counting it would add metres nothing spent.
+                if step < ODOM_JUMP_M:
+                    self._driven += step
+            self._odom = (px, py, yaw)
             # Straight from the odometry, in the robot's frame, unfiltered.
             # A smoothed speed would look tidier and would hide the thing
             # this field exists to catch: a reading taken while still rolling.
@@ -205,6 +231,16 @@ class GazeboDriver:
         """(vx, vy, wz) in the robot's frame. Travels with every report."""
         with self._lock:
             return self._twist
+
+    def distance_m(self) -> float:
+        """Metres driven since the node started, from odometry.
+
+        Monotonic and never reset, so a mission is the difference between a
+        reading at each end. Zero before the first two odometry messages,
+        which is true rather than unknown: nothing has been driven yet.
+        """
+        with self._lock:
+            return self._driven
 
     def wait_ready(self, timeout: float = 30.0) -> None:
         end = time.time() + timeout

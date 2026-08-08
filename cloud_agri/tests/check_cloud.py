@@ -18,8 +18,10 @@ failures live.
 
 from __future__ import annotations
 
+import csv
 import json
 import os
+import random
 import re
 import sys
 import tempfile
@@ -1394,6 +1396,210 @@ def check_session_buttons() -> None:
           "the demo's dashboard must not be able to kill its own process")
 
 
+def check_route() -> None:
+    """The order the stations are driven in, and what it costs.
+
+    The robot used to drive the survey order it was handed. That order pairs
+    each plant's two sides -- P1,1R then P1,1L -- and those two sides have an
+    8 m gutter between them, so every pair meant a trip to a headland and
+    back. Measured over 48 stations it was 87 % of the distance.
+
+    The reordering can only be trusted if it cannot make things worse, so
+    that is what most of this section checks: the set is preserved exactly,
+    and the chosen order is never longer than the one issued -- over random
+    subsets, not just the full sweep.
+    """
+    print("\nthe route, and the battery it costs")
+    from agri.catalogue import SENSOR_OFFSET_X
+    from agri.cloud.server import Cloud
+    from agri.cloud.store import Store
+    from agri.labels import all_labels
+    from agri.protocol import make_ack
+    from agri.survey import (BATTERY_WH, CRUISE_MPS, crossings, energy_wh,
+                             leg_lengths, path_length, survey_order)
+
+    labels = all_labels()
+    # Where the launch file spawns the base, as the SENSOR point -- the frame
+    # every station is expressed in.
+    sx, sy = -4.58 + SENSOR_OFFSET_X, -1.85
+
+    issued_m = path_length(labels, sx, sy)
+    order = survey_order(labels, sx, sy)
+    best_m = path_length(order, sx, sy)
+
+    check("a route's length is measured along the legs the driver will fly",
+          abs(sum(leg_lengths(labels[:3], sx, sy))
+              - path_length(labels[:3], sx, sy)) < 1e-9)
+    check("the survey order really is as expensive as it looked",
+          issued_m > 250, f"{issued_m:.1f} m over 48 stations")
+    check("and the reordered one is a fraction of it",
+          best_m < issued_m / 5,
+          f"{issued_m:.0f} m -> {best_m:.0f} m")
+    print(f"        {issued_m:.0f} m -> {best_m:.0f} m "
+          f"({100 * (issued_m - best_m) / issued_m:.0f} % less), "
+          f"{crossings(labels, sx, sy)} -> {crossings(order, sx, sy)} "
+          f"gutter crossings")
+
+    check("the mission still visits every station it was given",
+          sorted(order) == sorted(labels),
+          "reordering must never drop or invent a station")
+    check("and visits none of them twice",
+          len(order) == len(set(order)))
+    check("the saving comes from not crossing the gutters",
+          crossings(order, sx, sy) <= 3,
+          f"{crossings(order, sx, sy)} crossings; there are four bands, so "
+          "three is the fewest a full sweep can do")
+
+    # THE PROPERTY THAT MAKES THIS SAFE TO TURN ON. The issued order is one
+    # of the candidates and wins ties, so adopting a longer route is not a
+    # bug that could happen -- it is a thing the function cannot do.
+    rng = random.Random(20260808)
+    worse = same = 0
+    for n in (2, 3, 4, 7, 16, 33):
+        for _ in range(120):
+            sub = rng.sample(labels, n)
+            got = survey_order(sub, sx, sy)
+            if sorted(got) != sorted(sub):
+                worse = -1
+                break
+            a, b = path_length(sub, sx, sy), path_length(got, sx, sy)
+            if b > a + 1e-9:
+                worse += 1
+            if got == sub:
+                same += 1
+    check("no subset of stations is ever made longer by reordering",
+          worse == 0, f"{worse} of 720 random subsets got worse")
+    check("and an order that saves nothing is left alone",
+          same > 0, "the issued order must win ties, or a two-station "
+                    "request gets shuffled for no reason")
+
+    check("a request too small to reorder is returned untouched",
+          survey_order(["P2,4R", "P2,4L"], sx, sy) == ["P2,4R", "P2,4L"])
+    check("and an unknown label does not take the mission down with it",
+          survey_order(["P1,1R", "NOPE", "P3,8L"], sx, sy)
+          == ["P1,1R", "NOPE", "P3,8L"],
+          "the driver refuses it and says which; the planner must not raise")
+    check("the order is stable: the same request plans the same way twice",
+          survey_order(labels, sx, sy) == survey_order(labels, sx, sy))
+
+    # --- the mission carries both orders -------------------------------
+    from agri.robot import Mission
+    m = Mission("r", targets=list(labels))
+    check("a fresh mission has not reordered anything yet", not m.reordered)
+    check("and it kept the order the Cloud issued", m.issued == labels)
+    m.targets = order
+    check("once planned it knows it reordered", m.reordered)
+    check("and the issued order is still there to compare against",
+          m.issued == labels,
+          "an operator reads what they asked for, not what was optimal")
+
+    src = (ROOT / "agri" / "robot.py").read_text()
+    check("the plan is made where the robot's position is known",
+          "def plan(" in src and "self.visitor.driver.pose()" in src,
+          "the best order depends on where the robot is standing")
+    check("and run_mission plans before it drives",
+          src.index("self.plan()") < src.index("for label in m.targets"))
+    check("no odometry is a reason to drive the issued order, not to refuse",
+          "keeping the issued order" in src)
+    check("every ack still names its own station",
+          'self.ack(m.request_id, "driving", label)' in src,
+          "this is what makes reordering invisible to anyone reading acks")
+
+    # --- distance is measured, energy is modelled ----------------------
+    drv = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+           / "driver.py").read_text()
+    check("the driver counts the metres it actually drove",
+          "def distance_m(" in drv)
+    check("from successive positions, not by integrating the speed",
+          "self._driven += step" in drv)
+    check("and a teleport is not counted as distance driven",
+          "ODOM_JUMP_M" in drv and "step < ODOM_JUMP_M" in drv,
+          "a respawn would otherwise add metres nothing spent")
+
+    check("the closing ack carries the distance",
+          "metres" in make_ack("r", "b", "finished", metres=41.2))
+    check("and what the plan expected, beside it",
+          make_ack("r", "b", "finished", planned_m=40.0)["planned_m"] == 40.0)
+    check("a robot that does not count sends neither, rather than zero",
+          "metres" not in make_ack("r", "b", "finished"),
+          "zero metres driven and 'this robot does not say' are different "
+          "facts and must not export as the same cell")
+
+    e = energy_wh(metres=100.0, seconds=1000.0)
+    check("energy is split into idle and drive, not given as one number",
+          {"idle_wh", "drive_wh", "total_wh"} <= set(e))
+    check("and the two parts add up to the total",
+          abs(e["idle_wh"] + e["drive_wh"] - e["total_wh"]) < 0.02)
+    check("driving longer than the mission lasted is impossible",
+          energy_wh(1e6, 10.0)["driving_s"] <= 10.0,
+          "a distance that cannot fit in the time would otherwise invent "
+          "drive energy out of a bad odometry reading")
+    check("a mission that drove nothing still costs idle power",
+          energy_wh(0.0, 600.0)["total_wh"] > 0,
+          "this is the finding: shortening the route attacks the smaller "
+          "half of the bill")
+    check("the battery is expressed as a percentage of a stated pack",
+          0 < energy_wh(41.0, 900.0)["battery_pct"] < 100 and BATTERY_WH > 0)
+    check("cruise speed matches the driver's, or the estimate is fiction",
+          abs(CRUISE_MPS - float(re.search(r"^V_MAX\s*=\s*([\d.]+)", drv,
+                                           re.M).group(1))) < 1e-9,
+          "agri.survey.CRUISE_MPS and driver.V_MAX are the same speed")
+
+    surv = (ROOT / "agri" / "survey.py").read_text()
+    check("the energy constants are labelled as assumptions, out loud",
+          "ASSUMPTIONS, NOT MEASUREMENTS" in surv,
+          "a modelled number sitting beside forty-eight measured ones has "
+          "to say which it is")
+
+    # --- it reaches the CSV and the dashboard ---------------------------
+    cloud = Cloud(Store(Path(tempfile.mkdtemp()) / "s"),
+                  Path(tempfile.mkdtemp()) / "k")
+    rid, _ = cloud.build_request("ALL")
+    check("a request in flight has no distance yet",
+          cloud.progress[rid]["metres"] is None)
+    cloud.on_ack(json.dumps(make_ack(rid, "youbot-01", "finished", done=48,
+                                     total=48, metres=41.2,
+                                     planned_m=40.1)).encode())
+    p = cloud.progress[rid]
+    check("the Cloud records the distance the robot reported", p["metres"] == 41.2)
+    check("and what the robot planned", p["planned_m"] == 40.1)
+
+    rows = list(csv.DictReader(
+        cloud.export_requests_csv(Path(tempfile.mkdtemp()) / "r.csv")
+        .read_text().splitlines()))
+    check("requests.csv names its driven_m column",
+          "driven_m" in rows[0])
+    check("and its planned_m column", "planned_m" in rows[0])
+    check("and marks the energy columns as estimates",
+          all(c in rows[0] for c in ("energy_wh_est", "idle_wh_est",
+                                     "drive_wh_est")),
+          "the header is where a reader finds out which numbers are modelled")
+    check("and the row really carries the distance",
+          rows[0]["driven_m"] == "41.2", rows[0])
+
+    cloud2 = Cloud(Store(Path(tempfile.mkdtemp()) / "s"),
+                   Path(tempfile.mkdtemp()) / "k")
+    rid2, _ = cloud2.build_request("P2,4R")
+    blank = list(csv.DictReader(
+        cloud2.export_requests_csv(Path(tempfile.mkdtemp()) / "r.csv")
+        .read_text().splitlines()))[0]
+    check("a request with no distance leaves the cells EMPTY, not zero",
+          blank["driven_m"] == "" and blank["energy_wh_est"] == "",
+          f"got {blank['driven_m']!r} and {blank['energy_wh_est']!r}")
+
+    st = cloud.state()["requests"][-1]
+    check("the dashboard is given the energy already worked out",
+          st.get("energy_wh") is not None)
+    app = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    check("the dashboard shows the distance driven",
+          "drove ${r.metres.toFixed(1)} m" in app)
+    check("and says the energy is an estimate where it shows it",
+          "Wh est" in app)
+    check("and shows nothing at all when the robot did not report one",
+          "r.metres == null" in app,
+          "a robot that does not count must not read as one that drove 0.0 m")
+
+
 def check_timing() -> None:
     """When was it asked for, and when was it answered.
 
@@ -1950,7 +2156,7 @@ def main() -> int:
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
                check_session_buttons, check_multinode,
-               check_end_to_end, check_timing, check_launch_scripts,
+               check_end_to_end, check_timing, check_route, check_launch_scripts,
                check_demo, check_hygiene):
         fn()
     print()
