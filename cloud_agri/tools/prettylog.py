@@ -107,6 +107,16 @@ RULES: list[tuple[str, str, str | None]] = [
     (r"agri_viz: publishing", "info",
      "agri_viz up: publishing map -> base_link and the catalogue markers"),
     (r"(agri_robot \S+: keys in .*)$", "ok", r"\1"),
+    # The route optimiser and the odometer both log through the ROS logger
+    # like everything else, which means without a row here they vanish
+    # exactly like everything else this file exists to hide -- and these
+    # two are the numbers a demonstration of the optimisation is FOR. Found
+    # by watching a real run: the mission finished in a third of the time
+    # and the terminal gave no reason why.
+    (r"robot: (\S+) reordered to save (.*)$", "ok",
+     r"mission \1 reordered: saved \2"),
+    (r"robot: (\S+) \S+ \(\d+/\d+\), ([\d.]+ m driven)$", "ok",
+     r"mission \1 \2"),
     (r"(RECONNECTED to .*)$", "warn", r"\1"),
     (r"(connected to \S+, listening on .*)$", "ok", r"\1"),
     (r"reaching for the broker at (\S+)", "info", r"waiting for the broker at \1"),

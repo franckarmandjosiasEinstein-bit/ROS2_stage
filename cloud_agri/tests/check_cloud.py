@@ -1978,6 +1978,10 @@ def check_launch_scripts() -> None:
         "No module named 'qrcode'",
         "[ERROR] [robot_node-7]: process has died [pid 2, exit code 1, "
         "cmd '/x/lib/agri_robot/robot_node --ros-args'].",
+        "[robot_node-7] [INFO] [1.0] [agri_robot]: robot: 788081147cfd "
+        "reordered to save 272 m (312 -> 40 m, 45 -> 3 gutter crossings)",
+        "[robot_node-7] [INFO] [1.0] [agri_robot]: robot: 788081147cfd "
+        "finished (48/48), 41.3 m driven",
     ])
     r = subprocess.run([sys.executable, str(pretty), "--no-colour"],
                        input=sample, capture_output=True, text=True, timeout=60)
@@ -1997,6 +2001,13 @@ def check_launch_scripts() -> None:
           "drawn was that requests were broken")
     check("it summarises the bridge instead of one line per topic",
           "gz bridge: 1 topics" in out, out)
+    check("it keeps the route-optimiser's saving, not just the raw log",
+          "reordered: saved 272 m" in out,
+          f"{out}\nthis is the number a demonstration of the optimisation "
+          "is FOR; found by watching a real run where it finished in a "
+          "third of the time and the filtered terminal gave no reason why")
+    check("it keeps the distance actually driven",
+          "788081147cfd 41.3 m driven" in out, out)
     check("and says how much it hid, so nobody wonders",
           "routine lines hidden" in out, out)
     check("--raw passes everything through unchanged",
