@@ -222,12 +222,47 @@ def check_catalogue() -> None:
             break
     else:
         check("the chassis stands beside the plant, at all 48 stations", True)
-    check("and the cross is still under the floor camera",
-          abs((station("P2,1R").x - SENSOR_OFFSET_X)
-              + SENSOR_OFFSET_X - station("P2,1R").x) < 1e-9,
-          "the boom tip is the sensor point and the sensor point is the "
-          "cross; if that stops being true the visual centring has nothing "
-          "to centre on")
+    # THE PARKED CHASSIS COVERS THE MARK, COMPLETELY.
+    #
+    # A floor fiducial belongs under the robot. The camera that reads it
+    # cannot be under the robot -- the chassis blocks the ground -- so the
+    # mark is read on the way in, with the boom over it, and the robot then
+    # advances the boom length onto it. These two checks pin the geometry at
+    # both ends of that sequence; drop either and the sequence still runs
+    # and still parks somewhere plausible.
+    from agri.catalogue import BASE_HALF_LENGTH          # noqa: PLC0415
+    from agri.world.make_world import CROSS_ARM as _ARM  # noqa: PLC0415
+    exposed = []
+    for s in st:
+        cx, cy = s.cross
+        base_x = s.x - SENSOR_OFFSET_X
+        if (abs(cx - base_x) + _ARM > BASE_HALF_LENGTH
+                or abs(cy - s.y) + _ARM > BASE_HALF_WIDTH):
+            exposed.append(s.label)
+    check("the parked chassis hides every painted mark, entirely",
+          not exposed,
+          f"{exposed[:4]} stick out from under the robot")
+    check("and the mark the camera reads is the one it parks on",
+          station("P2,4R").fix_pose == station("P2,4R").cross,
+          "the fix pose and the mark must be the same point, or the robot "
+          "corrects against one thing and parks on another")
+    check("the park pose is exactly one boom length past the mark",
+          abs((station("P2,4R").x - station("P2,4R").cross[0])
+              - SENSOR_OFFSET_X) < 1e-9)
+
+    drv = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+           / "driver.py").read_text()
+    check("the driver routes to the FIX pose, not to the park pose",
+          "s.fix_pose" in drv and "route(x, y, fx, fy)" in drv)
+    check("and only advances after the visual fix has run",
+          drv.index("self._centre_on_cross(s)")
+          < drv.index("onto the mark"),
+          "advancing first would put the chassis over the mark and leave "
+          "the camera correcting against empty floor")
+    check("the advance is measured from where the fix left the robot",
+          "px + SENSOR_OFFSET_X" in drv,
+          "advancing to an absolute x would throw the correction away in "
+          "the last half metre")
 
     # nearest_station is what catches a visit filed under the wrong label.
     for s in st:
@@ -369,7 +404,7 @@ def check_sensors() -> None:
 
 def check_world() -> None:
     print("\ngenerated world")
-    from agri.catalogue import all_stations
+    from agri.catalogue import all_stations, plant_position
     from agri.world.make_world import build, default_source
 
     source = default_source()
@@ -403,13 +438,142 @@ def check_world() -> None:
             name = s.label.replace(",", "_")
             m = re.search(rf'<model name="cross_{name}">.*?<pose>'
                           r'([-\d.]+) ([-\d.]+)', sdf, re.S)
-            if not m or abs(float(m.group(1)) - s.x) > 1e-3 \
-                    or abs(float(m.group(2)) - s.y) > 1e-3:
+            # s.cross, not s.x. The mark goes under the parked chassis, a
+            # boom length behind the pose the robot drives its sensor point
+            # to; painting it at s.x leaves it in front of the robot.
+            cx, cy = s.cross
+            if not m or abs(float(m.group(1)) - cx) > 1e-3 \
+                    or abs(float(m.group(2)) - cy) > 1e-3:
                 drift.append(s.label)
         check("every painted cross is where the catalogue says", not drift,
               f"{drift[:5]} differ -- the robot would stop beside them")
         refuses("regenerating from an already-generated world is refused",
                 lambda: build(target, Path(d) / "again.sdf"), ValueError)
+
+        # --- swapping the sphere blobs for a real strawberry mesh --------
+        # The mesh is an ASSET: it comes from outside the project, and
+        # nothing here can assert its licence or its polygon count. So the
+        # swap is a separate generator, and the property worth checking is
+        # that it degrades safely -- a missing mesh must leave a world that
+        # still builds, not one that will not load.
+        from agri.world.plants import build as swap_plants   # noqa: PLC0415
+
+        fake = Path(d) / "strawberry.dae"
+        fake.write_text("")                 # a real .dae is not needed here
+        before = target.read_text()
+        report = swap_plants(target, fake, scale=0.01, z=0.80, every_nth=1)
+        after = target.read_text()
+
+        check("the mesh swap replaces every plant", "24 plant(s)" in report,
+              report)
+        check("and says so with the mesh it used", "strawberry.dae" in report)
+        try:
+            xml.dom.minidom.parseString(after)
+            check("the world is still well-formed XML after the swap", True)
+        except Exception as exc:                     # noqa: BLE001
+            check("the world is still well-formed XML after the swap",
+                  False, str(exc))
+        check("the 48 crosses survive the swap",
+              after.count('name="cross_') == 48)
+        check("collision stays a PRIMITIVE, never the mesh",
+              after.count('name="stem"') == 24 and "<mesh>" not in
+              after.split('name="stem"')[0].rsplit("<collision", 1)[-1],
+              "a mesh collision asks the physics engine to test every "
+              "triangle on every contact query, 24 times, every millisecond")
+
+        # The plants must not MOVE. The catalogue decides where they are and
+        # the crosses are placed from it; a swap that nudged a pose would
+        # put every station a few centimetres off its plant, silently.
+        moved = []
+        for r in range(3):
+            for i in range(8):
+                m = re.search(rf'<model name="plant_{r}_{i}">.*?'
+                              r'<pose>([-\d.]+) ([-\d.]+)', after, re.S)
+                px, py = plant_position(r + 1, i + 1)
+                if not m or abs(float(m.group(1)) - px) > 1e-6 \
+                        or abs(float(m.group(2)) - py) > 1e-6:
+                    moved.append(f"plant_{r}_{i}")
+        check("and no plant moves by a millimetre", not moved, str(moved[:4]))
+
+        refuses("a missing mesh is refused with the path, not a traceback",
+                lambda: swap_plants(target, Path(d) / "nope.dae", 1.0, 0.8, 1),
+                FileNotFoundError)
+        refuses("and swapping twice is refused rather than nested",
+                lambda: swap_plants(target, fake, 1.0, 0.8, 1), ValueError)
+        # --every-nth IS the render budget, so it is exercised rather than
+        # read: 24 detailed plants plus a GPU lidar plus two cameras is
+        # where the frame rate goes on integrated graphics, and an option
+        # that quietly placed all 24 anyway would be worse than none.
+        sparse = Path(d) / "sparse.sdf"
+        build(default_source(), sparse)
+        swap_plants(sparse, fake, 0.01, 0.80, 3)
+        n = sparse.read_text().count("<mesh>")
+        check("--every-nth places the mesh on a subset only", n == 8,
+              f"{n} mesh plants with --every-nth 3; expected 8 of 24")
+        check("and the other sixteen keep their blobs",
+              sparse.read_text().count('<model name="plant') == 24,
+              "the rows must still read as a full greenhouse")
+        check("the world without any mesh at all still builds",
+              "<mesh>" not in before,
+              "a missing asset must degrade to the old plants, never to a "
+              "world that will not load")
+
+        # --- the procedural strawberry, for when there is no budget ------
+        # It will not be mistaken for a bought asset. What it must get
+        # right is the SILHOUETTE, and the silhouette is three facts:
+        # a low rosette, trifoliate leaves, and fruit hanging BELOW the
+        # canopy. The last is the one every stylised strawberry gets wrong.
+        from agri.world.plants import (build_procedural,   # noqa: PLC0415
+                                       procedural_plant)
+        proc = Path(d) / "proc.sdf"
+        build(default_source(), proc)
+        rep = build_procedural(proc, 0.80, 1)
+        ptext = proc.read_text()
+        check("the procedural plants generate", "24 procedural" in rep, rep)
+        try:
+            xml.dom.minidom.parseString(ptext)
+            check("and the world is still well-formed XML", True)
+        except Exception as exc:                     # noqa: BLE001
+            check("and the world is still well-formed XML", False, str(exc))
+        check("the crosses survive that too",
+              ptext.count('name="cross_') == 48)
+
+        one = re.search(r'<model name="plant_1_1">.*?</model>', ptext,
+                        re.S).group(0)
+        parts = re.findall(r'<visual name="([a-z]+)\d', one)
+        check("a plant has trifoliate leaves, three leaflets per stalk",
+              parts.count("leaf") == 3 * parts.count("stalk"),
+              f"{parts.count('leaf')} leaflets on {parts.count('stalk')} "
+              "stalks -- three per stalk is the single most recognisable "
+              "thing about the species")
+
+        def zs(kind):
+            return [float(m.split()[2]) for m in
+                    re.findall(rf'<visual name="{kind}\d[^"]*"><pose>([^<]+)',
+                               one)]
+        check("the fruit hangs BELOW the leaf canopy",
+              max(zs("berry")) < min(zs("leaf")),
+              f"berries up to {max(zs('berry')):.3f}, leaves from "
+              f"{min(zs('leaf')):.3f} -- a berry sitting on top of the "
+              "leaves is the mistake every stylised strawberry makes")
+        check("and the flowers are held above it",
+              min(zs("flower")) > max(zs("leaf")) - 0.02)
+        check("a plant carries more than one ripeness at once",
+              len({re.search(r"<diffuse>([\d. ]+)", b).group(1)
+                   for b in re.findall(
+                       r'<visual name="berry\d">.*?</visual>', one, re.S)}) > 1,
+              "a real plant is red, blush and green at the same time")
+        check("two plants are not the same plant",
+              procedural_plant("a", "0 0 0 0 0 0", 0.8, 1)
+              != procedural_plant("b", "0 0 0 0 0 0", 0.8, 2))
+        check("but one plant is the same on every run",
+              procedural_plant("a", "0 0 0 0 0 0", 0.8, 7)
+              == procedural_plant("a", "0 0 0 0 0 0", 0.8, 7),
+              "regenerating twice must give an empty diff")
+        check("collision is still a primitive, not 48 visuals",
+              one.count('name="stem"') == 1 and "<collision" in one)
+        refuses("and running it twice is refused",
+                lambda: build_procedural(proc, 0.80, 1), ValueError)
 
 
 def check_end_to_end() -> None:

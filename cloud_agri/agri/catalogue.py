@@ -170,6 +170,35 @@ class Station:
     plant_x: float      # the plant to measure and photograph
     plant_y: float
 
+    @property
+    def cross(self) -> tuple[float, float]:
+        """Where the painted mark is -- UNDER THE PARKED CHASSIS.
+
+        Not where the robot's sensor point ends up. The mark sits at the
+        base centre, so a parked robot covers it completely, which is what
+        a floor fiducial looks like on every AGV that uses one and is what
+        makes the simulation read as a robot standing ON its marker rather
+        than stopped short of it.
+
+        The floor camera is at the boom tip, SENSOR_OFFSET_X ahead of the
+        base, so at the park pose it is looking at empty floor 0.50 m past
+        the mark. The mark is therefore read on the WAY IN: the robot stops
+        with its boom over it, corrects there, and then advances the boom
+        length so the chassis comes to rest on it. See Driver.drive_to.
+        """
+        return (self.x - SENSOR_OFFSET_X, self.y)
+
+    @property
+    def fix_pose(self) -> tuple[float, float]:
+        """Where the SENSOR POINT must be for the camera to see the mark.
+
+        The same point as the mark, by construction -- the camera is the
+        sensor point. Named separately because the driver reasons about it
+        as a waypoint and confusing it with the park pose is the one
+        mistake that would make the whole sequence silently pointless.
+        """
+        return self.cross
+
     def camera_position(self, robot_yaw: float = 0.0) -> tuple[float, float]:
         """Where the PAN HEAD is when the robot is parked on this cross.
 

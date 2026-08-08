@@ -374,13 +374,46 @@ class GazeboDriver:
 
     # --------------------------------------------------------------- API
     def drive_to(self, s: Station) -> tuple[float, float, float]:
+        """Park on the station, in two stages, for one physical reason.
+
+        The painted mark belongs under the PARKED CHASSIS -- that is what a
+        floor fiducial looks like, and a robot stopped 0.21 m short of its
+        marker does not read as a robot that arrived. But the floor camera
+        is at the boom tip, SENSOR_OFFSET_X ahead of the base, because the
+        chassis blocks the view of the ground beneath it. The one place the
+        camera can see the mark is therefore NOT the place the robot has to
+        end up.
+
+        So the approach stops with the boom over the mark, corrects there
+        against what the camera sees, and only then advances the boom
+        length to bring the chassis to rest on it.
+
+            stage 1   sensor point -> the mark          (route + visual fix)
+            stage 2   advance SENSOR_OFFSET_X in +x     (chassis covers it)
+
+        Stage 2 is open loop, and that is affordable in a way the whole
+        approach was not: it is a single 0.50 m move immediately after a
+        visual fix, over which this platform's odometry drifts by well
+        under a millimetre. The 0.20 m figure that made the fix necessary
+        in the first place is accumulated over a whole mission, not over
+        half a metre.
+        """
+        fx, fy = s.fix_pose
         x, y, _ = self.pose()
-        legs = route(x, y, s.x, s.y)
+        legs = route(x, y, fx, fy)
         for i, (wx, wy) in enumerate(legs):
             last = i == len(legs) - 1
             self._drive(wx, wy, DOCK_TOL if last else WAYPOINT_TOL,
                         f"{s.label} leg {i + 1}/{len(legs)}")
         self._centre_on_cross(s)
+
+        # Stage 2. Measured from where the fix ACTUALLY left the robot, not
+        # from the nominal mark: the point of the fix is that those two
+        # differ, and advancing to an absolute x would throw the correction
+        # away in the last half metre.
+        px, py, _ = self.pose()
+        self._drive(px + SENSOR_OFFSET_X, py, DOCK_TOL,
+                    f"{s.label} onto the mark")
         return self.pose()
 
     def _centre_on_cross(self, s: Station) -> None:

@@ -92,7 +92,12 @@ def build(source: Path, target: Path) -> tuple[int, str]:
              "         agri/catalogue.py. Do not edit by hand: the robot\n"
              "         drives to the catalogue's numbers, not to these.\n"
              "         ================================================ -->\n"
-             + "".join(cross_sdf(s.label, s.x, s.y) for s in stations))
+             # s.cross, NOT s.x: the mark goes under the PARKED CHASSIS, a
+             # boom length behind the pose the robot drives its sensor
+             # point to. Painting it at s.x would leave it 0.21 m in front
+             # of the robot -- visible, and reading as a robot that stopped
+             # short of its marker rather than one standing on it.
+             + "".join(cross_sdf(s.label, *s.cross) for s in stations))
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(sdf.replace("</world>", block + "  </world>", 1))
