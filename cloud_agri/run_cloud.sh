@@ -26,12 +26,21 @@ case "${1:-}" in
     -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
 esac
 
+# Same guard as run_sim.sh, for the same reason: files this project does not
+# own read variables they do not set, and under `set -u` that kills the shell
+# with a message naming somebody else's file. Lifted only around sourcing.
+source_ros() {
+    set +u
+    # shellcheck disable=SC1090
+    . "$1"
+    set -u
+}
+
 # ---------------------------------------------------------- 1. virtualenv
 if [ -z "${VIRTUAL_ENV:-}" ]; then
     for cand in "$HOME/.venvs/agri" "$(dirname "$HERE")/.venv" "$HERE/.venv"; do
         if [ -f "$cand/bin/activate" ]; then
-            # shellcheck disable=SC1091
-            . "$cand/bin/activate"
+            source_ros "$cand/bin/activate"
             say "virtualenv: $cand"
             break
         fi

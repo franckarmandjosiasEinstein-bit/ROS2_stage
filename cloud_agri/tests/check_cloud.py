@@ -1635,8 +1635,61 @@ def check_launch_scripts() -> None:
     check("run_cloud.sh activates it too",
           "bin/activate" in c and "no virtualenv found" in c)
 
+    # THE BUG THAT STOPPED run_sim.sh DEAD ON ITS FIRST REAL RUN.
+    #
+    #     install/setup.bash: line 11: COLCON_TRACE: unbound variable
+    #
+    # ROS's setup.bash and every one colcon generates read variables they do
+    # not set, and under `set -u` that kills the shell. The message names a
+    # file this project does not own and says nothing about the flag, three
+    # lines up in OUR script, that is reading it. Both scripts keep `set -u`
+    # -- it is what turns a typo'd variable into an error rather than an
+    # empty string -- so the guard is lifted only around other people's files.
+    for name, src in (("run_sim.sh", s), ("run_cloud.sh", c)):
+        bare = re.findall(r'^\s*(?:\.|source) +"\$(?!1")', src, re.M)
+        check(f"{name} sources every setup file through the set -u guard",
+              "source_ros()" in src and not bare,
+              f"{len(bare)} unguarded source(s): a colcon setup.bash reads "
+              "COLCON_TRACE without setting it, and `set -u` makes that fatal")
+    check("and the guard puts set -u back afterwards",
+          re.search(r"source_ros\(\) \{\s*\n\s*set \+u\b.*?\n\s*set -u\b",
+                    s, re.S) is not None,
+          "lifting it for the rest of the script would silently undo the "
+          "reason for having it")
+
+    # `shift` inside `for arg in "$@"` removes the FIRST argument, not the
+    # one being examined, so `./run_sim.sh gui:=false --raw` used to drop
+    # gui:=false and hand --raw to ros2 launch, which rejects it. Run the
+    # real loop, lifted out of the real file, rather than trusting a reading.
+    loop = re.search(r"^PRETTY_ARGS=\(\).*?^done$", s, re.M | re.S)
+    check("the argument loop can be lifted out and exercised", bool(loop))
+    if loop:
+        probe = (loop.group(0)
+                 + '\necho "PRETTY:${PRETTY_ARGS[*]-}"'
+                   '\necho "LAUNCH:${LAUNCH_ARGS[*]-}"')
+        r = subprocess.run(["bash", "-uc", probe, "run_sim.sh",
+                            "gui:=false", "--raw", "rviz:=false"],
+                           capture_output=True, text=True, timeout=30)
+        got = r.stdout
+        check("--raw is taken out wherever it appears in the arguments",
+              "PRETTY:--raw" in got, f"{got}{r.stderr}")
+        check("and every other argument reaches the launch file, in order",
+              "LAUNCH:gui:=false rviz:=false" in got,
+              f"{got}{r.stderr} -- an argument eaten here is a launch option "
+              "that silently does nothing")
+        r = subprocess.run(["bash", "-uc", probe, "run_sim.sh"],
+                           capture_output=True, text=True, timeout=30)
+        check("and no arguments at all is not an error under set -u",
+              r.returncode == 0, r.stderr)
+
+    # Anchored on the COMMAND, not on the words: "ros2 launch" also appears
+    # in the comment explaining the argument loop, near the top, and matching
+    # that made both orderings below look wrong. The same trap is documented
+    # over the gz-camera checks; it is worth avoiding twice.
+    RUNS_LAUNCH = "stdbuf -oL -eL ros2 launch"
+    check("run_sim.sh really does run the launch", RUNS_LAUNCH in s)
     check("run_sim.sh starts the broker BEFORE the launch",
-          s.index("mosquitto -p 1883") < s.index("ros2 launch"),
+          s.index("mosquitto -p 1883") < s.index(RUNS_LAUNCH),
           "the robot node connects at startup; it retries now, but a broker "
           "that is already there means no error to explain")
     check("and detects one without needing nc, lsof or ss",
@@ -1684,7 +1737,7 @@ def check_launch_scripts() -> None:
               f"shell says {shell!r}, agri.session says {str(expected)!r} -- "
               "a contract written down twice is a contract that drifts")
     check("run_sim.sh clears a stale stop file before it starts",
-          s.index('rm -f "$STOP"') < s.index("ros2 launch"),
+          s.index('rm -f "$STOP"') < s.index(RUNS_LAUNCH),
           "a file left by a SIGKILLed run would stop the next one instantly")
     check("and watches for a new one while it runs",
           'if [ -e "$STOP" ]' in s and 'kill -INT "$$"' in s)

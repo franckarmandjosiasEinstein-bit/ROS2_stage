@@ -31,11 +31,18 @@ STOP="${XDG_RUNTIME_DIR:-/tmp}/agri-sim-${USER:-agri}.stop"
 LOGDIR="$HERE/logs"
 RAWLOG="$LOGDIR/sim-$(date +%Y%m%d-%H%M%S).log"
 PRETTY_ARGS=()
+LAUNCH_ARGS=()
 
+# Our own flags are taken out; everything else is a launch argument and is
+# passed straight through. Filtering into a second array rather than
+# shifting: `shift` inside `for arg in "$@"` removes the FIRST argument each
+# time, not the one being looked at, so `./run_sim.sh gui:=false --raw` would
+# have dropped gui:=false and handed --raw to ros2 launch.
 for arg in "$@"; do
     case "$arg" in
-        --raw) PRETTY_ARGS+=(--raw); shift ;;
+        --raw) PRETTY_ARGS+=(--raw) ;;
         -h|--help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        *) LAUNCH_ARGS+=("$arg") ;;
     esac
 done
 
@@ -43,12 +50,32 @@ say()  { printf '\033[36m[run_sim]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[run_sim]\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m[run_sim] %s\033[0m\n' "$*" >&2; exit 1; }
 
+# EVERY `source` IN THIS FILE GOES THROUGH HERE.
+#
+# ROS's setup.bash and the ones colcon generates read variables that they do
+# not set -- COLCON_TRACE, AMENT_TRACE_SETUP_FILES, _colcon_prefix_chain... --
+# and under `set -u` reading an unset variable kills the shell outright. The
+# result is this script dying on line 1 of its real work with
+#
+#     install/setup.bash: line 11: COLCON_TRACE: unbound variable
+#
+# which names a file this project does not own and gives no hint that the
+# cause is a flag set at the top of the script that is reading it. `set -u`
+# is worth keeping for our own code -- it is what turns a typo'd variable
+# into an error instead of an empty string -- so it is lifted here and only
+# here, around other people's files.
+source_ros() {
+    set +u
+    # shellcheck disable=SC1090
+    . "$1"
+    set -u
+}
+
 # ---------------------------------------------------------- 1. virtualenv
 if [ -z "${VIRTUAL_ENV:-}" ]; then
     for cand in "$HOME/.venvs/agri" "$WS/.venv" "$HERE/.venv"; do
         if [ -f "$cand/bin/activate" ]; then
-            # shellcheck disable=SC1091
-            . "$cand/bin/activate"
+            source_ros "$cand/bin/activate"
             say "virtualenv: $cand"
             break
         fi
@@ -64,16 +91,14 @@ python3 -c 'import qrcode, paho.mqtt.client, cryptography' 2>/dev/null \
 # --------------------------------------------------------------- 2. ROS 2
 if ! command -v ros2 >/dev/null 2>&1; then
     for setup in /opt/ros/jazzy/setup.bash /opt/ros/humble/setup.bash; do
-        # shellcheck disable=SC1090
-        [ -f "$setup" ] && { . "$setup"; say "ROS: $setup"; break; }
+        [ -f "$setup" ] && { source_ros "$setup"; say "ROS: $setup"; break; }
     done
 fi
 command -v ros2 >/dev/null 2>&1 || die "ros2 is not on PATH and /opt/ros/jazzy
           was not there either. Source your ROS installation first."
 
 if [ -f "$WS/install/setup.bash" ]; then
-    # shellcheck disable=SC1091
-    . "$WS/install/setup.bash"
+    source_ros "$WS/install/setup.bash"
     say "workspace: $WS/install"
 else
     warn "no $WS/install/setup.bash -- build first:"
@@ -178,8 +203,14 @@ say "log: $RAWLOG"
 say "stop with Ctrl-C here, or with QUITTER on the dashboard"
 echo
 
-exec 3> >(tee -a "$RAWLOG" | python3 "$HERE/tools/prettylog.py" "${PRETTY_ARGS[@]}")
-stdbuf -oL -eL ros2 launch agri_robot agri.launch.py "$@" >&3 2>&3 &
+# The ${a[@]+"${a[@]}"} form expands to nothing at all when the array is
+# empty, instead of to one empty argument -- and, on bash before 4.4, instead
+# of tripping `set -u`. Both arrays are empty in the common case.
+exec 3> >(tee -a "$RAWLOG" \
+          | python3 "$HERE/tools/prettylog.py" \
+                    ${PRETTY_ARGS[@]+"${PRETTY_ARGS[@]}"})
+stdbuf -oL -eL ros2 launch agri_robot agri.launch.py \
+       ${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"} >&3 2>&3 &
 LAUNCH=$!
 
 wait "$LAUNCH"

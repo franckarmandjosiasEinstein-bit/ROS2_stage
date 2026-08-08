@@ -38,7 +38,7 @@ robot from a stationary ESP.
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
 | `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
 | `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
-| `tests/check_cloud.py` | 330 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 339 pre-flight checks, none of which need a broker, ROS or a network |
 | `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
@@ -696,7 +696,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the 329 other checks to pass first.
+prioritised over getting the 338 other checks to pass first.
 
 ---
 
@@ -706,8 +706,8 @@ prioritised over getting the 329 other checks to pass first.
 python3 tests/check_cloud.py
 ```
 
-330 checks, about fifteen seconds, nothing installed beyond the dependencies
-— 329 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
+339 checks, about fifteen seconds, nothing installed beyond the dependencies
+— 338 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
 one thing that cannot be tested because there is no rclpy to clash with. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
