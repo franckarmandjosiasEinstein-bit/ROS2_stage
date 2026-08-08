@@ -287,6 +287,29 @@
 % Cross-phase reference: "as in Phase A, Sec. X"
 \newcommand{\phaseA}{Phase~A}
 \newcommand{\phaseB}{Phase~B}
+\newcommand{\phaseC}{Phase~C}
 
 % Measured-value emphasis, so every number traceable to a log stands out
 \newcommand{\measured}[1]{\textbf{#1}}
+
+% =====================================================================
+%  6. MEASURED vs MODELLED
+% =====================================================================
+%  Phase C reports an energy budget that is DERIVED from a stated model
+%  rather than read off an instrument, because the simulator has no
+%  battery and the robot has no current sensor. Putting a modelled
+%  number in the same typeface as a measured one is how a reader is
+%  misled without a single false sentence being written, so the two are
+%  marked differently and the distinction is stated once, here, and
+%  again where the model is defined (Sec. \ref{sec:phaseC_route}).
+%
+%    \measured{41.3 m}   read from a log
+%    \modelled{5.6 Wh}   computed from assumptions named in the text
+% ---------------------------------------------------------------------
+\newcommand{\modelled}[1]{\textit{#1}\,$^{\dagger}$}
+\newcommand{\modelnote}{\footnotesize$^{\dagger}$~derived from the
+  power model of Sec.~\ref{sec:phaseC_route}, whose constants are
+  assumptions and not measurements.}
+
+% A station label -- P2,5R -- appears constantly in Phase C.
+\newcommand{\station}[1]{\texttt{\small #1}}

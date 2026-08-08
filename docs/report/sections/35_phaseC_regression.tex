@@ -1,0 +1,134 @@
+% =====================================================================
+%  Phase C --- The pre-flight regression suite
+% =====================================================================
+\section{The Pre-Flight Suite}
+\label{sec:phaseC_regression}
+
+\subsection{The rule}
+
+\phaseC{} continues the practice established in \phaseB{}
+(Sec.~\ref{sec:regression}) and applies it more strictly:
+\textbf{every failure the project actually suffered becomes a check}.
+Not a class of failures, not a principle --- the specific one, with the
+diagnosis written into the failure message so that the next person to
+see it red is told what it means.
+
+The suite runs in about fifteen seconds and needs \emph{no broker, no
+ROS~2 and no network}. That constraint is what makes it get run: a test
+that requires bringing up Gazebo is a test nobody runs before a small
+change.
+
+\begin{table}[!t]
+\caption{The 384 pre-flight checks by area. One check runs only where
+\texttt{rclpy} is importable, so a machine with no ROS~2 reports 383.}
+\label{tab:checks}
+\centering\footnotesize
+\begin{tabular}{@{}p{0.62\columnwidth}r@{}}
+\toprule
+area & checks \\
+\midrule
+the ROS~2 package (read, never imported)      & 63 \\
+the two launch scripts                        & 49 \\
+route order and the energy budget             & 44 \\
+timing: issued, measured, received            & 34 \\
+free-space geometry and the brake             & 23 \\
+end to end through a loopback broker          & 21 \\
+station labels and their grammar              & 17 \\
+what the robot transmits about itself         & 17 \\
+the floor camera and the painted mark         & 13 \\
+multi-node protocol                           & 13 \\
+Cloud on a second machine (key custody)       & 12 \\
+the dashboard's session controls              & 12 \\
+ECC: confidentiality and origin               & 11 \\
+the dashboard                                 & 11 \\
+catalogue geometry                            & 10 \\
+sensor field structure                        &  9 \\
+generated world                               &  6 \\
+the offline demo, as a subprocess             &  6 \\
+QR round trip                                 &  5 \\
+paho client construction                      &  4 \\
+repository hygiene                            &  3 \\
+numpy ABI against rclpy                       &  1 \\
+\midrule
+\textbf{total}                                & \textbf{384} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Four kinds of check}
+
+The table above hides a distinction worth drawing out, because the last
+two categories are the ones that caught real defects.
+
+\paragraph{Properties of geometry} Exhaustive rather than sampled: all
+2\,256 station-to-station routes cleared against the gutters; all 48
+station clearances; all 48 QR codes encoding and decoding. These are
+cheap enough to run completely, so they are.
+
+\paragraph{Refusals} Roughly a quarter of the suite asserts that
+something is \emph{rejected}: a forged signature, a rewritten target, a
+foreign QR payload, a request for row~4, a label with side \texttt{M}, a
+missing key file, a second world generation over an already-painted
+scene. A system that accepts everything also passes every round-trip
+test.
+
+\paragraph{Behaviour exercised, not string-matched} Where a static read
+would be weaker, the suite runs the real thing. The dashboard's session
+controls are exercised over real HTTP sockets against a real handler.
+The argument-parsing loop of \filename{run\_sim.sh} is \emph{lifted
+verbatim out of the file} and executed under \texttt{bash}, because a
+regular expression asserting the loop looks correct is not the same as
+the loop being correct. The log filter is fed real launch output and its
+stdout inspected.
+
+\paragraph{Structural assertions about the source} The remainder read
+the source and assert invariants that no runtime test would reach: that
+no MQTT callback can let an exception escape; that every topic the
+driver uses appears in the bridge configuration \emph{and} that the
+bridge carries nothing nobody reads; that the launch file's computed
+resource path is actually applied rather than computed and dropped; that
+\param{CRUISE\_MPS} in the energy model equals the driver's
+\param{V\_MAX}; that the private-key files are gitignored and none is
+tracked.
+
+\subsection{Three defects this suite caught after the fact}
+
+Each of these was working code that looked finished.
+
+\begin{itemize}[leftmargin=*,itemsep=2pt,topsep=3pt]
+  \item \textbf{A variable computed and never used.} The launch file
+        assembled the Gazebo resource path correctly and then never set
+        it, so the robot's meshes could not resolve and it rendered as
+        \emph{nothing at all} --- while every other part of the launch
+        reported success. A value that is computed and dropped is the
+        one kind of bug that reads as completed work. There is now a
+        check that no other value in that file shares the fate.
+  \item \textbf{An ordering assertion matching a comment.} Two checks
+        confirmed the broker starts before the launch by comparing the
+        positions of two strings. Adding an explanatory comment
+        containing the words ``ros2 launch'' higher in the file broke
+        both --- correctly, but for the wrong reason. They are now
+        anchored on the command, and the trap is documented where the
+        next author will meet it.
+  \item \textbf{A hygiene check that tested the wrong thing.} The
+        private-key check scanned the working directory for
+        \texttt{*.pem} and went red as soon as a developer generated
+        keys, which is the normal case. It now asks git what is
+        \emph{tracked}, which is the actual property of interest.
+\end{itemize}
+
+\subsection{The live diagnostic}
+
+One question cannot be answered offline --- ``why is RViz empty?'' --- so
+it has its own script, \filename{tests/check\_live.sh}, which runs
+against the \emph{running} system and reports, in order, the four things
+that must be true before anything is drawn.
+
+Its first act is to \textbf{refuse to answer when the launch is not
+running}. That behaviour was paid for: the diagnosis was twice run a
+minute after Ctrl-C, where \texttt{tf2\_echo} reports ``frame map does
+not exist'' --- a statement that is true, useless, and indistinguishable
+from the real fault. It also checks the odometry \emph{before} the
+transform, because the transform is the symptom and the odometry is the
+cause, and reporting them in the other order sends the reader to the
+wrong file.

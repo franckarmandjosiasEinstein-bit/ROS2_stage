@@ -1,0 +1,129 @@
+% =====================================================================
+%  Phase C --- Cryptography: what is signed, what is sealed, and why
+% =====================================================================
+\section{Authenticity and Confidentiality}
+\label{sec:phaseC_security}
+
+\subsection{Two different questions}
+
+Habit says encrypt everything. Resisting that habit is what makes this
+part of the design legible, so the two directions are treated
+separately and the reasoning is written down.
+
+\paragraph{Cloud $\rightarrow$ robot: signed, not encrypted} A request
+says ``measure \station{P2,5R}''. That is not a secret. But issuing one
+drives a robot around a greenhouse, and anyone who can reach the broker
+can publish on the topic. The property that matters is therefore
+\emph{authenticity}, not confidentiality. Requests carry an ECDSA-P256
+signature over the canonical JSON; the robot refuses an unsigned request
+and refuses one signed by the wrong key.
+
+\paragraph{Robot $\rightarrow$ Cloud: sealed and signed} A report
+contains the agronomic state of a commercial crop and a photograph of
+it. It needs confidentiality \emph{and} origin, and gets both.
+
+\subsection{The envelope}
+
+Reports are sealed with ECIES over SECP256R1: an ephemeral key pair per
+message, ECDH against the Cloud's public key, HKDF-SHA256 to derive the
+content key, and AES-256-GCM for the payload. The ciphertext is then
+signed with the robot's long-term ECDSA-P256 key. The complete wire
+message is:
+
+\begin{lstlisting}[style=bash]
+{"schema":"agri-cloud/v1", "kind":"sealed",
+ "robot":"youbot-01", "request_id":"...",
+ "sent_at":"2026-08-08T19:23:27Z",
+ "sealed": {
+   "alg":  "ECIES-P256-HKDF-SHA256-AES256GCM",
+   "epk":  "-----BEGIN PUBLIC KEY-----...",
+   "nonce":"UgoQGAyNp7LauuRB",
+   "ciphertext":"5k2ZWwLpBQVmV61fDxBg39Xy...",
+   "sig":  "MEUCIGmZLjCjPHsyhdx97dGKKhmk..." }}
+\end{lstlisting}
+
+The routing metadata --- who sent it, for which request, when --- stays
+in clear, because the broker and the operator need it to route and to
+diagnose, and none of it is the measurement. The readings, the pose, the
+QR image and the photograph are all inside the ciphertext.
+
+\subsection{Sign-then-encrypt, or encrypt-then-sign}
+
+The signature is over the \emph{ciphertext}. This is deliberate: it lets
+the Cloud reject a forged message without first performing a private-key
+operation on attacker-chosen input, and it means a tampered ciphertext
+is detected by the cheap check rather than by AES-GCM's authentication
+tag alone.
+
+The suite pins six properties of this construction, and four of them are
+refusals:
+
+\begin{table}[!t]
+\caption{Cryptographic properties asserted on every run. The refusals
+matter more than the round trip: a system that accepts everything also
+round-trips perfectly.}
+\label{tab:crypto}
+\centering\footnotesize
+\begin{tabular}{@{}p{0.50\columnwidth}p{0.40\columnwidth}@{}}
+\toprule
+property & verdict \\
+\midrule
+a sealed payload round-trips              & \ok{accepted} \\
+the plaintext is absent from the envelope & \ok{confirmed} \\
+the wrong recipient key cannot open it    & \bad{refused} \\
+a forged sender is rejected               & \bad{refused} \\
+stripping the signature does not bypass the check & \bad{refused} \\
+one flipped bit is detected               & \bad{refused} \\
+the same plaintext seals differently every time & \ok{confirmed} \\
+a rewritten target breaks the request signature & \bad{refused} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The third-from-last matters more than it looks: an ephemeral key per
+message means two identical readings produce two unrelated ciphertexts,
+so an observer cannot tell that a station was measured twice with the
+same result.
+
+\subsection{Key custody, and the refusal that protects it}
+
+The Cloud is meant to run on a different machine from the robot. That
+intent is enforced rather than documented:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item An \textbf{empty} key directory is bootstrapped with both pairs,
+        so a first run on one machine works with no ceremony.
+  \item A \textbf{populated} key directory is never bootstrapped behind
+        the operator's back.
+  \item \textbf{Neither side ever generates the other side's key.} The
+        Cloud will not invent a robot identity; the robot will not
+        invent a Cloud identity.
+\end{itemize}
+
+That last rule is the one that earns its place. Without it, a Cloud
+started on a fresh machine with a forgotten key copy would generate a
+robot public key of its own, and then reject every report from the real
+robot --- with a valid signature failure, forever, and no indication
+that the cause was a missing file. Instead it refuses to start and names
+the file:
+
+\begin{lstlisting}[style=bash]
+/path/forgot/cloud_public.pem is missing.
+\end{lstlisting}
+
+The suite exercises the whole two-machine story: bootstrap an empty
+directory, copy only the public keys to a second directory, start a
+robot there, and assert that it runs \emph{and} that it does not hold
+the Cloud's private key.
+
+\subsection{Refusals are counted, not dropped}
+
+A report that fails to open is not discarded silently. It is counted,
+its reason is kept, and the dashboard displays it under
+\textsc{rejected}. A pipeline that hides its rejections is a pipeline
+that will one day be receiving nothing and look perfectly healthy.
+
+In the reference campaign the panel read \emph{``nothing refused ---
+every report verified''} across all \measured{48} reports, which is the
+statement worth making: not that the cryptography was exercised, but
+that it was exercised and nothing failed.

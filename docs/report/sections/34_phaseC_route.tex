@@ -1,0 +1,170 @@
+% =====================================================================
+%  Phase C --- Route optimisation and the energy budget
+% =====================================================================
+\section{Route Optimisation and the Energy Budget}
+\label{sec:phaseC_route}
+
+\subsection{The cost of the obvious order}
+
+The Cloud lists stations in catalogue order --- \station{P1,1R},
+\station{P1,1L}, \station{P1,2R}, \ldots{} --- which is right for a human
+reading a list and wrong for a robot driving a building. The two sides of
+one plant are in \emph{different bands} (Table~\ref{tab:bands}), separated
+by an \SI{8}{m} gutter, so \station{R} to \station{L} means driving to the
+end of the row, crossing at a headland, and coming back. Over 48 stations
+the catalogue order asks for that 45 times.
+
+Measured against the same \texttt{route()} the driver actually flies,
+starting from the dock:
+
+\begin{table}[!t]
+\caption{Route cost over all 48 stations. Distances are computed
+along the real leg geometry, not estimated.}
+\label{tab:route}
+\centering\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+order & distance & band crossings \\
+\midrule
+catalogue order, as issued & \measured{312~m} & \measured{45} \\
+swept band by band         & \measured{40~m}  & \measured{3}  \\
+\midrule
+saving                     & \measured{272~m} (\measured{87\%}) & 42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The signature of the defect was visible in the campaign log before it was
+diagnosed. Inter-station intervals within a row rose and then fell ---
+$23, 28, 31, 34, 38, 39, 35, \ldots, 27, 24$~s --- a bell curve, because
+a plant near a headland is cheap to cross at and a plant in the middle of
+the row is expensive from either end.
+
+\subsection{The order chosen, and why it is not a solver}
+
+Within a band the robot drives freely along $x$; leaving one costs a
+headland trip whatever the destination. The cheap route is therefore the
+obvious one --- sweep a band end to end, cross once, sweep the next back
+--- and the only remaining decisions are which end to start at and which
+direction to take. That is four combinations. All four are evaluated
+exactly, against the real route geometry, and the shortest wins.
+
+A TSP solver would spend milliseconds rediscovering that the optimal tour
+of points on a line is to walk the line, and would then be free to return
+something else the day a constant changed.
+
+\paragraph{The property that makes it safe to enable} \textbf{The order
+as issued is the fifth candidate, and it wins ties.} Adopting a longer
+route is therefore not a bug that could occur --- it is something the
+function cannot do. The suite checks it over \measured{720} random
+subsets of every size, and separately asserts that a request too small to
+benefit is returned untouched and that an unknown label does not raise.
+
+\paragraph{The objection that was answered rather than accepted} The
+previous implementation carried a note saying reordering was omitted so
+that the acknowledgement stream would keep matching the request. That
+was a real concern and it is addressed directly: the mission retains the
+issued order alongside the driven one, every acknowledgement still names
+its own station, and the Cloud tracks progress by label. Nothing an
+operator reads was ever indexed by position.
+
+\subsection{Measured effect}
+
+\begin{table}[!t]
+\caption{Full 48-station campaign, before and after reordering. Times
+are wall-clock, from the Cloud's own request record.}
+\label{tab:campaign}
+\centering\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+ & catalogue order & swept order \\
+\midrule
+campaign duration     & \measured{1\,505~s} & \measured{601~s} \\
+stations measured     & \measured{48/48}    & \measured{48/48} \\
+reports rejected      & \measured{0}        & \measured{0}     \\
+floor camera resolved & \measured{48/48}    & \measured{48/48} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The campaign runs in \measured{40\%} of the time for identical coverage
+and identical data quality.
+
+\subsection{Distance is measured; energy is modelled}
+
+This distinction is maintained in the code, in the CSV column names, and
+here, because collapsing it would put a fabricated number beside
+forty-eight real ones.
+
+\paragraph{Measured} The distance driven is integrated from odometry in
+the driver, summed over successive positions rather than from the
+reported speed --- the speed is sampled at 14~Hz and each sample would be
+held for the whole interval, accumulating a different error than the path
+itself has. A single step longer than \SI{1.0}{m} is a respawn, not a
+drive, and is not counted. The figure inherits the odometry's drift, which
+is the honest behaviour: it measures what the robot \emph{believes} it
+drove, which is the right basis for an energy estimate built on it.
+
+\paragraph{Modelled} Gazebo models no battery and the platform carries no
+current sensor. Rather than display a percentage ticking down,
+\filename{agri/survey.py} states four constants in the open, labelled in
+the source as \textsc{assumptions, not measurements}:
+
+\begin{equation}
+E = P_{\text{idle}} \cdot t_{\text{mission}}
+  + P_{\text{drive}} \cdot t_{\text{driving}},
+\qquad
+t_{\text{driving}} = \frac{d}{v_{\text{cruise}}}
+\label{eq:energy}
+\end{equation}
+
+with $P_{\text{idle}} = \SI{18}{W}$ (computer, lidar, two cameras, MQTT
+link), $P_{\text{drive}} = \SI{45}{W}$ (four wheel motors, while moving),
+$v_{\text{cruise}} = \SI{0.45}{m/s}$ and a nameplate pack of
+\SI{120}{Wh}. The suite asserts $v_{\text{cruise}}$ equals the driver's
+own \param{V\_MAX}, so the estimate cannot drift away from the robot it
+describes, and asserts that $t_{\text{driving}}$ can never exceed the
+mission duration --- otherwise a bad odometry reading would invent drive
+energy out of nothing.
+
+\subsection{The finding that matters more than the 87\%}
+
+Applying Eq.~\ref{eq:energy} to the two campaigns:
+
+\begin{table}[!t]
+\caption{Energy budget. Distance and duration are measured; the three
+energy columns are derived from Eq.~\ref{eq:energy}.}
+\label{tab:energy}
+\centering\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+campaign & $d$ & $t$ & idle & drive \\
+\midrule
+catalogue order & \measured{312~m} & \measured{1505~s} & \modelled{7.5~Wh} & \modelled{8.7~Wh} \\
+swept order     & \measured{40~m}  & \measured{601~s}  & \modelled{3.0~Wh} & \modelled{1.1~Wh} \\
+\bottomrule
+\end{tabular}
+\\[2pt]\modelnote
+\end{table}
+
+Idle power is drawn whether or not the robot moves. On a 48-station
+sweep the robot spends far longer standing at marks --- settling,
+focusing, photographing, encoding a QR code, sealing an envelope --- than
+driving between them, so \textbf{shortening the route removes drive
+energy and leaves idle energy untouched: it attacks the smaller half of
+the bill.}
+
+This is the more useful conclusion for a deployment. Having taken the
+easy 87\%, further reduction is no longer a path-planning problem at all;
+it is a question of per-station dwell time, and therefore of the vision
+settling tolerance, the number of correction attempts, and the image
+encoding cost. Sec.~\ref{sec:discussion} returns to it.
+
+\subsection{What is exported}
+
+\filename{requests.csv} keeps measured and modelled apart by name:
+\param{driven\_m} and \param{planned\_m} beside \param{energy\_wh\_est},
+\param{idle\_wh\_est} and \param{drive\_wh\_est}. A request whose robot
+reported no distance leaves those cells \textbf{empty}, not zero --- ``this
+robot does not count metres'' and ``it drove nothing'' are different
+facts, and the suite asserts the empty cells directly.

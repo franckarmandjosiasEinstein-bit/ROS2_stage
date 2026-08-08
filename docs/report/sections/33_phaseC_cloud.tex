@@ -1,0 +1,143 @@
+% =====================================================================
+%  Phase C --- The Cloud: store, timestamps, dashboard
+% =====================================================================
+\section{The Cloud}
+\label{sec:phaseC_cloud}
+
+\subsection{One process, two faces}
+
+The Cloud is deliberately a single process presenting two interfaces: an
+MQTT client that talks to robots, and an HTTP server that talks to the
+operator. A third interface, a console on the main thread, is where
+orders are actually typed --- the operator's seat is in the process that
+holds the private key.
+
+\paragraph{No web framework} The API has five endpoints and
+\texttt{http.server} is in the standard library. A framework would add a
+dependency, a version to pin and a deployment story, and would not make
+any of the five shorter. The one thing it would buy --- production-grade
+concurrency --- is not needed by a dashboard with one operator, and
+pretending otherwise would be the kind of choice that looks like
+engineering and is not.
+
+\subsection{Storage: JSON Lines, not a database}
+
+The brief asks for storage in a file of appropriate format. Appropriate
+here means openable by a human, appendable without rewriting, and
+diffable --- which is JSON Lines: one visit per line, append-only, plus
+the images written out as real files, plus a CSV rebuilt on demand.
+
+\begin{lstlisting}[style=bash]
+store/
+  measurements.jsonl        append-only, one visit per line
+  photos/P2,5R/2026....jpg  the photograph, as sent
+  qr/P2,5R/2026....png      the QR code, as sent
+  measurements.csv          rebuilt on export
+  requests.csv              one row per order
+\end{lstlisting}
+
+A database would be defensible and is what a production system would
+use. It would also mean the evidence for every number in this report
+lives inside a binary file nobody can inspect during a demonstration.
+For a system whose entire claim is that the data arrived intact, being
+able to open the file and read the line is worth more than query speed
+over a few thousand rows.
+
+The images come back out of the JSON because leaving them there would
+make the file unreadable --- a 6~kB blob per line --- and would mean the
+only way to look at a photograph is to write a program. Extracted, the
+line stays about 400 bytes and legible.
+
+One corrupt line does not cost the campaign: the loader names the line
+it skipped and keeps the rest, because a truncated final line is what a
+kill during a write looks like and it is recoverable.
+
+\subsection{Three timestamps, because there are three moments}
+
+A reading has three distinct times, and the system originally kept one.
+The only honest answer to ``how long did that sweep take'' was then to
+watch a clock while it ran.
+
+\begin{table}[!t]
+\caption{The three moments a stored reading carries, each on the clock
+of the machine that owns it. End-to-end latency is derivable from the
+stored line alone.}
+\label{tab:timestamps}
+\centering\footnotesize
+\begin{tabular}{@{}ll@{}}
+\toprule
+field & the moment it records \\
+\midrule
+\param{request\_issued\_at} & the Cloud signed the order \\
+\param{measured\_at}        & the robot read the plant \\
+\param{received\_at}        & the Cloud filed the report \\
+\param{latency\_s}          & derived: issued $\rightarrow$ received \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The column \param{timestamp} was removed rather than redefined, and the
+suite asserts it is gone --- with three moments in play, a field called
+``timestamp'' is a question, not an answer.
+
+Orders are tracked in parallel in \filename{requests.csv}, with
+\param{issued\_at}, \param{completed\_at} and \param{elapsed\_s}. A
+mission that ends \emph{without} filing every report still ends: the
+record closes on the terminal acknowledgement, so an abandoned sweep
+reports how long it ran before giving up rather than showing as running
+forever. The dashboard distinguishes the two verbs --- ``done'' versus
+``gave up'' --- because the same numbers under the same word would
+report a failure as a success in the one place an operator looks for the
+answer.
+
+\subsection{The dashboard}
+
+The dashboard is a single page with no build step and no framework,
+polling \texttt{/api/state} every two seconds. It shows the greenhouse
+as a scale map with all 48 stations, the readings of the selected
+quantity, the plant photograph and QR image, live request progress, and
+the rejection panel.
+
+Two problems in it are worth recording because both are geometric rather
+than aesthetic:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{The two stations of an inner aisle collide when drawn.}
+        At \SI{0.10}{m} apart their marks touch at map scale. Each value
+        chip is pushed away from its own row and joined to its mark by a
+        stem, and the suite asserts the plain rendering really does
+        collide and the corrected one does not --- so the fix cannot be
+        removed by someone who thinks it is decoration.
+  \item \textbf{Text inherits the map's flip.} The SVG applies a
+        $y$-negating transform so that $+y$ is north; every text element
+        must counter-flip it or read mirrored. That counter-flip is
+        written once, in a helper, and the suite asserts it is not
+        open-coded per call site.
+\end{itemize}
+
+\paragraph{Access control} The dashboard API is protected by a random
+token printed at startup, accepted as \texttt{?token=} or as a bearer
+header. \texttt{/media/} is behind the same token: photographs, QR
+images and the CSV export are measurements, so they sit behind the same
+gate as the API that describes them. Authentication can be disabled
+explicitly with \texttt{-{}-dashboard-token ''}, and the Cloud then
+prints a warning naming what that means.
+
+\subsection{Stopping cleanly}
+
+The operator can stop the session from the console with Ctrl-C or from
+the browser with \textsc{quitter}. Both paths run \emph{one} teardown
+function behind a lock, because both can happen at once and exporting
+the CSV twice from two threads truncates the file the first one is
+writing.
+
+The web path additionally has to exit a process whose main thread is
+blocked inside \texttt{input()}, which no exception raised on an HTTP
+worker thread can interrupt. It replies first, flushes the socket, and
+then terminates from a short-delayed thread --- exiting from inside the
+handler resets the connection often enough to matter, and the browser
+then reports a failure for a shutdown that in fact worked.
+
+The offline demo serves the same dashboard with the shutdown hook set to
+\texttt{None}, and the suite asserts that it refuses the request rather
+than killing its caller's interpreter.

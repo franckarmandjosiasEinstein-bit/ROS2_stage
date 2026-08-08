@@ -1,0 +1,152 @@
+% =====================================================================
+%  Phase C --- Deterministic navigation
+%  SCOPE: the free-space decomposition, the three-leg route, the brake.
+% =====================================================================
+\section{Deterministic Navigation}
+\label{sec:phaseC_nav}
+
+\subsection{Autonomous, but not exploratory}
+
+This section states plainly what \phaseC{} navigation is, because the
+distinction is easy to lose and a reader may reasonably assume that
+removing SLAM removed autonomy.
+
+The robot in \phaseC{} is fully autonomous in the control sense: it
+receives a list of station labels and nothing else, and it decides its
+own route, drives itself in closed loop, brakes on its own sensor
+evidence, and corrects its own final position against what it sees.
+There is no teleoperation and no trajectory replay.
+
+What it does \emph{not} do is discover. It never builds a map, never
+decides where to go next based on what it found, and never searches for
+a path. It cannot, because the question does not arise: the map is a
+catalogue that predates the robot (Sec.~\ref{sec:phaseC_catalogue}), and
+the order names the stations explicitly. The autonomy that remains is
+\emph{deterministic} rather than \emph{exploratory}, and the difference
+is worth naming precisely rather than describing as ``less''.
+
+\subsection{The free space, decomposed once}
+
+The greenhouse free space is not a general planning problem. It is four
+corridors joined at both ends, and \filename{agri/aisles.py} derives
+that decomposition from the wall and gutter coordinates rather than
+declaring it:
+
+\begin{table}[!t]
+\caption{The free bands, derived from the catalogue. Each is an interval
+of the robot centre line in $y$; every station lies in exactly one.}
+\label{tab:bands}
+\centering\footnotesize
+\begin{tabular}{@{}clc@{}}
+\toprule
+band & $y$ interval (m) & stations \\
+\midrule
+0 & $[-2.45,\; -1.40]$ & \station{P1,*R} \hfill 8 \\
+1 & $[-1.00,\; -0.20]$ & \station{P1,*L}, \station{P2,*R} \hfill 16 \\
+2 & $[+0.20,\; +1.00]$ & \station{P2,*L}, \station{P3,*R} \hfill 16 \\
+3 & $[+1.40,\; +2.45]$ & \station{P3,*L} \hfill 8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At each end, past the \SI{8.0}{m} gutters, lies a \emph{headland} that
+joins all four bands. A route is therefore at most three legs --- out to
+a headland, across to the target band, in to the station --- and
+choosing between the two headlands is a comparison of two numbers, not a
+search:
+
+\begin{lstlisting}[style=python]
+def route(sx, sy, tx, ty):
+    here, there = band(sy), band(ty)
+    if here is not None and here == there:
+        return [(tx, ty)]                 # one leg
+    end = min(HEADLANDS,
+              key=lambda e: abs(sx - e) + abs(e - tx))
+    return [(end, sy), (end, ty), (tx, ty)]
+\end{lstlisting}
+
+\paragraph{Why no planner} A$^\star$ over an occupancy grid would spend
+a millisecond rediscovering Table~\ref{tab:bands}, and would then be
+free to discover something \emph{else} on a day when the grid was subtly
+wrong. That is not a hypothetical: it is what \phaseA{} did in a
+\SI{0.16}{m} clearance (Sec.~\ref{sec:phaseA_planning}). A closed-form
+route cannot produce a novel answer, which in a corridor with
+\SI{0.16}{m} of margin is a feature.
+
+The cost of that choice is that the geometry must be right, so it is
+verified exhaustively rather than argued: the suite sweeps
+\textbf{all 2\,256 station-to-station routes}, plus every route out of
+the dock, and asserts the robot's rectangle never comes within
+\SI{0.08}{m} of a gutter or a wall on any leg of any of them. That runs
+in about a second and needs nothing installed.
+
+\subsection{The asymmetry that a symmetric model hides}
+
+The two headlands are \textbf{not} at symmetric coordinates:
+$x_{\text{west}} = \measured{-4.08}$~m and
+$x_{\text{east}} = \measured{+4.87}$~m. The robot is not symmetric --- a
+\SI{0.50}{m} sensor boom points $+x$ and \SI{0.29}{m} of chassis trails
+behind --- so at the west end the sensor point leads and must stop short
+of the gutters, while at the east end the sensor point goes deep and the
+\emph{tail} must clear them. The footprint ends up centred in the
+\SI{0.95}{m} gap either way, with \SI{0.08}{m} of margin at each end.
+
+An earlier version used one number for both. Going east, that left the
+chassis lying alongside the gutters while the robot strafed across the
+greenhouse --- straight through them. \textbf{Nothing would have
+reported it.} This robot carries no collision geometry, so driving
+through a gutter produces no contact, no warning and no complaint, only
+a recording that cannot be shown to anyone. It was caught by the
+clearance sweep above, which is the entire reason that function exists.
+
+\subsection{The brake, and what it must ignore}
+
+The route is geometric; the lidar is not. During every leg the robot
+tests each return against the corridor it is about to sweep. Two design
+choices carry the section.
+
+\paragraph{A corridor, not a cone} A $\pm35\degree$ cone was the first
+version, and it stopped the robot dead in every aisle: at \SI{0.35}{m}
+of lateral clearance, a gutter wall the robot is driving \emph{parallel}
+to sits well inside a $35\degree$ cone, so the brake fired on the very
+thing the route was designed to pass. A corridor asks the only question
+that matters --- is this in the way? --- and a wall you are driving
+alongside is not in the way.
+
+The corridor's edges are the extreme projections of the robot's own four
+corners onto the axis across the direction of travel. For a symmetric
+robot a half-width would do; with a \SI{0.50}{m} boom in front and
+\SI{0.29}{m} of chassis behind, a \emph{strafing} robot sweeps
+\SI{0.79}{m} and not centred on the base.
+
+\paragraph{The building is not an obstacle} The brake exists for things
+that should not be there. The walls and the gutters should be there,
+they are in the catalogue, and the sweep above has already proved every
+route clears them. Braking for them is not caution; it is refusing to
+move --- and it produced two failures that looked entirely different:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \emph{Every leg to a headland stopped.} The robot must back its
+        tail to within \SI{0.08}{m} of the end wall to fit the
+        \SI{0.95}{m} gap; the brake wanted \SI{0.35}{m} of clear floor
+        and refused \SI{0.27}{m} short. The mission logged ``something
+        is in the aisle''. Something was: the building.
+  \item \emph{A leg that shifts sideways while advancing} ---
+        \SI{0.10}{m} across while travelling \SI{0.66}{m} along, which
+        is exactly what moving between the two stations of an inner
+        aisle looks like --- tilts the swept corridor by $8.6\degree$
+        and swings it onto the gutter the robot is driving \emph{beside}.
+        Same wall, different geometry, same wrong answer.
+\end{itemize}
+
+Both are resolved by projecting each return into world coordinates and
+discarding it when it falls within \SI{0.12}{m} of catalogued structure.
+A return \emph{inside} the robot's own outline is discarded too: the
+lidar sits within the chassis and sees the camera pedestal and the mast
+at \SI{0.12}{m} and \SI{0.22}{m} ahead, which a raw range test brakes
+for permanently, from the first metre.
+
+The suite pins both behaviours from opposite sides --- a gutter being
+driven past does not stop the robot, an object genuinely ahead does, and
+no station stands on a point the brake would ignore --- so neither fix
+can be undone by loosening the other.

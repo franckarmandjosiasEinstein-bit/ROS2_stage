@@ -1,0 +1,112 @@
+% =====================================================================
+%  Phase C --- The measurement, the QR code, the photograph
+% =====================================================================
+\section{The Measurement and Its Encodings}
+\label{sec:phaseC_measurement}
+
+\subsection{What one visit produces}
+
+A visit yields three artefacts, and they are deliberately redundant:
+
+\begin{enumerate}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item the five readings as numbers, with the station label, a UTC
+        timestamp, and the robot's pose and velocity;
+  \item the same content as a \textbf{QR code image};
+  \item a \textbf{photograph} of the plant, taken by the pan camera
+        turned toward the row.
+\end{enumerate}
+
+\subsection{The robot reports on itself, not only on the plant}
+
+Every measurement carries the robot's own pose and its three velocity
+components at the instant of reading. This is not telemetry padding.
+
+A reading taken while the platform is still rolling is a reading taken
+\emph{somewhere between two places}. Because the velocity travels inside
+the sealed payload and inside the QR code, that condition is detectable
+afterwards, from the archived record, by someone who was not present.
+The velocity is read \emph{after} the sensors rather than before, for
+the same reason: it is the speed at the moment of the reading that
+qualifies the reading.
+
+The speed is transmitted as the magnitude alongside the components, and
+the suite asserts it really is the magnitude and not a component --- a
+substitution that would look plausible in every log and be wrong for
+every strafing move.
+
+\subsection{The QR code, and why it is not decoration}
+
+The payload is a single pipe-separated line, human-legible when scanned:
+
+\begin{lstlisting}[style=bash]
+AGRI1|P1,1R|2026-08-08T19:23:27Z|t=21.4|rh=76.2
+|lux=19272|co2=552|ph=6.84|x=-3.146|y=-1.745
+|yaw=180.0|vx=-0.003|vy=0.007|w=0.000
+\end{lstlisting}
+
+\measured{128 characters}, which a phone camera reads off a screen and
+returns as the original numbers. Three properties are asserted by the
+suite over all 48 station codes:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item every code encodes and decodes again;
+  \item the decoded text round-trips through the JSON
+        \emph{character for character};
+  \item a payload from another system is refused rather than
+        misparsed --- \texttt{HELLO|P2,5R} is rejected with
+        ``not an AGRI1 payload'', as is an unknown quantity key.
+\end{itemize}
+
+The Cloud re-reads every QR image it receives and checks the decoded
+numbers against the ones that travelled beside it in the JSON. This is
+the project's only \emph{end-to-end} content check: it would catch a
+corrupted image, a mismatched pairing, and an encoder that silently
+rounded. Two decoders are installed because OpenCV fails to locate 2 of
+the 48 station codes while zxing-cpp reads all 48; either alone works,
+and the tests run against both.
+
+\subsection{The photograph}
+
+The pan head turns toward the plant using the station's stored bearing,
+so the same station works whichever way along the aisle the robot is
+travelling --- storing a fixed robot yaw instead would silently assume a
+direction and make half the visits look the wrong way. The suite asserts
+the head pans $+90\degree$ driving east at an \station{R} station,
+$-90\degree$ driving west at the same one, and the opposite for
+\station{L}.
+
+The image is JPEG-compressed and travels base64-encoded inside the
+sealed envelope. The Cloud writes it back out as a file and keeps only
+the path in the record (Sec.~\ref{sec:phaseC_cloud}).
+
+\subsection{The synthesised field}
+
+As stated in Sec.~\ref{sec:phaseC}, the five readings are generated
+rather than sensed. The field is not noise: it is smooth in space, so
+neighbouring plants correlate; it is deterministic, so the same station
+reads the same twice; it carries a diurnal component driven by simulator
+time; and it contains the three planted anomalies of
+Table~\ref{tab:anomalies}.
+
+\begin{table}[!t]
+\caption{The planted anomalies. Each is asserted by the suite to stand
+out from its neighbourhood, so a change to the field cannot silently
+flatten the signal the dashboard exists to show.}
+\label{tab:anomalies}
+\centering\footnotesize
+\begin{tabular}{@{}llr@{}}
+\toprule
+stations & quantity & offset \\
+\midrule
+\station{P2,4R} / \station{P2,4L} & humidity        & $-22.0$ / $-20.0$ \%RH \\
+\station{P3,7R} / \station{P3,7L} & CO\textsubscript{2} & $+480$ / $+455$ ppm \\
+\station{P1,2R} / \station{P1,2L} & pH              & $+1.35$ / $+1.30$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both stations of an affected plant are perturbed, by slightly different
+amounts. A single-sided anomaly would be indistinguishable from a
+sensor fault, and identical values on both sides would be
+indistinguishable from a constant --- neither would exercise the
+comparison the dashboard invites the operator to make.

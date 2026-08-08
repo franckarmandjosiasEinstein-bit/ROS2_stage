@@ -1,0 +1,102 @@
+% =====================================================================
+%  Phase C --- The MQTT contract
+% =====================================================================
+\section{The Transport Contract}
+\label{sec:phaseC_protocol}
+
+\subsection{Why MQTT and not HTTP}
+
+The Cloud must be able to reach the robot, not only the other way round.
+With HTTP the robot would have to poll for work; with MQTT it subscribes
+once and the broker pushes. The broker is also the only endpoint either
+side configures: neither has to know the other's address, and either can
+restart without the other noticing. That is the property that makes
+``the robot is a node on a network'' an architectural fact rather than a
+turn of phrase.
+
+It is additionally the protocol the rest of the agricultural-IoT world
+speaks, so the same robot could report to a different back end without a
+line changing in \filename{agri/protocol.py}.
+
+\subsection{Topics, namespaced by node}
+
+\begin{table}[!t]
+\caption{The topic contract. Robot-to-Cloud topics are namespaced per
+node; the Cloud subscribes with MQTT wildcards.}
+\label{tab:topics}
+\centering\footnotesize
+\begin{tabular}{@{}llp{0.30\columnwidth}@{}}
+\toprule
+topic & direction & payload \\
+\midrule
+\topicname{agri/v1/request}              & Cloud $\rightarrow$ all & signed, readable \\
+\topicname{agri/v1/ack/<node>}           & node $\rightarrow$ Cloud & plain progress \\
+\topicname{agri/v1/report/<node>}        & node $\rightarrow$ Cloud & sealed \\
+\topicname{agri/v1/status/<node>}        & node $\rightarrow$ Cloud & plain, retained \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Requests stay on a \emph{flat} topic because a request addresses the
+fleet, not a specific node. Everything a node says is namespaced by its
+own identifier, and the Cloud subscribes with \texttt{+} to hear all of
+them, keeping nodes in a dictionary rather than a single variable. There
+is one mobile node today; the layout is what stops adding a second from
+being a protocol change.
+
+\subsection{Node kinds}
+
+Every status message carries a \param{node\_kind} field:
+\texttt{"mobile"} for a robot that drives between stations,
+\texttt{"fixed"} for a stationary microcontroller bolted to a post. The
+field is carried now, with one mobile node and no fixed ones, so that
+adding fixed sensors later does not change the protocol --- and so that
+the priority rule it exists for (prefer the mobile reading when a robot
+is parked at a station a fixed node also covers) has somewhere to live.
+
+\subsection{Three choices that were not defaults}
+
+\paragraph{QoS 1, not 0 or 2} Zero would drop a request while the robot
+is mid-reconnect. Two costs a four-way handshake for no benefit here,
+because the request identifier already makes a repeat harmless --- and
+the store deduplicates on (label, timestamp, robot), which catches
+exactly the case QoS~1 permits and nothing else.
+
+\paragraph{Status is retained; nothing else is} A dashboard opened at
+any moment should immediately know whether the robot is there, and MQTT's
+retained flag gives precisely that. Retaining \emph{reports} instead
+would mean every reconnecting client re-receives the last measurement and
+files it again, which is how duplicates appear in a store that has no
+reason to have any.
+
+\paragraph{A last will} If the robot process dies, the broker tells the
+Cloud on the node's own status topic. A dashboard that shows a robot as
+online because nobody said otherwise is worse than one that shows
+nothing.
+
+\subsection{Two failures the transport layer had to survive}
+
+Both were observed, and both are now pinned by the suite.
+
+\paragraph{A broker that is not up yet} The robot node originally exited
+when it could not connect, which made the launch order of two terminals
+load-bearing --- start the simulation before the broker and the robot was
+simply gone, with the failure scrolled off the top of a 140-line startup
+log. It now waits, retries with a bounded backoff, re-subscribes on
+\emph{every} connect rather than only the first, says so when the broker
+goes away, and complains on the wall clock if none ever appears.
+
+\paragraph{An exception inside an MQTT callback} \texttt{paho} does not
+guard its callbacks: an exception raised inside one kills its network
+thread. The observed symptom was a robot that looked perfectly healthy
+--- its status timer kept publishing, because that runs on a different
+thread --- while every request the Cloud sent was delivered to a client
+that was no longer reading. Forty minutes of a robot that would not move
+and a log that said nothing.
+
+The cause was the status callback asking the driver for a pose before
+the simulator had published any odometry. Two rules came out of it and
+are asserted statically: no MQTT callback may let an exception escape,
+and \texttt{status()} must never raise even with no odometry at all --- a
+status with no position is still worth sending, because ``I am here and
+I am connected'' is exactly what the Cloud needs at that instant.

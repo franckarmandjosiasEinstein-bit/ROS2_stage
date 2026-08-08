@@ -1,0 +1,168 @@
+% =====================================================================
+%  Acquired capabilities and the extension path
+%  SCOPE: Phase A/B subsystems not exercised by Phase C, and what each
+%         would cost to bring back into the delivered system.
+% =====================================================================
+\section{Acquired Capabilities and the Extension Path}
+\label{sec:extension}
+
+\subsection{What this section is}
+
+\phaseC{} delivers a connected measurement node. Doing so exercises a
+strict subset of what was built and measured in Phases~A and~B: the
+platform, the twin, the safety layer, the lidar, the cameras, the
+regression discipline. Several substantial subsystems --- mapping, SLAM,
+graph search, fruit detection, the five-DOF arm --- are \emph{present in
+the repository, validated, and not invoked by the delivered mission}.
+
+That is a design outcome, not an omission, and it deserves stating
+precisely because the two readings are easy to confuse:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item These subsystems were \textbf{not} planned and left unbuilt.
+        They were built, instrumented and measured, and their results
+        --- including two negative ones --- are reported in
+        Sections~\ref{sec:phaseA_results} and~\ref{sec:results}.
+  \item They are \textbf{not} dormant code of unknown quality. Each is
+        covered by the \phaseB{} suite, and the \phaseC{} suite asserts
+        that \phaseC{} never writes into the \phaseB{} tree.
+  \item They are \textbf{not} required by the delivered mission, because
+        the mission operates in a catalogued space
+        (Sec.~\ref{sec:phaseC_catalogue}).
+\end{itemize}
+
+They constitute an \emph{extension path}: the capabilities the platform
+already has, which a wider deployment would need, together with what
+each would cost to bring back in.
+
+\subsection{The capabilities, and what each buys}
+
+\begin{table*}[!t]
+\caption{Capabilities built and measured in Phases~A--B, their status
+against the \phaseC{} mission, and the condition under which each stops
+being optional. ``Measured'' refers to the results in
+Sec.~\ref{sec:results}.}
+\label{tab:extension}
+\centering\footnotesize
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}p{0.17\textwidth}p{0.24\textwidth}p{0.24\textwidth}p{0.25\textwidth}@{}}
+\toprule
+\textbf{Capability} & \textbf{Status after Phases A--B} &
+\textbf{Why \phaseC{} does not use it} & \textbf{What would require it} \\
+\midrule
+
+Occupancy mapping \newline (log-odds, 2D lidar) &
+\ok{Works.} Interior reconstructed to
+\measured{$-4$~cm~/~$+10$~cm}, \measured{100\%} floor coverage,
+\measured{0.0\%} phantom clutter. &
+The greenhouse is generated from a catalogue that predates the robot; a
+map would be a lossier copy of a file already on disk. &
+A greenhouse whose layout is \emph{not} surveyed, or one where gutters
+are moved between seasons without the catalogue being updated. \\
+
+A$^\star$ path planning &
+\ok{Works}, and was tuned through inflation and clearance problems in a
+\SI{0.16}{m} gap. &
+Free space is four corridors joined at both ends; the closed-form route
+cannot return a novel answer, which in that clearance is a feature
+(Sec.~\ref{sec:phaseC_nav}). &
+Mobile obstacles --- a trolley, a person, a second robot --- or any
+layout not decomposable into parallel bands. \\
+
+Correlative scan-matching SLAM &
+\bad{Measured worse} than the calibrated odometry prior it was meant to
+correct; disabled in the production configuration
+(Sec.~\ref{sec:slam}). &
+Not used, and would not be used even if it worked: the visual mark
+alignment closes position against a physical feature of the building,
+which is stronger than either. &
+Nothing, as implemented. A loop-closing back-end would be a new
+subsystem, not a re-enabling of this one. \\
+
+Colour fruit detection \newline and map placement &
+\warn{Partially works.} \measured{77\%} recall, \measured{0.22~m}
+localisation error, roughly two of three map estimates spurious. &
+\phaseC{} photographs the plant for a human and does not classify it.
+The detector's error is a quarter of the plant spacing --- enough to
+identify the plant, not the berry. &
+Any autonomous decision taken \emph{from} the image: ripeness triage,
+disease flagging, yield estimation. \\
+
+Five-DOF arm and gripper &
+\ok{Works.} Pick-and-place sequence validated in both simulators. &
+The mission measures and photographs; it does not touch the plant. &
+Sampling that requires contact --- leaf collection, substrate probing,
+selective harvesting. \\
+
+Behaviour-tree mission \newline supervision &
+\ok{Works.} Multi-trip harvesting with dynamic re-planning. &
+A \phaseC{} mission is a list of stations with a defined end. A queue
+and a loop express that exactly; a behaviour tree would express it
+loosely. &
+Missions with conditional branches: recharge when low, re-measure on an
+anomaly, defer a blocked station and return to it. \\
+
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Table~\ref{tab:extension} is also the answer to the question a reader
+may reasonably ask on finishing Sec.~\ref{sec:phaseC_nav}: the platform
+did not lose the ability to navigate an unknown space. It retains it,
+and the delivered mission declines to use it because the space is known.
+
+\subsection{The extension that the measured results argue against}
+
+One row of Table~\ref{tab:extension} deserves emphasis, because it is
+the one place where ``we already built it'' would be the wrong
+conclusion to draw.
+
+The homemade SLAM front-end was implemented, instrumented, and found to
+be \emph{worse} than the dead-reckoning prior it corrects
+(Sec.~\ref{sec:slam}). \phaseC{} then solved the same underlying problem
+--- knowing precisely where the robot is at the moment it takes a reading
+--- by a different route entirely: it does not improve the global pose
+estimate at all. It accepts that odometry drifts, and closes the last
+centimetres visually against a painted physical feature whose position
+is known exactly (Sec.~\ref{sec:phaseC_align}).
+
+That comparison is worth more than either result alone. A global
+localisation solution accurate to \measured{\SI{0.20}{m}} does not
+support a task whose labels are \SI{0.10}{m} apart, and no incremental
+improvement to scan matching was going to change that by the required
+order of magnitude. A local, absolute, fiducial-based correction does
+support it --- and it is cheaper, simpler, and verifiable from a single
+image. Where a task can be re-posed so that global accuracy stops
+mattering, that is usually the better engineering.
+
+\subsection{Priority, if the work continues}
+
+Ordered by value against cost for this deployment, and drawing on the
+finding of Sec.~\ref{sec:phaseC_route} that per-station dwell time now
+dominates the energy budget:
+
+\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=3pt]
+  \item \textbf{Replace the synthesised field with real probes.} This is
+        the largest gap between the delivered system and a deployable
+        one, and it is one function
+        (Sec.~\ref{sec:phaseC_measurement}). Everything downstream ---
+        encoding, sealing, transport, storage, display --- is already
+        exercised end to end.
+  \item \textbf{Measure $P_{\text{idle}}$ and $P_{\text{drive}}$ on the
+        bench.} Two numbers turn Eq.~\ref{eq:energy} from a stated model
+        into a measured budget, and the autonomy figure a fleet operator
+        actually needs follows immediately.
+  \item \textbf{Attack per-station dwell time}, which is where the
+        remaining energy is: the visual settling tolerance, the number of
+        correction attempts, and image encoding cost.
+  \item \textbf{Re-enable obstacle handling} (A$^\star$ over a local
+        costmap seeded from the catalogue) before any deployment sharing
+        aisles with people. The brake already stops for an unexpected
+        object; it has nowhere to route around one.
+  \item \textbf{Fixed ESP nodes.} The protocol already carries
+        \param{node\_kind} and namespaces every topic per node
+        (Sec.~\ref{sec:phaseC_protocol}); the Cloud already keeps nodes
+        in a dictionary. This is the cheapest capability increase
+        available, because the interface for it was built and tested
+        before there was anything to plug into it.
+\end{enumerate}

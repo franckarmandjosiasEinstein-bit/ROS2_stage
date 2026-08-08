@@ -1,0 +1,108 @@
+% =====================================================================
+%  Phase C --- Visual alignment on the painted mark
+%  SCOPE: the downward camera, the detector, the bounded correction.
+% =====================================================================
+\section{Closing the Last Centimetres}
+\label{sec:phaseC_align}
+
+\subsection{Why odometry is not enough here}
+
+Sec.~\ref{sec:phaseC_catalogue} established the constraint: two stations
+sharing an inner aisle are \SI{0.10}{m} apart. Sec.~\ref{sec:slam}
+established the measurement: uncalibrated odometry on this platform
+diverges past \SI{10}{m} over a mission, and even calibrated it holds
+only \measured{\SI{0.20}{m}}.
+
+\SI{0.20}{m} is twice the station spacing. The failure this produces is
+not an imprecise reading --- it is a \emph{correctly measured value
+filed under the wrong label}, which is worse, because nothing downstream
+can detect it. A campaign so corrupted looks complete.
+
+\subsection{The sensor point is the camera, not the base}
+
+\phaseC{} adds a downward camera on a short boom over the front bumper,
+and makes \emph{that} point the one a station names.
+
+A robot that has a body cannot see the floor under its own middle --- the
+chassis is in the way --- so a mark under the centre can be driven to but
+never verified. Putting the reference point under a downward camera makes
+``the mark is in the middle of the picture'' and ``the sensor is on the
+mark'' the same statement, with no lever arm whose sign can be got wrong.
+
+\SI{0.50}{m} is the smallest offset that also keeps the camera mast out
+of the downward view cone: the mast reaches $x = 0.27$~m at \SI{0.45}{m}
+height, and a camera at \SI{0.50}{m} sees the floor from $x = 0.27$~m
+outwards, so no ray crosses it. Two consequences follow and are stated
+once: the base centre stands \SI{0.50}{m} back along the aisle from the
+station, and \textbf{every pose in every report is the sensor point},
+not \texttt{base\_link}.
+
+\subsection{Detecting a cross, and refusing a blob}
+
+The detector (\filename{agri/vision.py}) is a red-dominance threshold
+followed by a connected-component pass, with three refusals that matter
+more than the detection itself:
+
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+  \item \textbf{A solid blob is not a cross.} A cross fills
+        \measured{$\approx$44\%} of its own bounding box; a filled square
+        fills 100\%. Rejecting on fill ratio stops the robot from
+        centring on a red object that is not a station mark. The
+        accepted band is deliberately wide, because the exact ratio
+        moves with the arm and thickness constants, and a detector that
+        needed retuning whenever the paint changed would be retuned
+        wrong.
+  \item \textbf{A clipped cross is refused, not averaged.} A mark half
+        out of frame has a centroid that is not its centre. Averaging it
+        yields a confident correction in the wrong direction.
+  \item \textbf{The nearer of two marks wins.} With a neighbour
+        \SI{0.10}{m} away the frame can contain both. The suite asserts
+        the nearer one is selected at three different offsets, including
+        one where the robot starts closer to the neighbour.
+\end{itemize}
+
+The threshold itself needs no tuning: the aisle paint is dark green
+$(38, 64, 54)$ and the gutters are near white, so a factor-1.6 dominance
+test separates the marker from both by a wide margin. This is a
+consequence of the world being generated (Sec.~\ref{sec:phaseC_catalogue})
+--- the detector and the paint come from the same file.
+
+\subsection{The correction is bounded, and the bound is not a preference}
+
+The visual correction is capped at \measured{\SI{0.04}{m}} per station.
+
+The reasoning is the same \SI{0.10}{m} that drove the arm length: a
+correction larger than \SI{0.05}{m} could leave the robot nearer the
+\emph{neighbouring} station than the one it is about to file under. The
+Cloud would then reject the report --- correctly --- for a reason with
+nothing to do with the plant. \SI{0.04}{m} keeps a clear margin under
+that bound and is still four times the residual the odometric approach
+leaves behind.
+
+The robot makes at most four correction attempts, stopping when the
+residual falls below \SI{0.008}{m}.
+
+\subsection{What happens when the camera cannot see}
+
+The mark can be missing, occluded, or outside the frame. \phaseC{} does
+not treat that as a mission failure and does not silently pretend it
+did not happen. The robot parks on odometry alone, says so in the log,
+and \textbf{increments a counter that travels with the mission report}:
+
+\begin{lstlisting}[style=bash]
+mission 788081147cfd finished in 601 s, floor camera
+used at 48 station(s), unavailable at 0
+\end{lstlisting}
+
+That line is the honest form of the accuracy claim. Rather than
+asserting a parking error the simulator cannot independently confirm,
+the system reports \emph{how many of the visits were closed visually}
+and lets the reader judge. In the reference campaign of
+Sec.~\ref{sec:results} the camera resolved its mark at
+\measured{48 of 48} stations, and at \measured{52 of 52} across the full
+session including the four single-station re-measurements.
+
+Every report additionally carries its own \param{parking\_error\_m}, and
+the Cloud checks it against the catalogue independently of what the
+robot believed --- so a visit filed under the wrong label is detectable
+after the fact, from the stored record alone.
