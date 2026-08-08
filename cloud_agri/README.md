@@ -36,7 +36,10 @@ robot from a stationary ESP.
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
-| `tests/check_cloud.py` | 244 pre-flight checks, none of which need a broker, ROS or a network |
+| `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
+| `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
+| `tests/check_cloud.py` | 330 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
 lives outside ROS and is tested on every run of `check_cloud.py`; the part
@@ -128,7 +131,41 @@ are.
 
 ## 4. The real thing: Gazebo + MQTT + the Cloud
 
-Four terminals. Order matters only for the broker.
+**Two commands, two terminals.**
+
+```bash
+# once, from the WORKSPACE root: build the ROS package
+colcon build --symlink-install \
+    --base-paths cloud_agri/ros2/src --packages-select agri_robot
+```
+
+```bash
+# terminal 1 -- the greenhouse, the robot, RViz, and a broker
+cd cloud_agri && ./run_sim.sh
+
+# terminal 2 -- the Cloud: console here, dashboard on :8088
+cd cloud_agri && ./run_cloud.sh
+```
+
+That is the whole procedure. `run_sim.sh` activates the virtualenv, sources
+ROS 2 and the workspace, starts `mosquitto` if nothing is already listening on
+1883, and launches Gazebo, `robot_state_publisher`, the gz bridge, `agri_viz`,
+RViz and the robot node. `run_cloud.sh` waits for the broker and opens the
+Cloud. Both refuse to start with an explanation rather than half-starting.
+
+**Everything stops together.** Ctrl-C in either window, or **QUITTER** on the
+dashboard, exports both CSVs and then takes the whole simulation down —
+Gazebo's forked server and GUI, the camera watchdog, RViz, the bridge, the
+robot node, and the broker if `run_sim.sh` started it. Nothing is left behind
+to confuse the next run. `./run_cloud.sh --keep-sim` opts out.
+
+The two scripts stay two scripts on purpose: the Cloud is meant to be able to
+run on another computer, which is the only reason there is a broker between
+them. `agri/session.py` explains how they signal each other without either
+being the other's parent — and why that signal is a file rather than a PID.
+
+<details>
+<summary>The long way, if you want to see each piece</summary>
 
 ```bash
 # 0. once: generate the world, the robot, and both key pairs
@@ -145,11 +182,44 @@ agri-cloud --keys keys --store store            # console here, dashboard on :80
 
 # 3. the robot, in Gazebo -- from the WORKSPACE root, not from cloud_agri/
 cd ..
-colcon build --symlink-install \
-    --base-paths cloud_agri/ros2/src --packages-select agri_robot
-source install/setup.bash
+source ~/.venvs/agri/bin/activate     # WITHOUT THIS the robot node dies on
+source install/setup.bash             # `No module named 'qrcode'`
 ros2 launch agri_robot agri.launch.py
 ```
+
+That `source ~/.venvs/agri/bin/activate` is the step everyone forgets. The
+robot node then starts under the system Python, dies a second after Gazebo
+opens, and the simulation looks perfect while every order goes nowhere.
+`run_sim.sh` exists mostly to make that impossible.
+</details>
+
+### Reading the log
+
+`run_sim.sh` filters the launch output. Bringing this system up prints about
+140 lines and roughly eight of them are about the robot; the rest is Gazebo
+listing every service it advertises, Qt complaining about a file dialog nobody
+opened, and SDF noting that `gz_frame_id` is not in its schema (it is not; it
+is a Gazebo extension and it works). What comes out instead:
+
+```
+14:09:49 ▶     started: gazebo, robot_state_publisher, create, parameter_bridge, viz_node, rviz2, robot_node
+14:09:50 ok    robot description loaded
+14:09:51 ok    gz bridge: 8 topics (clock, cmd_vel, odom, scan, camera, floor_cam, camera_pan_cmd, joint_state)
+14:09:52 ok    world 'greenhouse' running
+14:09:52 ok    youbot spawned in the greenhouse
+14:09:54 ok    agri_robot youbot-01: keys in …/keys, readings are SYNTHESISED
+14:09:54 ok    RViz has its fixed frame -- first /odom at x=-4.58 y=-1.85
+14:09:56 ·     Gazebo camera is following the robot (confirmed).
+```
+
+The **unfiltered** log is written to `cloud_agri/logs/sim-<date>.log` first, so
+the filter is never the only copy of what happened. `./run_sim.sh --raw` shows
+everything live instead.
+
+The filter is not cosmetic. Three lines decide whether a run will work at all
+— the robot could not reach the broker, `agri_viz` never heard `/odom`, a
+process died — and each of them used to scroll past inside the noise. Each now
+comes out in red with the fix attached.
 
 RViz opens beside Gazebo with the **2D view**: the outline the lidar actually
 perceives, drawn on top of where the catalogue says the walls, gutters and 48
@@ -182,6 +252,24 @@ first thing that is not true. Run against a stopped launch it says so
 instead of reporting "frame map does not exist", which is true, useless, and
 indistinguishable from the real fault.
 
+**If `check_live.sh` is all green and RViz still shows only a grid**, the
+fault is the *layout*, not the data — and it was, for two sessions. A plain
+`colcon build` copies `agri.rviz` into `share/`, the launch used to hand RViz
+that copy unconditionally, and an install made before the layout was fixed
+kept serving the broken one for ever. RViz then loads one display out of six
+and falls back to its factory Orbit view, which looks exactly like a robot
+publishing nothing. The launch now prefers the source tree — the same
+preference the world and the URDF always had — and says which copy it used:
+
+```
+[view] RViz config: …/cloud_agri/ros2/src/agri_robot/config/agri.rviz
+[view] (the installed copy under share/ DIFFERS and is being ignored --
+        rebuild to refresh it: colcon build --symlink-install)
+```
+
+If you see that second line, rebuild. If RViz *still* disagrees, it has its
+own cache: `rm -rf ~/.rviz2/` and relaunch.
+
 The **Gazebo camera locks onto the robot** and stays locked. It has to be
 re-asserted rather than requested once: gz answers "yes" to the tracking
 request before its render scene actually contains the entity, and it drops
@@ -203,6 +291,7 @@ cloud> status
   at      x=-0.44  y=-1.75  yaw=0.0 deg
   moving  0.312 m/s   (vx=0.312 vy=-0.004 wz=0.0)
   request 7c1e0f42a9d3  driving   0/2  P2,4R
+          issued  2026-08-05T11:41:52Z   still running (37 s so far)
 cloud> show P2,4R
   P2,4R   2026-08-05T11:42:07Z
     temperature       22.4 degC
@@ -491,7 +580,36 @@ actually be nearest the station being claimed. Anything that fails is
 rejections is one that will one day be receiving nothing and look perfectly
 healthy.
 
-Storage is JSONL plus a `photos/` and `qr/` directory, with a CSV export.
+Storage is JSONL plus a `photos/` and `qr/` directory, with two CSV exports.
+
+**Three clocks, all recorded.** A reading has three interesting moments, and
+the store used to keep one of them — so "how long did that sweep take" could
+only be answered by watching a clock while it ran:
+
+| | whose clock | what it means |
+|---|---|---|
+| `request_issued_at` | the Cloud | it signed the order. This is the stamp that gets **signed and sent**, so the Cloud's note of when it asked and the robot's copy of the order are the same number by construction. |
+| `measured_at` | the robot | it read the station |
+| `received_at` | the Cloud | it opened, verified and filed the report |
+
+The first and last share a clock, so `latency_s` — order to evidence — is a
+real duration and not an artefact of two machines disagreeing about the time.
+All four columns are in `store/measurements.csv`; the column formerly called
+`timestamp` is now `measured_at`, because a column called "timestamp" sitting
+next to two other times is a column whose meaning has to be looked up in the
+source.
+
+`store/requests.csv` answers the other question — **orders**, not readings —
+with `issued_at`, `completed_at`, `elapsed_s`, `state`, `done/total` and the
+targets. One request covers up to 48 stations, so "when did the sweep finish"
+is not answerable by taking a maximum over 48 measurement rows: a sweep that
+was *abandoned* has no such row at all. A request that fails halfway is
+closed with the time it gave up, rather than left looking as though it is
+still running.
+
+The dashboard shows the same three moments in the reader's own time zone —
+the stamps travel as UTC because the greenhouse and the Cloud need not be in
+the same one.
 
 ### The dashboard
 
@@ -525,15 +643,23 @@ selectors above it.
 
 Two buttons under **session** end a run without going back to the terminal,
 which is the whole point of having a dashboard on a second machine.
-**ENREGISTRER** writes `store/measurements.csv` and downloads a copy through
-the browser — the same export the console's `csv` verb and the shutdown path
-produce, so a run stopped from the browser and a run stopped with Ctrl-C
-leave identical files behind. **QUITTER** exports first and then stops the
-Cloud; it is the one control on the page that cannot be undone, so it is the
-one button drawn in the alert colour and the only one that asks first. The
-robot is deliberately left running: it holds its own keys and its own
-mission, and killing it from a web page is not something the Cloud is
-entitled to do.
+**ENREGISTRER** writes `store/measurements.csv` and `store/requests.csv` and
+downloads both through the browser — the same export the console's `csv` verb
+and the shutdown path produce, so a run stopped from the browser and a run
+stopped with Ctrl-C leave identical files behind. **QUITTER** exports first,
+then stops the Cloud **and the simulation with it**: Gazebo, RViz, the bridge
+and the robot node all go down, because the operator who pressed it meant
+"stop", not "stop half of it", and a laptop that collects orphaned Gazebo
+servers over an afternoon of demonstrations behaves inexplicably by evening.
+It is the one control on the page that cannot be undone, so it is the one
+button drawn in the alert colour and the only one that asks first.
+
+It reaches the simulation through a **file**, not a signal — the two are
+separate processes on purpose, and a PID can be reused between being written
+down and being killed. It also fails in the right direction: with the Cloud
+on a second machine the file lands on *that* machine's disk, nobody reads it,
+and the robot keeps running. A Cloud on another computer has no business
+killing a robot. See `agri/session.py`.
 
 ---
 
@@ -570,7 +696,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the 244 other checks to pass first.
+prioritised over getting the 329 other checks to pass first.
 
 ---
 
@@ -580,19 +706,28 @@ prioritised over getting the 244 other checks to pass first.
 python3 tests/check_cloud.py
 ```
 
-244 checks, about ten seconds, nothing installed beyond the dependencies —
-243 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
+330 checks, about fifteen seconds, nothing installed beyond the dependencies
+— 329 on a machine with no ROS 2, where the numpy-against-rclpy clash is the
 one thing that cannot be tested because there is no rclpy to clash with. It
 covers the labels, the geometry against the real world file, the crypto and
 its four refusals, all 48 QR codes through real PNG images, the sensor field,
 every one of the 2 256 routes, the floor camera against rendered frames, the
 generated world, the ROS package read as text (topic names, bridge entries,
-spawn point, entry points, the RViz layout, the Gazebo camera watchdog, the
-viz node's own startup and no-odometry logging), the
-two-machine key handover including the copy nobody remembers, the dashboard's
-own geometry, its ENREGISTRER and QUITTER buttons driven over a real socket,
-the multi-node protocol (topic namespacing, wildcard matching, `node_kind`,
-the per-node status dict, dashboard auth), the whole chain end to end
-through a loopback broker, and the offline demo run as a subprocess.
+spawn point, entry points, the RViz layout **and which copy of it gets
+loaded**, the Gazebo camera watchdog, the viz node's own startup and
+no-odometry logging, the robot node's broker retry), the two-machine key
+handover including the copy nobody remembers, the dashboard's own geometry,
+its ENREGISTRER and QUITTER buttons driven over a real socket, the multi-node
+protocol (topic namespacing, wildcard matching, `node_kind`, the per-node
+status dict, dashboard auth), the three clocks from signing to CSV including
+a request that is abandoned halfway, the two launch scripts (valid bash, the
+virtualenv, the broker ordering, the cleanup, and the stop-file path spelled
+identically in shell and in Python), the log filter **run against real launch
+output**, the whole chain end to end through a loopback broker, and the
+offline demo run as a subprocess.
 
 Every check in it is there because something actually went wrong.
+
+The one thing it cannot tell you is whether the *running* system is healthy.
+That is `tests/check_live.sh`, in a second terminal, while `./run_sim.sh` is
+up.

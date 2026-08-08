@@ -4,9 +4,12 @@
 keys/
 *.pem
 
-# Runtime output: the Cloud's store, photographs, exports, demo runs.
+# Runtime output: the Cloud's store, photographs, exports, demo runs, and
+# the raw launch logs run_sim.sh keeps so the filtered view is never the
+# only copy of what happened.
 store/
 demo_run/
+logs/
 *.db
 
 # Python

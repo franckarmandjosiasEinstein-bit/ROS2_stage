@@ -39,13 +39,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from agri import keys
+from agri import keys, session
 from agri.catalogue import all_stations
-from agri.cloud.store import Store, summarise
+from agri.cloud.store import Store, seconds_between, summarise
 from agri.crypto_ecc import CryptoError, sign_json
 from agri.envelope import EnvelopeError, new_request_id, open_envelope
 from agri.labels import all_labels, normalise
-from agri.measurement import QUANTITIES
+from agri.measurement import QUANTITIES, utc_now
 from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, QOS,
                            TOPIC_ACK_ALL, TOPIC_REPORT_ALL, TOPIC_REQUEST,
                            TOPIC_STATUS_ALL, ProtocolError, expand_targets,
@@ -78,13 +78,22 @@ class Cloud:
     # ------------------------------------------------------------ outbound
     def build_request(self, targets: str | list[str]) -> tuple[str, dict]:
         """(request_id, signed message). Targets are expanded HERE so the
-        robot never has to interpret a wildcard (see protocol.expand_targets)."""
+        robot never has to interpret a wildcard (see protocol.expand_targets).
+
+        The order's own timestamp comes out of make_request rather than being
+        taken again here: it is the moment that gets SIGNED and travels to the
+        robot, so the Cloud's record of when it asked and the robot's record
+        of what it was asked are the same number by construction.
+        """
         labels = expand_targets(targets)
         rid = new_request_id()
         msg = make_request(rid, labels)
         self.progress[rid] = {"request_id": rid, "targets": labels,
                               "total": len(labels), "done": 0,
-                              "state": "issued", "label": None, "detail": ""}
+                              "state": "issued", "label": None, "detail": "",
+                              "issued_at": msg["issued_at"],
+                              "updated_at": msg["issued_at"],
+                              "completed_at": None, "elapsed_s": None}
         return rid, sign_json(msg, self.cloud_keys.private_pem)
 
     # ------------------------------------------------------------- inbound
@@ -100,19 +109,31 @@ class Cloud:
         except (CryptoError, EnvelopeError) as exc:
             return self._reject(envelope.get("robot", "?"), str(exc))
 
-        visit = self.store.add_report(report)
-        self.accepted += 1
         rid = report.get("request_id")
-        if rid in self.progress:
-            p = self.progress[rid]
+        p = self.progress.get(rid)
+        visit = self.store.add_report(
+            report, request_issued_at=p["issued_at"] if p else None)
+        self.accepted += 1
+        if p is not None:
             p["done"] = min(p["total"], p["done"] + 1)
             p["label"] = visit.label
+            p["updated_at"] = utc_now()
             if p["done"] >= p["total"]:
                 p["state"] = "complete"
+                # Set once. A re-delivered report for a finished request must
+                # not move the completion time forward -- MQTT at QoS 1 makes
+                # that a normal event, not a fault, and a campaign whose end
+                # time drifts every time the broker repeats itself is worse
+                # than one with no end time at all.
+                if p["completed_at"] is None:
+                    p["completed_at"] = p["updated_at"]
+                    p["elapsed_s"] = seconds_between(p["issued_at"],
+                                                      p["completed_at"])
         flag = f"  FLAGGED {','.join(visit.flags)}" if visit.flags else ""
+        took = f"  [+{visit.latency_s:.0f}s]" if visit.latency_s is not None else ""
         return (f"{visit.label:7s} filed  "
                 + "  ".join(f"{q.name[:4]}={visit.values[q.name]}"
-                            for q in QUANTITIES) + flag)
+                            for q in QUANTITIES) + flag + took)
 
     def _reject(self, robot: str, reason: str) -> str:
         self.rejected.append({"robot": robot, "reason": reason,
@@ -126,12 +147,22 @@ class Cloud:
         except Exception:                            # noqa: BLE001
             return
         rid = d.get("request_id")
-        if rid in self.progress:
-            self.progress[rid].update(
-                state=d.get("state", "?"), label=d.get("label"),
-                detail=d.get("detail", ""))
-            if d.get("total"):
-                self.progress[rid]["total"] = d["total"]
+        p = self.progress.get(rid)
+        if p is None:
+            return
+        p.update(state=d.get("state", "?"), label=d.get("label"),
+                 detail=d.get("detail", ""),
+                 updated_at=d.get("at") or utc_now())
+        if d.get("total"):
+            p["total"] = d["total"]
+        # A mission that ENDS without filing every report still ends, and the
+        # record has to close or the dashboard shows it running for ever and
+        # requests.csv carries a blank completion with nothing to explain it.
+        # An aborted sweep took however long it took before it gave up, and
+        # that is a more useful number than an empty cell.
+        if d.get("state") in ("finished", "failed") and p["completed_at"] is None:
+            p["completed_at"] = p["updated_at"]
+            p["elapsed_s"] = seconds_between(p["issued_at"], p["completed_at"])
 
     def on_status(self, payload: bytes, node_id: str = "") -> None:
         try:
@@ -140,6 +171,30 @@ class Cloud:
             return
         nid = node_id or d.get("robot", "?")
         self.nodes[nid] = d
+
+    # -------------------------------------------------------------- export
+    #: What was asked for and when it was answered. The measurements CSV is
+    #: about readings; this one is about ORDERS, and the two questions have
+    #: different rows -- one request covers 48 stations, and "when did the
+    #: sweep finish" is not answerable by looking at 48 lines and taking a
+    #: maximum, because a sweep that never finished has no line to look at.
+    REQUEST_COLUMNS = ["request_id", "issued_at", "completed_at", "elapsed_s",
+                       "state", "done", "total", "targets"]
+
+    def export_requests_csv(self, path: Path | None = None) -> Path:
+        import csv                                          # noqa: PLC0415
+
+        path = Path(path or self.store.root / "requests.csv")
+        with path.open("w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(self.REQUEST_COLUMNS)
+            for p in self.progress.values():
+                w.writerow([p["request_id"], p.get("issued_at", ""),
+                            p.get("completed_at") or "",
+                            "" if p.get("elapsed_s") is None else p["elapsed_s"],
+                            p.get("state", ""), p.get("done", 0),
+                            p.get("total", 0), ";".join(p.get("targets", []))])
+        return path
 
     # ---------------------------------------------------------------- view
     def state(self) -> dict[str, Any]:
@@ -154,6 +209,9 @@ class Cloud:
                 "plant_x": s.plant_x, "plant_y": s.plant_y,
                 "measured": v is not None,
                 "timestamp": v.timestamp if v else None,
+                "request_issued_at": v.request_issued_at if v else None,
+                "received_at": v.received_at if v else None,
+                "latency_s": v.latency_s if v else None,
                 "values": v.values if v else None,
                 "flags": v.flags if v else [],
                 "velocity": v.velocity if v else None,
@@ -270,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
                            "targets": self.cloud.progress[rid]["targets"]})
 
     def _export(self) -> None:
-        """Write the CSV and say where it landed, on disk and over HTTP.
+        """Write both CSVs and say where they landed, on disk and over HTTP.
 
         The same export the console's `csv` verb does and the same one the
         shutdown path does, so a run stopped from the browser and a run
@@ -278,11 +336,15 @@ class Handler(BaseHTTPRequestHandler):
         """
         try:
             path = self.cloud.store.export_csv()
+            requests = self.cloud.export_requests_csv()
         except OSError as exc:
             return self._json({"error": str(exc)}, 500)
         measured, total = self.cloud.store.coverage()
-        print(f"cloud: exported {path}")
+        print(f"cloud: exported {path} and {requests}")
         return self._json({"path": str(path), "url": "/media/" + path.name,
+                           "requests_path": str(requests),
+                           "requests_url": "/media/" + requests.name,
+                           "requests": len(self.cloud.progress),
                            "visits": len(self.cloud.store.all_visits()),
                            "measured": measured, "total": total})
 
@@ -327,9 +389,9 @@ CONSOLE_HELP = """  ALL                 measure every station in the greenhouse 
   status              where the robot is, how fast, and what it is doing
   show P2,4R          the last reading filed for a station
   coverage            which stations have been measured, and which not
-  csv                 export everything to store/measurements.csv
+  csv                 export store/measurements.csv and store/requests.csv
   help                this list
-  quit                stop the Cloud (the robot keeps running)"""
+  quit                stop the Cloud AND the simulation with it"""
 
 
 class Console:
@@ -376,6 +438,7 @@ class Console:
                     self.show(rest.strip())
                 elif verb == "csv":
                     print(f"  exported {self.cloud.store.export_csv()}")
+                    print(f"  exported {self.cloud.export_requests_csv()}")
                 else:
                     self.request(line)
             except Exception as exc:                 # noqa: BLE001
@@ -413,6 +476,16 @@ class Console:
         for p in list(self.cloud.progress.values())[-3:]:
             print(f"  request {p['request_id']}  {p['state']:<9} "
                   f"{p['done']}/{p['total']}  {p.get('label') or ''}")
+            when = f"          issued  {p.get('issued_at', '?')}"
+            if p.get("completed_at"):
+                when += (f"   completed {p['completed_at']}"
+                         f"   ({p['elapsed_s']:.0f} s)")
+            else:
+                waiting = seconds_between(p.get("issued_at"), utc_now())
+                when += ("   still running"
+                         + (f" ({waiting:.0f} s so far)"
+                            if waiting is not None else ""))
+            print(when)
         if self.cloud.rejected:
             print(f"  REJECTED {len(self.cloud.rejected)} report(s); last: "
                   f"{self.cloud.rejected[-1]['reason']}")
@@ -485,6 +558,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dashboard-token", default=None,
                     help="token for dashboard API access. Generated at random "
                          "if not given. Pass an empty string to disable auth.")
+    ap.add_argument("--keep-sim", action="store_true",
+                    help="do NOT stop the simulation when this Cloud stops. "
+                         "By default Ctrl-C here, and QUITTER on the "
+                         "dashboard, also take Gazebo, RViz and the robot "
+                         "node down (see agri.session).")
     ap.add_argument("--request", metavar="TARGETS",
                     help="issue one request at startup: ALL, a plant (P2,5, both "
                          "sides), a single station (P2,5R), or a "
@@ -548,10 +626,25 @@ def main(argv: list[str] | None = None) -> int:
         print("cloud: stopping")
         try:
             print(f"cloud: exported {cloud.store.export_csv()}")
+            print(f"cloud: exported {cloud.export_requests_csv()}")
         except Exception as exc:                     # noqa: BLE001
             print(f"cloud: could not export ({exc})")
         client.loop_stop()
         client.disconnect()
+        # Take the simulation down with us, unless told not to. Stopping the
+        # Cloud and leaving Gazebo, RViz, the bridge and the robot node
+        # running is the state that fills a laptop with orphans over an
+        # afternoon of demonstrations -- and the operator who pressed QUITTER
+        # meant "stop", not "stop half of it". See agri.session for why this
+        # is a file and not a signal.
+        if args.keep_sim:
+            print("cloud: --keep-sim, so the simulation is left running")
+        else:
+            where = session.ask_simulation_to_stop()
+            print(f"cloud: asked the simulation to stop ({where})"
+                  if where else
+                  "cloud: could not write the stop file; if a simulation is "
+                  "running, stop it with Ctrl-C in its own window")
 
     def shutdown_from_web() -> None:
         # os._exit rather than sys.exit: the console owns the main thread and

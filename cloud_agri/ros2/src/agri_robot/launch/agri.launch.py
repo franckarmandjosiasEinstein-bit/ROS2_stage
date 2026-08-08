@@ -186,6 +186,43 @@ def _share(package: str) -> Path | None:
         return None
 
 
+#: Where this file lives inside cloud_agri/, so the source copy can be found
+#: from the source root the same way the world and the URDF are.
+RVIZ_IN_SOURCE = "ros2/src/agri_robot/config/agri.rviz"
+
+
+def _rviz_config(share: Path) -> tuple[str, str]:
+    """(path to hand RViz, a line to print about it).
+
+    THE BUG THIS EXISTS FOR. A plain `colcon build` COPIES this file into
+    share/, and the launch used to pass that copy unconditionally while the
+    world and the URDF went through _asset() and preferred the source tree.
+    So an install made before the config was fixed kept serving the BROKEN
+    config for ever: RViz loaded one display out of six, fell back to its
+    factory Orbit view and its factory grey, and looked for all the world
+    like a robot that was publishing nothing. Two debugging sessions went
+    into the data path, which was fine the whole time.
+
+    Nothing here is clever -- it is the same preference the rest of the file
+    already had, applied to the one asset that had been left out of it, plus
+    a line saying which copy won, because "RViz is showing something else"
+    must never again be a thing you have to guess at.
+    """
+    src = _source_root()
+    source_copy = (src / RVIZ_IN_SOURCE) if src is not None else None
+    installed = share / "config" / "agri.rviz"
+    if source_copy is not None and source_copy.exists():
+        stale = (installed.exists()
+                 and installed.read_bytes() != source_copy.read_bytes())
+        note = f"[view] RViz config: {source_copy}"
+        if stale:
+            note += ("\n[view] (the installed copy under share/ DIFFERS and is "
+                     "being ignored -- rebuild to refresh it: colcon build "
+                     "--symlink-install)")
+        return str(source_copy), note
+    return str(installed), f"[view] RViz config: {installed} (installed copy)"
+
+
 def _python_path(src: Path | None) -> str:
     """PYTHONPATH for the robot node, because it will NOT inherit yours.
 
@@ -223,6 +260,8 @@ def generate_launch_description() -> LaunchDescription:
     world = str(_asset(WORLD, share))
     robot_desc = _asset(URDF, share).read_text()
     bridge_cfg = str(share / "config" / "gz_bridge_agri.yaml")
+    rviz_cfg, rviz_note = _rviz_config(share)
+    print(rviz_note)
 
     # package://youbot_gazebo/meshes/... -> the share directory ABOVE
     # youbot_gazebo, which is what gz resolves package:// against.
@@ -313,7 +352,7 @@ def generate_launch_description() -> LaunchDescription:
         # Displays panel -- looks identical to a node that is not publishing.
         Node(package="rviz2", executable="rviz2", name="rviz2",
              output="screen", parameters=[sim_time],
-             arguments=["-d", str(share / "config" / "agri.rviz")],
+             arguments=["-d", rviz_cfg],
              condition=IfCondition(LaunchConfiguration("rviz"))),
 
         Node(package="agri_robot", executable="robot_node", name="agri_robot",

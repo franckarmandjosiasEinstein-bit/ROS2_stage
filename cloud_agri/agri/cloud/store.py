@@ -44,11 +44,17 @@ import csv
 import json
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from agri.labels import all_labels
-from agri.measurement import QUANTITIES, Measurement
+from agri.measurement import QUANTITIES, Measurement, utc_now
+
+#: The one format every timestamp in this system is written in (see
+#: measurement.utc_now). Parsed here so a duration can be computed from two
+#: of them without guessing.
+TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def _safe(label: str) -> str:
@@ -57,9 +63,28 @@ def _safe(label: str) -> str:
     return label.replace(",", "_")
 
 
+def seconds_between(start: str | None, end: str | None) -> float | None:
+    """end - start, in seconds, for two of our own UTC stamps.
+
+    Returns None rather than raising when either is missing or unparseable:
+    visits filed before these fields existed have neither, and a campaign
+    must stay readable across a change to its own format.
+    """
+    if not start or not end:
+        return None
+    try:
+        a = datetime.strptime(start, TIME_FMT).replace(tzinfo=timezone.utc)
+        b = datetime.strptime(end, TIME_FMT).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return round((b - a).total_seconds(), 1)
+
+
 @dataclass
 class StoredVisit:
     label: str
+    #: When the ROBOT took the reading, by its own clock. The number the
+    #: measurement is about.
     timestamp: str
     robot: str
     request_id: str | None
@@ -73,6 +98,24 @@ class StoredVisit:
     photo_path: str | None
     qr_path: str | None
     flags: list[str] = field(default_factory=list)
+    #: THE OTHER TWO CLOCKS. A reading has three interesting moments and the
+    #: store used to keep one of them, so "how long did that take" could not
+    #: be answered from the file at all:
+    #:
+    #:   request_issued_at   the Cloud signed the order        (Cloud clock)
+    #:   timestamp           the robot read the station        (robot clock)
+    #:   received_at         the Cloud opened and filed it     (Cloud clock)
+    #:
+    #: The first and last are the same clock, so their difference is a real
+    #: duration -- end to end, order to evidence -- and not an artefact of
+    #: two machines disagreeing about the time.
+    request_issued_at: str | None = None
+    received_at: str | None = None
+
+    @property
+    def latency_s(self) -> float | None:
+        """Order to evidence, in seconds. Both stamps are the Cloud's."""
+        return seconds_between(self.request_issued_at, self.received_at)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -83,6 +126,8 @@ class StoredVisit:
             "parking_error_m": self.parking_error_m,
             "photo": self.photo_path, "qr": self.qr_path,
             "flags": self.flags,
+            "request_issued_at": self.request_issued_at,
+            "received_at": self.received_at,
         }
 
     @classmethod
@@ -93,7 +138,9 @@ class StoredVisit:
                    velocity=d.get("velocity"),
                    parking_error_m=d.get("parking_error_m"),
                    photo_path=d.get("photo"), qr_path=d.get("qr"),
-                   flags=d.get("flags", []))
+                   flags=d.get("flags", []),
+                   request_issued_at=d.get("request_issued_at"),
+                   received_at=d.get("received_at"))
 
 
 class Store:
@@ -128,8 +175,16 @@ class Store:
                     print(f"store: skipping {self.jsonl}:{n} ({exc})")
 
     # -------------------------------------------------------------- adding
-    def add_report(self, report: dict[str, Any]) -> StoredVisit:
-        """File an OPENED and validated report (see envelope.open_envelope)."""
+    def add_report(self, report: dict[str, Any],
+                   request_issued_at: str | None = None) -> StoredVisit:
+        """File an OPENED and validated report (see envelope.open_envelope).
+
+        `request_issued_at` is the Cloud's own note of when it signed the
+        order this reading answers. The store cannot know it -- requests are
+        the server's business -- so the caller passes it down, and it is
+        optional because a report can legitimately arrive with no request
+        behind it (a re-delivery after a restart, a standalone run).
+        """
         m = Measurement.from_dict(report["measurement"])
         stamp = m.timestamp.replace(":", "").replace("-", "")
 
@@ -153,7 +208,8 @@ class Store:
             velocity=report["measurement"].get("velocity"),
             parking_error_m=report.get("parking_error_m"),
             photo_path=photo_path, qr_path=qr_path,
-            flags=[f"out_of_range:{q}" for q in m.out_of_range()])
+            flags=[f"out_of_range:{q}" for q in m.out_of_range()],
+            request_issued_at=request_issued_at, received_at=utc_now())
 
         with self._lock:
             if any(v.label == visit.label and v.timestamp == visit.timestamp
@@ -186,21 +242,30 @@ class Store:
         return len(self.latest_by_label()), len(all_labels())
 
     # -------------------------------------------------------------- export
+    #: The three clocks, spelled out in the header rather than left to a
+    #: column called "timestamp" that could be any of them. Whoever opens
+    #: this file in a spreadsheet six months from now is not going to read
+    #: store.py to find out which moment they are looking at.
+    CSV_COLUMNS = (["label", "row", "plant", "side",
+                    "request_id", "request_issued_at", "measured_at",
+                    "received_at", "latency_s", "robot"]
+                   + [q.name for q in QUANTITIES]
+                   + ["pose_x", "pose_y", "parking_error_m", "flags"])
+
     def export_csv(self, path: Path | None = None) -> Path:
         path = Path(path or self.root / "measurements.csv")
-        cols = (["label", "row", "plant", "side", "timestamp", "robot",
-                 "request_id"]
-                + [q.name for q in QUANTITIES]
-                + ["pose_x", "pose_y", "parking_error_m", "flags"])
         with path.open("w", newline="") as fh:
             w = csv.writer(fh)
-            w.writerow(cols)
+            w.writerow(self.CSV_COLUMNS)
             for v in sorted(self.all_visits(),
                             key=lambda v: (v.label, v.timestamp)):
                 row, plant, side = v.label[1], v.label.split(",")[1][:-1], v.label[-1]
                 pose = v.pose or {}
-                w.writerow([v.label, row, plant, side, v.timestamp, v.robot,
-                            v.request_id]
+                w.writerow([v.label, row, plant, side,
+                            v.request_id or "", v.request_issued_at or "",
+                            v.timestamp, v.received_at or "",
+                            "" if v.latency_s is None else v.latency_s,
+                            v.robot]
                            + [v.values.get(q.name, "") for q in QUANTITIES]
                            + [pose.get("x", ""), pose.get("y", ""),
                               v.parking_error_m if v.parking_error_m is not None else "",

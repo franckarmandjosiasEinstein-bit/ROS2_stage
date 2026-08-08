@@ -52,6 +52,12 @@ from agri.robot import Mission, RobotLink, Visitor
 from agri.sensors import GreenhouseField
 from agri_robot.driver import DriveError, GazeboDriver
 
+#: How long to wait for the broker before saying so, and how often to repeat
+#: it. Long enough that the two scripts starting together do not produce a
+#: complaint every time; short enough that a broker nobody started is named
+#: while the operator is still watching the window.
+BROKER_GRACE_S = 20.0
+
 
 class AgriRobot(Node):
     def __init__(self) -> None:
@@ -95,11 +101,32 @@ class AgriRobot(Node):
         self.client = None
         self.link: RobotLink | None = None
         self._busy = threading.Lock()
+        self._connected = False
+        #: Set at shutdown, so the broker watchdog does not complain about a
+        #: node that is on its way out.
+        self._quiet = threading.Event()
         self.standalone = [t for t in str(p("standalone_targets")).split(";")
                            if t.strip()]
 
     # ------------------------------------------------------------- startup
-    def connect(self) -> bool:
+    def connect(self) -> None:
+        """Attach to the broker, and KEEP TRYING until it is there.
+
+        This used to give up: one failed connect() and main() returned 1, so
+        the node died about a second after the simulator opened. The rest of
+        the launch stayed up, Gazebo rendered a greenhouse, RViz drew the
+        robot, and every request issued from the Cloud went nowhere -- with
+        the only evidence eleven lines up in a log that had since scrolled
+        past. "My requests are not being executed" is what that looks like
+        from the outside, and nothing on screen said why.
+
+        Starting the broker first fixes the common case and is what the
+        launch scripts now do. It does not fix the case worth designing for:
+        the broker restarting, or coming up a moment late, at any point in a
+        forty-minute run. paho already reconnects after the FIRST successful
+        connection; connect_async + loop_start extends that to the first one
+        as well, so the ordering of two terminals stops being load-bearing.
+        """
         host = self.get_parameter("broker").value
         port = int(self.get_parameter("broker_port").value)
         self.client = mqtt_client(f"agri-{self.robot_id}")
@@ -135,10 +162,23 @@ class AgriRobot(Node):
             if rc:
                 self.get_logger().error(f"broker refused the connection (rc={rc})")
                 return
+            # Re-subscribe on EVERY connect, not just the first. A reconnect
+            # to a broker that restarted starts from an empty subscription
+            # table, and a robot that is connected and subscribed to nothing
+            # is indistinguishable from one that is working.
             cl.subscribe(TOPIC_REQUEST, qos=QOS)
+            first, self._connected = not self._connected, True
             self.get_logger().info(
-                f"connected to {host}:{port}, listening on {TOPIC_REQUEST}")
+                f"{'connected' if first else 'RECONNECTED'} to {host}:{port}, "
+                f"listening on {TOPIC_REQUEST}")
             self.link.status(True, "ready")
+
+        @guarded
+        def on_disconnect(_cl, _u, rc, *_):
+            self._connected = False
+            self.get_logger().warn(
+                f"lost the broker at {host}:{port} (rc={rc}); retrying. "
+                "Requests issued meanwhile will not arrive.")
 
         @guarded
         def on_message(_cl, _u, msg):
@@ -146,21 +186,40 @@ class AgriRobot(Node):
                 self._take(msg.payload)
 
         self.client.on_connect, self.client.on_message = on_connect, on_message
-        try:
-            self.client.connect(host, port, keepalive=30)
-        except OSError as exc:
-            self.get_logger().error(
-                f"cannot reach the broker at {host}:{port} ({exc}). "
-                "Start one:  mosquitto -p 1883 -v")
-            return False
+        self.client.on_disconnect = on_disconnect
+        self.client.reconnect_delay_set(min_delay=1, max_delay=15)
+        # connect_async, so a broker that is not up yet is a wait rather than
+        # a fatal error: loop_start retries the first connection too.
+        self.client.connect_async(host, port, keepalive=30)
         self.client.loop_start()
+        self.get_logger().info(f"reaching for the broker at {host}:{port}")
+
+        # A WALL-CLOCK timer. use_sim_time is true for this node, so a ROS
+        # timer only advances when /clock does -- and the state this watchdog
+        # reports is "nothing has connected", which is exactly the state a
+        # half-started system is in. Same reasoning as viz_node's.
+        def nag() -> None:
+            if self._quiet.is_set() or self._connected:
+                return
+            self.get_logger().error(
+                f"still no broker at {host}:{port} after "
+                f"{BROKER_GRACE_S:.0f} s. The robot is up and will act on "
+                "requests the moment one appears, but nothing can reach it "
+                "until then. Start one:  mosquitto -p 1883 -v")
+            arm(nag)
+
+        def arm(fn) -> None:
+            t = threading.Timer(BROKER_GRACE_S, fn)
+            t.daemon = True
+            t.start()
+
+        arm(nag)
 
         period = float(self.get_parameter("status_period").value)
         self.create_timer(period, self._beat)
-        return True
 
     def _beat(self) -> None:
-        if self.link is None:
+        if self.link is None or not self._connected:
             return
         try:
             self.link.status(True, "busy" if self._busy.locked() else "idle")
@@ -223,6 +282,7 @@ class AgriRobot(Node):
         self.get_logger().info("standalone run finished")
 
     def shutdown(self) -> None:
+        self._quiet.set()
         try:
             self.driver.stop()
             if self.link is not None:
@@ -239,8 +299,8 @@ def main(argv=None) -> int:
     try:
         if node.standalone:
             threading.Thread(target=node.run_standalone, daemon=True).start()
-        elif not node.connect():
-            return 1
+        else:
+            node.connect()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

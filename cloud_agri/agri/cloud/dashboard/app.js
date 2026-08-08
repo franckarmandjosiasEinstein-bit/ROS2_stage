@@ -282,14 +282,51 @@ function renderMap() {
      <span>${Ql.hi} ${Ql.unit}</span>`;
 }
 
+/* ISO 8601 UTC -> the operator's own wall clock, to the second.
+   The stamps travel as UTC because the greenhouse and the Cloud need not be
+   in the same time zone (see measurement.utc_now). Showing that raw would
+   make everyone reading the page do the arithmetic, so it is done once here
+   and the full stamp stays in the title attribute for anyone who wants it. */
+function clock(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleTimeString();
+}
+
+/* Seconds -> "42 s" / "3 min 05". Past an hour nobody counts in minutes. */
+function dur(s) {
+  if (s == null) return "";
+  if (s < 90) return `${Math.round(s)} s`;
+  const m = Math.floor(s / 60), r = Math.round(s % 60);
+  if (m < 60) return `${m} min ${String(r).padStart(2, "0")}`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
+}
+
 function renderRequests() {
   const el = document.getElementById("requests");
   const rs = S.state.requests || [];
+  const now = Date.now();
   el.innerHTML = rs.length ? rs.slice().reverse().map(r => {
     const pct = r.total ? Math.round(100 * r.done / r.total) : 0;
+    /* Elapsed comes from the Cloud once the request is complete, and is
+       counted here while it is still running -- the browser cannot be the
+       authority on a duration that has to survive the page being reloaded,
+       but it is the only thing ticking between two 2 s polls. */
+    const live = r.completed_at == null && r.issued_at
+      ? (now - new Date(r.issued_at)) / 1000 : null;
+    /* A request that was ABANDONED is closed too -- it has an end time and a
+       duration like any other -- but calling that "done" would report a
+       failure as a success in the one place an operator looks for the
+       answer. Same numbers, different verb. */
+    const timing = r.completed_at
+      ? `${r.state === "failed" ? "gave up" : "done"} ${clock(r.completed_at)}`
+        + ` // after ${dur(r.elapsed_s)}`
+      : `running // ${dur(live)} so far`;
     return `<div class="req">
       <div><span class="id">${r.request_id}</span> ${r.state}
         ${r.label ? `// ${r.label}` : ""} <span class="id">${r.done}/${r.total}</span></div>
+      <div class="when" title="issued ${r.issued_at || "?"}">
+        issued ${clock(r.issued_at)} // ${timing}</div>
       ${r.detail ? `<div class="id">${r.detail}</div>` : ""}
       <div class="prog"><i style="width:${pct}%"></i></div>
     </div>`;
@@ -335,8 +372,14 @@ function renderDetail(label) {
     </div>`;
   }).join("");
   const park = s.parking_error_m == null ? "—" : `${s.parking_error_m} m`;
+  const chain = s.measured
+    ? `ordered ${clock(s.request_issued_at)} // measured ${clock(s.timestamp)}`
+      + ` // filed ${clock(s.received_at)}`
+      + (s.latency_s == null ? "" : ` // ${dur(s.latency_s)} end to end`)
+    : "never measured";
   document.getElementById("detail-readings").innerHTML = rows +
-    `<div class="hint">measured ${s.timestamp || "never"} // parked ${park} from the cross</div>`;
+    `<div class="hint" title="${s.timestamp || ""}">${chain}<br>` +
+    `parked ${park} from the cross</div>`;
 
   const photo = document.getElementById("detail-photo");
   const qr = document.getElementById("detail-qr");
@@ -350,9 +393,12 @@ function renderHistory(rows) {
   const el = document.getElementById("detail-history");
   if (!rows.length) { el.innerHTML = `<div class="empty">no history</div>`; return; }
   const qs = S.state.quantities.map(x => x.name);
-  el.innerHTML = `<table><thead><tr><th>timestamp</th>${
+  el.innerHTML = `<table><thead><tr><th>ordered</th><th>measured</th><th>filed</th>${
     qs.map(n => `<th>${n}</th>`).join("")}<th>park m</th></tr></thead><tbody>${
-    rows.slice(-12).reverse().map(r => `<tr><td>${r.timestamp}</td>${
+    rows.slice(-12).reverse().map(r => `<tr>
+      <td title="${r.request_issued_at || ""}">${clock(r.request_issued_at)}</td>
+      <td title="${r.timestamp}">${clock(r.timestamp)}</td>
+      <td title="${r.received_at || ""}">${clock(r.received_at)}</td>${
       qs.map(n => `<td>${r.values[n] ?? "—"}</td>`).join("")
     }<td>${r.parking_error_m ?? "—"}</td></tr>`).join("")}</tbody></table>`;
 }
@@ -378,6 +424,15 @@ async function request(targets) {
 }
 
 /* ----------------------------------------------------------- session */
+function grab(url, name) {
+  const a = document.createElement("a");
+  a.href = apiUrl(url);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 async function save() {
   const hint = document.getElementById("sessionhint");
   hint.className = "hint";
@@ -386,16 +441,15 @@ async function save() {
     const r = await fetch(apiUrl("/api/export"), { method: "POST" });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || r.statusText);
-    hint.textContent = `${d.visits} visit(s), ${d.measured}/${d.total} stations → ${d.path}`;
-    // The file is already on the Cloud's disk; this only puts a copy in the
-    // browser's downloads, which is what someone looking at the dashboard
-    // from another machine actually wants.
-    const a = document.createElement("a");
-    a.href = apiUrl(d.url);
-    a.download = "measurements.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    hint.textContent = `${d.visits} visit(s), ${d.measured}/${d.total} stations`
+      + ` and ${d.requests} request(s) → ${d.path}`;
+    // Both files are already on the Cloud's disk; this only puts copies in
+    // the browser's downloads, which is what someone looking at the
+    // dashboard from another machine actually wants. Sequentially, with a
+    // pause: two synthetic clicks in the same tick and Firefox keeps one.
+    await grab(d.url, "measurements.csv");
+    await new Promise(r => setTimeout(r, 400));
+    await grab(d.requests_url, "requests.csv");
   } catch (e) {
     hint.className = "hint bad";
     hint.textContent = String(e.message || e);
@@ -403,8 +457,10 @@ async function save() {
 }
 
 async function quit() {
-  if (!confirm("Stop the Cloud?\n\nThe CSV is exported first. The robot keeps "
-               + "running and this page will go dead.")) return;
+  if (!confirm("Stop everything?\n\nBoth CSVs are exported first, then the "
+               + "Cloud stops and takes the simulation with it — Gazebo, "
+               + "RViz, the bridge and the robot node. This page will go "
+               + "dead.")) return;
   const hint = document.getElementById("sessionhint");
   hint.className = "hint";
   hint.textContent = "stopping…";
@@ -419,7 +475,7 @@ async function quit() {
     hint.textContent = "stop requested";
     return;
   }
-  hint.textContent = "the Cloud has stopped — restart it with agri-cloud";
+  hint.textContent = "stopped — restart with ./run_sim.sh and ./run_cloud.sh";
 }
 
 /* ------------------------------------------------------------ filters */

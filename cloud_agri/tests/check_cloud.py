@@ -946,6 +946,37 @@ def check_ros_package() -> None:
     check("and status() never raises even with no odometry",
           "NEVER RAISES" in robot and "except Exception" in robot)
 
+    # --- a broker that is not up yet is a WAIT, not a death --------------
+    #
+    # This is the whole of "my requests are not being executed". The node
+    # called connect(), got ECONNREFUSED because mosquitto had not been
+    # started yet, and main() returned 1. Gazebo stayed up, RViz drew the
+    # robot, the dashboard looked healthy, and every order went nowhere --
+    # with the only evidence eleven lines up in a log that had scrolled past.
+    check("the robot node waits for the broker instead of dying",
+          "connect_async(" in node and "self.client.connect(host" not in node,
+          "one refused connection at startup used to kill the node, and the "
+          "rest of the launch stayed up looking perfectly healthy")
+    check("and main() no longer exits on it",
+          "elif not node.connect()" not in node and "node.connect()" in node)
+    check("and it retries with a bounded backoff",
+          "reconnect_delay_set(" in node)
+    check("it re-subscribes on EVERY connect, not just the first",
+          "cl.subscribe(TOPIC_REQUEST" in node
+          and "Re-subscribe on EVERY connect" in node,
+          "a broker that restarted hands back an empty subscription table, "
+          "and a robot connected to nothing looks exactly like one that works")
+    check("it says so when the broker goes away",
+          "on_disconnect" in node and "lost the broker" in node)
+    check("and complains, on the wall clock, if none ever appears",
+          "BROKER_GRACE_S" in node and "threading.Timer(BROKER_GRACE_S" in node,
+          "use_sim_time is true here too: a ROS timer would be silent in "
+          "exactly the half-started case this watchdog exists to report")
+    check("and stops complaining once it is shutting down",
+          "_quiet.set()" in node and "_quiet.is_set()" in node)
+    check("the heartbeat does not publish into a dead client",
+          "not self._connected" in node)
+
     # The 2D view. Without the TF nothing in RViz can be placed at all.
     viz = (pkg / "agri_robot" / "viz_node.py").read_text()
     rviz = (pkg / "config" / "agri.rviz").read_text()
@@ -991,6 +1022,28 @@ def check_ros_package() -> None:
           text.index("/odom delivered nothing") < text.index("does NOT resolve"),
           "no /odom is the CAUSE of no map->base_link; reporting the "
           "symptom first sends you to the wrong file")
+
+    # --- WHICH COPY of the RViz layout gets loaded -----------------------
+    #
+    # The file above is correct. It was correct for two debugging sessions,
+    # during which RViz kept showing one display out of six -- because a
+    # plain `colcon build` COPIES it into share/, the launch passed that copy
+    # unconditionally, and the copy predated the fix. The world and the URDF
+    # already preferred the source tree; this one asset did not, and that
+    # asymmetry is what made the symptom unexplainable from the source.
+    check("the RViz layout is resolved, not assumed",
+          "_rviz_config(share)" in launch
+          and 'arguments=["-d", rviz_cfg]' in launch,
+          "passing share/config/agri.rviz directly means a stale install "
+          "keeps serving a stale layout for ever")
+    check("and the source tree wins over the installed copy",
+          "RVIZ_IN_SOURCE" in launch and "_source_root()" in launch)
+    check("and the launch says out loud which copy it handed over",
+          "[view] RViz config:" in launch,
+          "'RViz is showing something else' must never again be a thing you "
+          "have to guess at")
+    check("and warns when the installed copy has drifted",
+          "DIFFERS and is" in launch and "read_bytes() != " in launch)
 
     check("the viz node is exposed as a console script",
           "viz_node = agri_robot.viz_node:main" in setup)
@@ -1291,6 +1344,17 @@ def check_session_buttons() -> None:
             check("and the browser can download it from that URL",
                   code == 200 and raw.startswith(b"label,"), f"{code} {raw[:40]}")
 
+            # The button now downloads TWO files. A second URL that answers
+            # 404 would look identical to the first one working, because the
+            # browser reports nothing for a failed synthetic download.
+            check("ENREGISTRER exports the requests log as well",
+                  body.get("requests_url") == "/media/requests.csv",
+                  str(body))
+            code, raw = get(f"{base}{body['requests_url']}?token={token}")
+            check("and that one downloads too",
+                  code == 200 and raw.startswith(b"request_id,"),
+                  f"{code} {raw[:40]}")
+
             # Measurements are measurements whether they arrive as JSON or as
             # a file; a token that guards one and not the other guards nothing.
             code, _ = get(f"{base}/media/measurements.csv")
@@ -1328,6 +1392,363 @@ def check_session_buttons() -> None:
     check("and the offline demo is one of those",
           'partial(Handler, cloud, publish, "", None)' in demo,
           "the demo's dashboard must not be able to kill its own process")
+
+
+def check_timing() -> None:
+    """When was it asked for, and when was it answered.
+
+    The system used to keep one of the three moments a reading has, so the
+    only honest answer to "how long did that sweep take" was to watch a clock
+    while it ran. Every check here is about a number that has to survive from
+    the request being signed all the way into the CSV, because that file is
+    what ends up in the report.
+    """
+    print("\ntiming: when a request was issued and when it completed")
+    from agri import keys                                  # noqa: PLC0415
+    from agri.cloud.server import Cloud                    # noqa: PLC0415
+    from agri.cloud.store import Store, seconds_between    # noqa: PLC0415
+    from agri.robot import RobotLink, SimulatedDriver, Visitor  # noqa: PLC0415
+    from agri.sensors import GreenhouseField               # noqa: PLC0415
+
+    check("a duration between two of our own stamps is computed, not guessed",
+          seconds_between("2026-08-08T14:00:00Z", "2026-08-08T14:02:30Z") == 150.0,
+          str(seconds_between("2026-08-08T14:00:00Z", "2026-08-08T14:02:30Z")))
+    check("and a missing or foreign stamp gives None rather than raising",
+          seconds_between(None, "2026-08-08T14:00:00Z") is None
+          and seconds_between("last tuesday", "2026-08-08T14:00:00Z") is None,
+          "visits filed before these fields existed have neither; the "
+          "campaign must stay readable across a change to its own format")
+
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        keydir, storedir = d / "keys", d / "store"
+        cloud_keys = keys.ensure("cloud", keydir)
+        robot_keys = keys.ensure("robot", keydir)
+        cloud = Cloud(Store(storedir), keydir)
+
+        class Loopback:
+            def publish(self, topic, payload, qos=1, retain=False):
+                data = payload.encode() if isinstance(payload, str) else payload
+                if topic.startswith("agri/v1/report/"):
+                    cloud.on_report(data)
+                elif topic.startswith("agri/v1/ack/"):
+                    cloud.on_ack(data)
+
+        visitor = Visitor(robot_id="youbot-01",
+                          cloud_public_pem=cloud_keys.public_pem,
+                          robot_private_pem=robot_keys.private_pem,
+                          read_sensors=GreenhouseField().read,
+                          driver=SimulatedDriver(seed=3))
+        link = RobotLink(visitor, cloud_keys.public_pem, Loopback(),
+                         log=lambda s: None)
+
+        targets = ["P1,1R", "P1,1L", "P2,4R"]
+        rid, signed = cloud.build_request(targets)
+        p = cloud.progress[rid]
+        check("a request records when it was issued",
+              bool(p["issued_at"]) and p["issued_at"].endswith("Z"),
+              str(p.get("issued_at")))
+        check("and the stamp it records is the one that was SIGNED",
+              p["issued_at"] == signed["payload"]["issued_at"],
+              "the Cloud's note of when it asked and the robot's copy of the "
+              "order must be the same number, or they are two opinions")
+        check("a request in flight has no completion time yet",
+              p["completed_at"] is None and p["elapsed_s"] is None)
+
+        link.mission = link.on_request(json.dumps(signed).encode())
+        link.run_mission(lambda: 0.0)
+
+        p = cloud.progress[rid]
+        check("a finished request records when it completed",
+              p["done"] == p["total"] and bool(p["completed_at"]),
+              str(p))
+        check("and how long it took, in seconds",
+              p["elapsed_s"] is not None and p["elapsed_s"] >= 0,
+              str(p.get("elapsed_s")))
+
+        # A mission can end WITHOUT filing everything -- an obstacle, a drive
+        # error, a robot restarted mid-sweep. The record has to close anyway,
+        # or the dashboard shows it running for ever and requests.csv carries
+        # a blank cell with nothing to explain it.
+        from agri.protocol import make_ack                  # noqa: PLC0415
+        rid2, _ = cloud.build_request(["P3,1R", "P3,1L"])
+        cloud.on_ack(json.dumps(make_ack(rid2, "youbot-01", "failed",
+                                         detail="lidar brake, gave up")).encode())
+        q = cloud.progress[rid2]
+        check("an ABORTED request is closed too, not left running for ever",
+              q["state"] == "failed" and bool(q["completed_at"])
+              and q["elapsed_s"] is not None,
+              str(q))
+        check("and it still says how far it got before it gave up",
+              q["done"] == 0 and q["total"] == 2 and "gave up" in q["detail"],
+              str(q))
+
+        # MQTT at QoS 1 is allowed to deliver the same message twice, and the
+        # store already tolerates that. The completion time must too, or a
+        # campaign's end time drifts every time the broker repeats itself.
+        was = p["completed_at"]
+        envelope, _ = visitor.visit("P1,1R", 0.0)
+        cloud.on_report(json.dumps(envelope).encode())
+        check("a re-delivered report does not move the completion time",
+              cloud.progress[rid]["completed_at"] == was,
+              f"{was} became {cloud.progress[rid]['completed_at']}")
+
+        # --- the three clocks, on the visit itself ------------------------
+        v = cloud.store.latest_by_label()["P1,1L"]
+        check("a stored visit carries the order's time as well as its own",
+              v.request_issued_at == cloud.progress[rid]["issued_at"],
+              f"visit says {v.request_issued_at!r}")
+        check("and when the Cloud filed it",
+              bool(v.received_at) and v.received_at.endswith("Z"),
+              str(v.received_at))
+        check("so end-to-end latency is derivable from the stored line alone",
+              v.latency_s is not None and v.latency_s >= 0, str(v.latency_s))
+        check("all three survive a round trip through the JSONL",
+              type(v).from_json(v.to_json()).latency_s == v.latency_s,
+              "the store is append-only text; a field that does not "
+              "round-trip is a field that is lost on the next restart")
+
+        # A reading filed with no request behind it (a redelivery after a
+        # restart, a standalone run) must still be filed, not refused.
+        loose = dict(json.loads(json.dumps(
+            {"measurement": {"label": "P3,8L",
+                             "timestamp": "2026-08-08T14:00:00Z",
+                             "values": {q: 1.0 for q in
+                                        ("temperature", "humidity",
+                                         "luminosity", "co2", "ph")}},
+             "robot": "youbot-01", "request_id": "not-a-request"})))
+        filed = cloud.store.add_report(loose)
+        check("a report with no request behind it is still filed",
+              filed.label == "P3,8L" and filed.request_issued_at is None
+              and filed.latency_s is None,
+              "the store must not require a request it has never seen")
+
+        # --- the CSVs, which are what actually reaches the report ---------
+        rows = cloud.store.export_csv().read_text().strip().splitlines()
+        head = rows[0].split(",")
+        for col in ("request_issued_at", "measured_at", "received_at",
+                    "latency_s"):
+            check(f"the measurements CSV names its {col} column", col in head,
+                  f"header is {head}")
+        check("and 'timestamp' is gone, because there are three of them now",
+              "timestamp" not in head,
+              "a column called timestamp next to two other times is a column "
+              "whose meaning has to be looked up in the source")
+        body = dict(zip(head, rows[1].split(",")))
+        check("a CSV row really carries the times, not just the headings",
+              body["request_issued_at"] and body["received_at"]
+              and body["latency_s"], str(body)[:200])
+
+        # Read back with the csv module, not str.split: a station label has a
+        # comma in it (P1,1R), so the targets column is legitimately quoted
+        # and splitting on commas would tear it apart. A CSV that only its
+        # writer can read is not an export.
+        import csv as _csv                                  # noqa: PLC0415
+
+        rpath = cloud.export_requests_csv()
+        with rpath.open(newline="") as fh:
+            rrows = list(_csv.reader(fh))
+        check("requests.csv is written beside the measurements",
+              rpath.name == "requests.csv" and rpath.parent == storedir)
+        check("with one row per request and a header",
+              len(rrows) == 1 + len(cloud.progress),
+              f"{len(rrows)} rows for {len(cloud.progress)} request(s)")
+        for col in ("issued_at", "completed_at", "elapsed_s", "targets"):
+            check(f"and it names its {col} column", col in rrows[0], str(rrows[0]))
+        rbody = dict(zip(rrows[0], rrows[1]))
+        check("the request row says what was asked for and when it was done",
+              rbody["issued_at"] and rbody["completed_at"]
+              and rbody["targets"] == ";".join(targets),
+              str(rbody)[:220])
+        check("and a label's own comma survives the export intact",
+              "P1,1R" in rbody["targets"].split(";"),
+              f"targets came back as {rbody['targets']!r}")
+
+    # The two exports must move together. Exporting one and not the other
+    # from the button, the console verb or the shutdown path is how a run
+    # ends with half its evidence.
+    server = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    check("every export path writes BOTH files",
+          server.count("export_requests_csv()") >= 3,
+          "the dashboard button, the console's csv verb and the shutdown "
+          "path each have to write it, or which one you used decides what "
+          "you end up with")
+
+    js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    check("the dashboard shows when a request was issued and when it finished",
+          "issued_at" in js and "completed_at" in js and "elapsed_s" in js)
+    check("and converts UTC to the reader's own clock",
+          "toLocaleTimeString" in js,
+          "the stamps travel as UTC because the greenhouse and the Cloud "
+          "need not share a time zone; showing that raw makes everyone "
+          "reading the page do the arithmetic")
+    check("the station detail names all three moments",
+          "request_issued_at" in js and "received_at" in js)
+    check("and an abandoned request is not reported as a finished one",
+          'r.state === "failed" ? "gave up"' in js,
+          "a failed request has an end time and a duration like any other; "
+          "labelling that 'done' reports a failure as a success in the one "
+          "place the operator looks for the answer")
+
+
+def check_launch_scripts() -> None:
+    """Two commands, and everything dies when either one is stopped.
+
+    These are the files the demonstration actually starts, so they are worth
+    more checking than the code they start -- a typo here is a demonstration
+    that does not begin.
+    """
+    print("\nthe two launch scripts")
+    import subprocess                                      # noqa: PLC0415
+
+    sim = ROOT / "run_sim.sh"
+    cloud_sh = ROOT / "run_cloud.sh"
+    pretty = ROOT / "tools" / "prettylog.py"
+
+    for p in (sim, cloud_sh, pretty):
+        check(f"{p.name} exists", p.exists(), str(p))
+        check(f"and {p.name} is executable",
+              p.exists() and os.access(p, os.X_OK),
+              "chmod +x, or the operator has to know to type bash first")
+    for p in (sim, cloud_sh):
+        r = subprocess.run(["bash", "-n", str(p)], capture_output=True,
+                           text=True)
+        check(f"{p.name} is valid bash", r.returncode == 0, r.stderr)
+    check("prettylog.py is valid Python", _parses(pretty.read_text()))
+
+    s = sim.read_text()
+    c = cloud_sh.read_text()
+
+    # THE mistake, made three times in one afternoon: launching without the
+    # virtualenv, watching robot_node die on `No module named 'qrcode'` a
+    # second after Gazebo opens, and concluding that requests do not work.
+    check("run_sim.sh activates the virtualenv itself",
+          "bin/activate" in s and ".venvs/agri" in s,
+          "forgetting it kills the robot node one second after Gazebo opens, "
+          "and nothing on screen connects the two")
+    check("and refuses to start rather than launching without one",
+          'die "no virtualenv found' in s,
+          "a launch that half-works is worse than one that does not start")
+    check("and proves the dependencies are really importable",
+          "import qrcode, paho.mqtt.client, cryptography" in s,
+          "an activated venv that was never pip-installed fails identically")
+    check("run_cloud.sh activates it too",
+          "bin/activate" in c and "no virtualenv found" in c)
+
+    check("run_sim.sh starts the broker BEFORE the launch",
+          s.index("mosquitto -p 1883") < s.index("ros2 launch"),
+          "the robot node connects at startup; it retries now, but a broker "
+          "that is already there means no error to explain")
+    check("and detects one without needing nc, lsof or ss",
+          "/dev/tcp/localhost/1883" in s and "/dev/tcp/localhost/1883" in c,
+          "a dependency on a networking tool that may not be installed is a "
+          "launch script that fails on somebody else's machine")
+    check("run_sim.sh only stops a broker it started itself",
+          'MOSQ=""' in s and 'kill -TERM "$MOSQ"' in s,
+          "killing a mosquitto the operator was already running would take "
+          "out whatever else was using it")
+
+    check("run_sim.sh cleans up through Phase B's kill_sim.sh",
+          "kill_sim.sh" in s,
+          "gz forks the server and the GUI through a ruby wrapper and neither "
+          "is in launch's table; that script already names every pattern")
+    check("and its cleanup runs on Ctrl-C, on TERM and on any exit",
+          "trap cleanup EXIT INT TERM" in s)
+    check("and cannot run twice",
+          "CLEANED=1" in s,
+          "EXIT fires after INT, so an unguarded handler kills everything "
+          "twice and prints the report twice")
+
+    # The two scripts stay two scripts. Starting the Cloud from the
+    # simulation would quietly undo the one architectural claim this project
+    # makes about itself.
+    check("run_cloud.sh does not start a simulation",
+          "ros2 launch" not in c and "gz sim" not in c,
+          "the Cloud is a separate process on a separate machine, or the "
+          "broker between them is decoration")
+    check("and run_sim.sh does not start a Cloud",
+          "agri.cloud.server" not in s and "agri-cloud" not in s)
+
+    # --- the stop-file contract, spelled in two languages ---------------
+    from agri import session                                # noqa: PLC0415
+
+    expected = session.stop_file()
+    m = re.search(r'^STOP="([^"]+)"', s, re.M)
+    check("run_sim.sh declares the stop file the Cloud writes", bool(m), s[:200])
+    if m:
+        shell = subprocess.run(
+            ["bash", "-c", f'echo "{m.group(1)}"'], capture_output=True,
+            text=True, env={**os.environ}).stdout.strip()
+        check("and the shell and Python spell the same path",
+              shell == str(expected),
+              f"shell says {shell!r}, agri.session says {str(expected)!r} -- "
+              "a contract written down twice is a contract that drifts")
+    check("run_sim.sh clears a stale stop file before it starts",
+          s.index('rm -f "$STOP"') < s.index("ros2 launch"),
+          "a file left by a SIGKILLed run would stop the next one instantly")
+    check("and watches for a new one while it runs",
+          'if [ -e "$STOP" ]' in s and 'kill -INT "$$"' in s)
+
+    server = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    check("the Cloud writes it when it stops, however it was stopped",
+          "ask_simulation_to_stop()" in server
+          and server.index("ask_simulation_to_stop()")
+          > server.index("def teardown()"),
+          "Ctrl-C in the console and QUITTER on the page both go through "
+          "teardown; putting it anywhere else makes them differ")
+    check("and there is a way to opt out",
+          "--keep-sim" in server and "args.keep_sim" in server)
+    check("writing it can fail without taking the Cloud down with it",
+          "except OSError:" in (ROOT / "agri" / "session.py").read_text(),
+          "a Cloud that could not write a hint file has still done its job")
+
+    # --- the log filter, exercised rather than string-matched -----------
+    sample = "\n".join([
+        "[INFO] [gazebo-1]: process started with pid [1]",
+        "[INFO] [robot_node-7]: process started with pid [2]",
+        '[gazebo-1] [GUI] [Wrn] [Application.cc:908] [QT] Dialogs.qml:413:17: '
+        'QML ToolButton: Binding loop detected for property "implicitHeight"',
+        "[gazebo-1] [Msg] Serving entity system service on [/entity/system/add]",
+        "[gazebo-1] Warning [Utils.cc:132] XML Element[gz_frame_id], child of "
+        "element[sensor], not defined in SDF.",
+        "[parameter_bridge-4] [INFO] [1.0] [gz_bridge]: Creating GZ->ROS "
+        "Bridge: [/odom (gz.msgs.Odometry) -> /odom (nav_msgs/msg/Odometry)]",
+        "[viz_node-5] [INFO] [1.0] [agri_viz]: agri_viz: first /odom at "
+        "x=-4.58 y=-1.85; map -> base_link is live",
+        "[robot_node-7] [ERROR] [1.0] [agri_robot]: ModuleNotFoundError: "
+        "No module named 'qrcode'",
+        "[ERROR] [robot_node-7]: process has died [pid 2, exit code 1, "
+        "cmd '/x/lib/agri_robot/robot_node --ros-args'].",
+    ])
+    r = subprocess.run([sys.executable, str(pretty), "--no-colour"],
+                       input=sample, capture_output=True, text=True, timeout=60)
+    out = r.stdout
+    check("the log filter runs without dying on real launch output",
+          r.returncode == 0, r.stderr[-400:])
+    check("it hides Qt binding loops", "Binding loop" not in out, out)
+    check("it hides gz service advertisements", "Serving entity" not in out, out)
+    check("it hides the gz_frame_id SDF warning", "gz_frame_id" not in out, out)
+    check("it keeps the first-odometry line, which decides whether RViz works",
+          "first /odom at x=-4.58" in out, out)
+    check("it keeps a process dying, and names which one",
+          "robot_node DIED" in out, out)
+    check("it turns a missing virtualenv into the instruction that fixes it",
+          "source ~/.venvs/agri/bin/activate" in out,
+          "this exact line scrolled past twice and both times the conclusion "
+          "drawn was that requests were broken")
+    check("it summarises the bridge instead of one line per topic",
+          "gz bridge: 1 topics" in out, out)
+    check("and says how much it hid, so nobody wonders",
+          "routine lines hidden" in out, out)
+    check("--raw passes everything through unchanged",
+          subprocess.run([sys.executable, str(pretty), "--raw"],
+                         input=sample, capture_output=True, text=True,
+                         timeout=60).stdout.count("Binding loop") == 1,
+          "the filter must never be the only copy of its input")
+    check("and run_sim.sh keeps the unfiltered log on disk regardless",
+          'tee -a "$RAWLOG"' in s and "logs/" in (ROOT / ".gitignore").read_text(),
+          "a filtered view with no original behind it is a view you cannot "
+          "check")
 
 
 def check_multinode() -> None:
@@ -1476,7 +1897,7 @@ def main() -> int:
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
                check_session_buttons, check_multinode,
-               check_end_to_end,
+               check_end_to_end, check_timing, check_launch_scripts,
                check_demo, check_hygiene):
         fn()
     print()

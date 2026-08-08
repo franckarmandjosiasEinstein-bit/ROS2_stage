@@ -168,6 +168,10 @@ button, input {
 .req { border-left: 2px solid var(--accent); padding: .35rem .6rem;
        background: var(--bg-raise); font-size: .72rem; }
 .req .id { color: var(--ink-dim); }
+/* Tabular figures so a clock that ticks does not shuffle the text beside it
+   on every 2 s poll. */
+.req .when { color: var(--ink-dim); font-size: .66rem; margin-top: .15rem;
+             font-variant-numeric: tabular-nums; }
 .req .prog { height: 3px; background: var(--line); margin-top: .3rem; }
 .req .prog i { display: block; height: 100%; background: var(--accent); }
 .rej { border-left: 2px solid var(--bad); padding: .35rem .6rem;
