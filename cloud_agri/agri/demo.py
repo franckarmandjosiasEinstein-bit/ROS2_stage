@@ -267,8 +267,10 @@ def run(targets: str | list[str], work: Path, explain: bool,
           + (", ".join(flagged) or "nothing -- every reading is plausible"))
     _spread(cloud.store.all_visits())
     csv = cloud.store.export_csv()
+    plants = cloud.store.export_plants_csv()
     print(f"  visits   {store_dir / 'visits.jsonl'}")
     print(f"  export   {csv}")
+    print(f"  plants   {plants}  (one row per plant, R then L)")
     print(f"  media    {store_dir / 'photos'} and {store_dir / 'qr'}")
 
     if explain and cloud.accepted:

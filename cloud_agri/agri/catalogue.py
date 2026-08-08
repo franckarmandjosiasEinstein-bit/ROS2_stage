@@ -103,6 +103,40 @@ SIDE_SIGN = {"L": +1.0, "R": -1.0}
 #: (+0.50, 0) in the world too and never needs rotating.
 SENSOR_OFFSET_X = 0.50
 
+#: WHERE THE PAN HEAD SITS, and why it is not where the cross is.
+#:
+#: The pan mast is mounted 0.18 m ahead of base_link (j_camera_pan in the
+#: URDF). The sensor point -- the boom tip, under the floor camera, the
+#: point a station names -- is 0.50 m ahead of it. So the lens that
+#: photographs the plant is CAMERA_LEVER_X = 0.32 m BEHIND the cross the
+#: robot is standing on.
+#:
+#: That distance is small and its consequence is not. Aiming the head with
+#: the bearing from the CROSS rather than from the LENS misses by 30.2
+#: degrees at every station, which against a 69-degree field of view puts
+#: the plant hard against the edge of the frame -- present in every
+#: photograph, centred in none, and never obviously broken.
+#:
+#: make_robot.py asserts this equals the joint origin it writes, so the
+#: number cannot drift away from the robot it describes.
+CAMERA_PIVOT_X = 0.18
+CAMERA_LEVER_X = SENSOR_OFFSET_X - CAMERA_PIVOT_X
+
+#: HOW FAR PAST THE PLANT THE CROSS IS PAINTED, along the aisle.
+#:
+#: The robot cannot see the floor under its own middle -- the chassis is in
+#: the way -- which is the whole reason the boom exists. So the cross has to
+#: be under the boom tip, and the question is where that leaves the rest of
+#: the robot.
+#:
+#: With the cross at the plant's own x, the chassis ends up 0.50 m down the
+#: aisle from the plant it is measuring: the robot is demonstrably NOT at
+#: the plant, in Gazebo and in every photograph. Offsetting the cross by
+#: exactly the boom length puts base_link on the plant's x instead. The
+#: robot then straddles the plant, the floor camera still lies over the
+#: cross, and the pan head has only the 0.18 m mast offset left to correct.
+STATION_ALONG_AISLE = SENSOR_OFFSET_X
+
 #: Half-length of a painted cross arm, and the thickness of the arms, in
 #: metres. The arm length is NOT a matter of taste: in an inner aisle two
 #: stations sit at the SAME x, 0.10 m apart in y, so their y arms lie on one
@@ -136,21 +170,44 @@ class Station:
     plant_x: float      # the plant to measure and photograph
     plant_y: float
 
+    def camera_position(self, robot_yaw: float = 0.0) -> tuple[float, float]:
+        """Where the PAN HEAD is when the robot is parked on this cross.
+
+        Not the cross. The cross is under the floor camera at the boom tip;
+        the pan head is on the mast, CAMERA_LEVER_X behind it along the
+        robot's own +x axis. Those are two different points on one rigid
+        body, and aiming from the wrong one is what this method exists to
+        stop -- see pan_for.
+        """
+        return (self.x - CAMERA_LEVER_X * math.cos(robot_yaw),
+                self.y - CAMERA_LEVER_X * math.sin(robot_yaw))
+
     @property
     def plant_bearing(self) -> float:
-        """World angle from the cross to the plant, in radians.
+        """World angle from the PAN HEAD to the plant, driving east (yaw=0).
 
-        +pi/2 when the plant is to the north (+y), -pi/2 when south. The
-        robot subtracts its own heading from this to get the pan angle, so
-        the same station works whichever way down the aisle it is driving.
-        Storing a fixed robot yaw here instead would silently assume a
-        direction of travel, and half the visits would look the wrong way.
+        Positive when the plant is to the north (+y). The robot subtracts
+        its own heading from this to get the pan angle, so the same station
+        works whichever way down the aisle it is driving. Storing a fixed
+        robot yaw here instead would silently assume a direction of travel,
+        and half the visits would look the wrong way.
         """
-        return math.atan2(self.plant_y - self.y, self.plant_x - self.x)
+        cx, cy = self.camera_position(0.0)
+        return math.atan2(self.plant_y - cy, self.plant_x - cx)
 
     def pan_for(self, robot_yaw: float) -> float:
-        """Head angle that points the camera at the plant from this station."""
-        d = self.plant_bearing - robot_yaw
+        """Head angle that points the camera at the plant from this station.
+
+        MEASURED FROM THE PAN HEAD, NOT FROM THE CROSS. This was the bug
+        that made every photograph useless without making any of them
+        obviously wrong: the angle was computed from the station -- the boom
+        tip -- while the lens sits CAMERA_LEVER_X = 0.32 m behind it. The
+        two points see the plant 30.2 degrees apart, and with a 69-degree
+        field of view that is 0.9 of a half-frame: the plant sat at the very
+        edge of every image, in frame, so nothing looked broken.
+        """
+        cx, cy = self.camera_position(robot_yaw)
+        d = math.atan2(self.plant_y - cy, self.plant_x - cx) - robot_yaw
         return math.atan2(math.sin(d), math.cos(d))
 
     @property
@@ -175,7 +232,8 @@ def station(label_or_row, plant: int | None = None,
     px, py = plant_position(row, plant)
     sign = SIDE_SIGN[side.upper()]
     return Station(label=label, row=row, plant=plant, side=side.upper(),
-                   x=px, y=py + sign * STATION_REACH, plant_x=px, plant_y=py)
+                   x=px + STATION_ALONG_AISLE, y=py + sign * STATION_REACH,
+                   plant_x=px, plant_y=py)
 
 
 def all_stations() -> list[Station]:

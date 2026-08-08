@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGRI-CLOUD // measurement table</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="glyph">◈</span>
+    <span class="title">AGRI<span class="dim">-</span>CLOUD</span>
+    <span class="sub">measurement table // one row per plant</span>
+  </div>
+  <div class="link">
+    <a class="navlink" href="/">← greenhouse map</a>
+  </div>
+</header>
+
+<!--
+  ONE ROW PER PLANT, NOT PER READING.
+
+  A plant is measured on both sides, and the pair is the unit an agronomist
+  compares: a dry patch shows as R and L disagreeing with the field, and
+  reading that off two rows forty lines apart is not reading it at all. So
+  the right-hand station's five values and its two media links come first,
+  then the left-hand station's, on the same line -- and store/measurements.csv
+  is written in exactly this shape, so the file and the page agree.
+-->
+<section class="panel tablewrap">
+  <div class="panel-head">
+    <h2>collected data</h2>
+    <div class="tablebar">
+      <label><input type="checkbox" id="only-measured"> measured only</label>
+      <a class="navlink" id="dl-csv" href="#">download CSV</a>
+    </div>
+  </div>
+  <div class="tscroll">
+    <table class="grid" id="grid">
+      <thead>
+        <tr>
+          <th rowspan="2" class="stick">plant</th>
+          <th colspan="8" class="side-r">RIGHT&nbsp;//&nbsp;south side</th>
+          <th colspan="8" class="side-l">LEFT&nbsp;//&nbsp;north side</th>
+        </tr>
+        <tr>
+          <th>measured</th><th>t</th><th>RH</th><th>lux</th>
+          <th>CO₂</th><th>pH</th><th>photo</th><th>QR</th>
+          <th>measured</th><th>t</th><th>RH</th><th>lux</th>
+          <th>CO₂</th><th>pH</th><th>photo</th><th>QR</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="hint" id="tablefoot">loading…</div>
+</section>
+
+<script src="/static/table.js"></script>
+</body>
+</html>

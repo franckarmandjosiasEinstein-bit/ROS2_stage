@@ -230,7 +230,7 @@
     <parent link="base_link"/><child link="camera_pan"/>
     <origin xyz="0.18 0 0.78"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-1.5708" upper="1.5708" effort="4.0" velocity="1.5"/>
+    <limit lower="-2.1817" upper="2.1817" effort="4.0" velocity="1.5"/>
     <!-- Damping is not optional here. The JointPositionController applies a
          FORCE, and a 0.08 kg head with 2e-5 kg m^2 of inertia and no damping
          is a near-integrator: it overshoots, rings, and never sits inside a

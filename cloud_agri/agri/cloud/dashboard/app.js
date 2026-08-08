@@ -21,6 +21,11 @@ const S = { state: null, quantity: "temperature", selected: null,
 (function () {
   const p = new URLSearchParams(window.location.search);
   if (p.has("token")) S.token = p.get("token");
+  /* Carry the token across to the table page. Without this the link works,
+     the page renders, and every fetch behind it comes back 401 -- which
+     looks like a broken table rather than a missing credential. */
+  const nav = document.getElementById("nav-table");
+  if (nav && S.token) nav.href = "/table?token=" + encodeURIComponent(S.token);
 })();
 
 /* TEXT INSIDE THE FLIPPED MAP.

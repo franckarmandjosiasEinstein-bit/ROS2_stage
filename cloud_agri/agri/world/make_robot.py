@@ -38,9 +38,10 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 from pathlib import Path
 
-from agri.catalogue import SENSOR_OFFSET_X
+from agri.catalogue import CAMERA_PIVOT_X, SENSOR_OFFSET_X
 from agri.vision import CAM_HFOV, CAM_HEIGHT, CAM_WIDTH, CAM_X, CAM_Y, CAM_Z
 
 #: The gz topic the camera publishes on, and therefore the name the bridge
@@ -105,6 +106,47 @@ def boom_sdf() -> str:
 """
 
 
+#: How far the pan head must be able to turn, and why Phase B's limit is
+#: not enough.
+#:
+#: Phase B built the head for a robot that looked FORWARD at a row it was
+#: driving along, so +/-90 degrees was generous. Phase C parks the chassis
+#: beside the plant and photographs it side-on from a lens 0.18 m ahead of
+#: base_link, which needs 108.1 degrees (see catalogue.CAMERA_LEVER_X).
+#: At Phase B's limit the joint saturates at 90 and the plant sits 18
+#: degrees off-centre -- in frame, so nothing looks broken.
+#:
+#: Widened HERE rather than in Phase B's URDF, because Phase C generates
+#: its own robot and must not write into the other project. 125 degrees
+#: leaves 17 degrees of margin, which a position controller at its stop
+#: needs and an ordinary commercial pan unit has many times over.
+PAN_LIMIT = math.radians(125.0)
+_PHASE_B_PAN_LIMIT = '<limit lower="-1.5708" upper="1.5708" effort="4.0" velocity="1.5"/>'
+
+
+def _widen_pan(urdf: str) -> str:
+    """Give j_camera_pan the travel Phase C's geometry needs.
+
+    Anchored on the joint block rather than on the limit string alone: the
+    arm joints could one day carry the same numbers, and a blind replace
+    would quietly re-limit them too.
+    """
+    head = urdf.find('<joint name="j_camera_pan"')
+    if head < 0:
+        raise ValueError("no j_camera_pan joint in the source robot")
+    end = urdf.find("</joint>", head)
+    block = urdf[head:end]
+    if _PHASE_B_PAN_LIMIT not in block:
+        raise ValueError(
+            "j_camera_pan does not carry the limit this generator expects.\n"
+            f"  wanted: {_PHASE_B_PAN_LIMIT}\n"
+            "  The Phase B robot changed; check the new limit is at least "
+            f"{math.degrees(PAN_LIMIT):.0f} deg and update PAN_LIMIT.")
+    wider = (f'<limit lower="{-PAN_LIMIT:.4f}" upper="{PAN_LIMIT:.4f}" '
+             'effort="4.0" velocity="1.5"/>')
+    return urdf[:head] + block.replace(_PHASE_B_PAN_LIMIT, wider) + urdf[end:]
+
+
 def build(source: Path, target: Path) -> str:
     urdf = source.read_text()
     if "</robot>" not in urdf:
@@ -112,6 +154,21 @@ def build(source: Path, target: Path) -> str:
     if "floor_cam" in urdf:
         raise ValueError(f"{source} already has the boom; generate from the "
                          "ORIGINAL Phase B robot, not from a generated one")
+
+    # The pan mast's position is a number Phase C reasons about (it is what
+    # CAMERA_LEVER_X is measured from), so read it back rather than trust
+    # it. A silent disagreement here aims every photograph slightly wrong.
+    m = re.search(r'<joint name="j_camera_pan".*?<origin xyz="([-\d.]+) ',
+                  urdf, re.S)
+    if m is None:
+        raise ValueError("cannot read the j_camera_pan origin from the source")
+    if abs(float(m.group(1)) - CAMERA_PIVOT_X) > 1e-6:
+        raise ValueError(
+            f"the robot mounts its pan head at x={m.group(1)} but "
+            f"catalogue.CAMERA_PIVOT_X says {CAMERA_PIVOT_X}. Every plant "
+            "photograph is aimed from that number; fix the catalogue.")
+
+    urdf = _widen_pan(urdf)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(urdf.replace("</robot>", boom_sdf() + "</robot>", 1))
 

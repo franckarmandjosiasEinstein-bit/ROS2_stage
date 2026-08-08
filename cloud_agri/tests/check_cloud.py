@@ -116,7 +116,8 @@ def check_catalogue() -> None:
     print("\ncatalogue geometry")
     import math
 
-    from agri.catalogue import (BASE_HALF_WIDTH, GUTTER_HALF_WIDTH, ROW_Y,
+    from agri.catalogue import (BASE_HALF_WIDTH, CAMERA_LEVER_X,
+                                GUTTER_HALF_WIDTH, ROW_Y, SENSOR_OFFSET_X,
                                 all_stations, clearances, nearest_station,
                                 plant_position, station, worst_clearance)
 
@@ -160,15 +161,73 @@ def check_catalogue() -> None:
           "turning the base to face the plant leaves ~1 cm; it must stay "
           "along the aisle and pan the head instead")
 
-    # Pan angle must work in BOTH directions of travel, or half the visits
-    # photograph the opposite row.
-    s = station("P2,1R")
-    check("head pans +90 deg driving east at an R station",
-          abs(math.degrees(s.pan_for(0.0)) - 90) < 1e-6)
-    check("head pans -90 deg driving west at the same station",
-          abs(math.degrees(s.pan_for(math.pi)) + 90) < 1e-6)
-    check("an L station looks the other way",
-          abs(math.degrees(station('P2,1L').pan_for(0.0)) + 90) < 1e-6)
+    # THE PAN ANGLE, CHECKED AGAINST THE PLANT RATHER THAN AGAINST 90.
+    #
+    # These three used to assert the head turns exactly +/-90 degrees. That
+    # is a statement about the CROSS -- the plant is square across the aisle
+    # from it -- and the camera is not on the cross. It sits
+    # CAMERA_LEVER_X = 0.32 m behind, on the mast, so the true bearing is
+    # 108.1 degrees and the old assertion was passing on a value that
+    # missed the plant by 30.2 degrees at every station. With a 69-degree
+    # field of view the plant stayed just inside the frame, which is why
+    # 48 photographs a run went on looking acceptable.
+    #
+    # The property worth pinning is not a number. It is: WHEREVER the head
+    # ends up pointing, the plant is in front of the lens. So the check now
+    # projects a ray from the lens along the commanded angle and asserts it
+    # hits the plant.
+    def aiming_error_deg(s, yaw):
+        cx, cy = s.camera_position(yaw)
+        want = math.atan2(s.plant_y - cy, s.plant_x - cx)
+        got = s.pan_for(yaw) + yaw          # world angle the lens looks along
+        d = math.atan2(math.sin(want - got), math.cos(want - got))
+        return abs(math.degrees(d))
+
+    for lab in ("P2,1R", "P2,1L", "P1,4R", "P3,8L"):
+        s = station(lab)
+        for yaw, way in ((0.0, "east"), (math.pi, "west")):
+            check(f"the lens is aimed AT the plant at {lab} driving {way}",
+                  aiming_error_deg(s, yaw) < 1e-6,
+                  f"{aiming_error_deg(s, yaw):.1f} deg off; the camera is on "
+                  "the mast, not on the cross")
+
+    # And the two sides still look opposite ways, which is the thing the
+    # +/-90 assertion was really protecting.
+    check("an R station and an L station look opposite ways",
+          station("P2,1R").pan_for(0.0) * station("P2,1L").pan_for(0.0) < 0)
+    check("and reversing the direction of travel flips the head",
+          station("P2,1R").pan_for(0.0) * station("P2,1R").pan_for(math.pi) < 0,
+          "otherwise half the visits photograph the opposite row")
+
+    # The head has to be able to REACH the angle. Phase B limited it to 90
+    # degrees, which Phase C's geometry exceeds; make_robot.py widens it,
+    # and this is what would catch that widening being lost.
+    from agri.world.make_robot import PAN_LIMIT                # noqa: PLC0415
+    worst = max(abs(s.pan_for(0.0)) for s in st)
+    check("every station's pan angle is inside the joint's travel",
+          worst < PAN_LIMIT,
+          f"needs {math.degrees(worst):.1f} deg, joint allows "
+          f"{math.degrees(PAN_LIMIT):.1f} deg -- the head would saturate and "
+          "the plant would sit off-centre in frame, looking fine")
+
+    # THE ROBOT IS AT THE PLANT, not half a metre down the aisle from it.
+    # This is what moving the crosses by SENSOR_OFFSET_X bought, and it is
+    # invisible from any other check: the old geometry parked the chassis
+    # 0.50 m along the row and every reading was still filed correctly.
+    for s in st:
+        base_x = s.x - SENSOR_OFFSET_X
+        if abs(base_x - s.plant_x) > 1e-9:
+            check(f"the chassis stands beside plant {s.label}", False,
+                  f"base_link at x={base_x:.2f}, plant at x={s.plant_x:.2f}")
+            break
+    else:
+        check("the chassis stands beside the plant, at all 48 stations", True)
+    check("and the cross is still under the floor camera",
+          abs((station("P2,1R").x - SENSOR_OFFSET_X)
+              + SENSOR_OFFSET_X - station("P2,1R").x) < 1e-9,
+          "the boom tip is the sensor point and the sensor point is the "
+          "cross; if that stops being true the visual centring has nothing "
+          "to centre on")
 
     # nearest_station is what catches a visit filed under the wrong label.
     for s in st:
@@ -1285,6 +1344,83 @@ def check_dashboard() -> None:
     check("the default theme is the light one",
           "--bg:" in light and "prefers-color-scheme: dark" in css,
           ":root must define the LIGHT palette, with dark as the override")
+
+    # --- the two media panes are the same size ---------------------------
+    # The QR code is square and the photograph is 4:3, so left alone they
+    # rendered at different heights and the pair looked misaligned.
+    check("the photograph and the QR code render at the same size",
+          "--media-size" in css and "object-fit: contain" in css,
+          "both panes must be one fixed box, with the photo fitted inside")
+    check("and the photograph is letterboxed, not cropped",
+          "object-fit: cover" not in css,
+          "cropping a plant photograph to tidy a layout throws away the "
+          "evidence the photograph exists to carry")
+
+    # --- the measurement table page --------------------------------------
+    tbl = (d / "table.html").read_text()
+    tjs = (d / "table.js").read_text()
+    check("there is a table page", (d / "table.html").exists())
+    check("and the Cloud serves it at /table",
+          '"/table"' in (ROOT / "agri" / "cloud" / "server.py").read_text())
+    check("every element table.js addresses exists in table.html",
+          not [i for i in re.findall(r'getElementById\("([^"]+)"\)', tjs)
+               if f'id="{i}"' not in tbl],
+          str([i for i in re.findall(r'getElementById\("([^"]+)"\)', tjs)
+               if f'id="{i}"' not in tbl]))
+    check("the table is one row per PLANT, not one per station",
+          "R${" not in tjs and "sideCells(R) + sideCells(L)" in tjs,
+          "the comparison that carries the information is R against L on "
+          "the same plant; one station per row hides it")
+    check("the right-hand station comes first, then the left",
+          tjs.index("sideCells(R)") < tjs.index("sideCells(L)"))
+    check("both sides carry a link to their photograph and their QR",
+          tjs.count('media(s.photo') == 1 and tjs.count('media(s.qr') == 1)
+    check("media are links rather than 96 inline images",
+          "<a href=" in tjs and "<img" not in tjs,
+          "ninety-six images inline would make the page unusable on the "
+          "laptop it is demonstrated from")
+    check("a station never measured shows a dash, not a zero",
+          '"—"' in tjs and "not measured" in tjs)
+    check("the plant column stays put when the table scrolls sideways",
+          "position: sticky" in css and "th.stick" in css,
+          "sixteen data columns do not fit; scrolling right must not take "
+          "away the only thing saying which row you are reading")
+    check("the two pages link to each other",
+          'href="/table"' in (d / "index.html").read_text()
+          and 'href="/"' in tbl)
+    check("and the token is carried across both links",
+          "/table?token=" in (d / "app.js").read_text()
+          and "/?token=" in tjs,
+          "otherwise the page renders and every fetch behind it 401s, "
+          "which looks like a broken table rather than a missing credential")
+
+    # --- plants.csv is the same shape as the page ------------------------
+    from agri.cloud.store import Store                        # noqa: PLC0415
+    st = Store(Path(tempfile.mkdtemp()) / "s")
+    cols = st.PLANT_COLUMNS
+    check("plants.csv is one row per plant, both sides on the line",
+          cols[:3] == ["plant", "row", "index"]
+          and any(c.startswith("R_") for c in cols)
+          and any(c.startswith("L_") for c in cols))
+    check("and its right block really precedes its left block",
+          max(i for i, c in enumerate(cols) if c.startswith("R_"))
+          < min(i for i, c in enumerate(cols) if c.startswith("L_")),
+          "the file and the page must be readable the same way")
+    check("and each side carries its own photo and QR path",
+          {"R_photo", "R_qr", "L_photo", "L_qr"} <= set(cols))
+    rows = list(csv.DictReader(
+        st.export_plants_csv(Path(tempfile.mkdtemp()) / "p.csv")
+        .read_text().splitlines()))
+    check("an empty store still writes all 24 plants", len(rows) == 24,
+          f"{len(rows)} rows")
+    check("and an unmeasured side is EMPTY, not zero",
+          rows[0]["R_temperature"] == "" and rows[0]["L_photo"] == "",
+          f"got {rows[0]['R_temperature']!r}")
+    srv = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    check("every export path writes the per-plant file too",
+          srv.count("export_plants_csv") == 3,
+          f"{srv.count('export_plants_csv')} of 3 call sites -- the console, "
+          "the dashboard button and the shutdown must agree")
 
 
 def check_session_buttons() -> None:

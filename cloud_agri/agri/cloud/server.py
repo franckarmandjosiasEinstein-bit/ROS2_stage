@@ -332,6 +332,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
             return self._file(DASHBOARD / "index.html")
+        if path in ("/table", "/table.html"):
+            return self._file(DASHBOARD / "table.html")
         if path.startswith("/static/"):
             return self._file(DASHBOARD / Path(path[8:]).name)
         if path == "/api/state":
@@ -384,12 +386,15 @@ class Handler(BaseHTTPRequestHandler):
         """
         try:
             path = self.cloud.store.export_csv()
+            plants = self.cloud.store.export_plants_csv()
             requests = self.cloud.export_requests_csv()
         except OSError as exc:
             return self._json({"error": str(exc)}, 500)
         measured, total = self.cloud.store.coverage()
-        print(f"cloud: exported {path} and {requests}")
+        print(f"cloud: exported {path}, {plants} and {requests}")
         return self._json({"path": str(path), "url": "/media/" + path.name,
+                           "plants_path": str(plants),
+                           "plants_url": "/media/" + plants.name,
                            "requests_path": str(requests),
                            "requests_url": "/media/" + requests.name,
                            "requests": len(self.cloud.progress),
@@ -486,6 +491,7 @@ class Console:
                     self.show(rest.strip())
                 elif verb == "csv":
                     print(f"  exported {self.cloud.store.export_csv()}")
+                    print(f"  exported {self.cloud.store.export_plants_csv()}")
                     print(f"  exported {self.cloud.export_requests_csv()}")
                 else:
                     self.request(line)
@@ -674,6 +680,7 @@ def main(argv: list[str] | None = None) -> int:
         print("cloud: stopping")
         try:
             print(f"cloud: exported {cloud.store.export_csv()}")
+            print(f"cloud: exported {cloud.store.export_plants_csv()}")
             print(f"cloud: exported {cloud.export_requests_csv()}")
         except Exception as exc:                     # noqa: BLE001
             print(f"cloud: could not export ({exc})")

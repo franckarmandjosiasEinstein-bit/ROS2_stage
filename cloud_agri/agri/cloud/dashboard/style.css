@@ -192,8 +192,18 @@ button, input {
 .reading .bar-t i { display: block; height: 100%; }
 .reading .val { text-align: right; font-variant-numeric: tabular-nums; }
 .reading.flagged .val { color: var(--alert); font-weight: 700; }
+/* THE TWO MEDIA PANES ARE THE SAME SIZE, DELIBERATELY.
+   The QR code is square and the photograph is 4:3, so left to themselves
+   they rendered at different heights and the pair looked misaligned. Both
+   panes are now a fixed square box of MEDIA_SIZE, and the photograph is
+   fitted inside it with object-fit: contain -- letterboxed rather than
+   cropped, because cropping a plant photograph to make a layout tidy
+   throws away the evidence the photograph exists to carry. */
+:root { --media-size: 220px; }
 .media { margin: 0; }
-.media img { display: block; max-width: 220px; width: 100%; height: auto;
+.media img { display: block; width: var(--media-size);
+             height: var(--media-size); object-fit: contain;
+             max-width: 100%;
              border: 1px solid var(--line); background: var(--bg-raise); }
 .media figcaption { color: var(--ink-dim); font-size: .68rem; margin-top: .3rem;
                     letter-spacing: .08em; }
@@ -236,3 +246,39 @@ footer { padding: .6rem 1.1rem; color: var(--ink-dim); font-size: .7rem;
    belongs to, which is the whole reason the offset is safe. */
 .stem { stroke-width: .012; opacity: .65; }
 .station.sel .chip { stroke: var(--accent); stroke-width: .03; }
+
+/* =====================================================================
+   THE MEASUREMENT TABLE  (/table)
+   One row per plant, both sides on the line. Sixteen data columns plus a
+   label do not fit a laptop, so the table scrolls HORIZONTALLY inside its
+   own box and the plant column is pinned -- scrolling right must not take
+   away the only thing that says which row you are reading.
+   ===================================================================== */
+.navlink { color: var(--accent); text-decoration: none; font-size: .74rem;
+           letter-spacing: .06em; }
+.navlink:hover { text-decoration: underline; }
+.tablewrap { margin: 1rem; }
+.tablebar { display: flex; gap: 1rem; align-items: center;
+            font-size: .72rem; color: var(--ink-dim); }
+.tscroll { overflow-x: auto; }
+table.grid { border-collapse: collapse; width: 100%; font-size: .72rem; }
+table.grid th, table.grid td { border: 1px solid var(--line);
+                               padding: .28rem .45rem; white-space: nowrap; }
+table.grid thead th { background: var(--bg-raise); color: var(--ink-dim);
+                      font-weight: 600; letter-spacing: .06em;
+                      text-transform: uppercase; font-size: .64rem; }
+/* The two sides are tinted differently. With sixteen near-identical
+   columns the eye needs a boundary, and a vertical rule alone was not
+   enough to stop a reader taking an L value for an R one. */
+table.grid th.side-r { background: color-mix(in srgb, var(--accent) 14%, var(--bg-raise)); }
+table.grid th.side-l { background: color-mix(in srgb, var(--accent2, var(--accent)) 8%, var(--bg-raise)); }
+table.grid tbody th.stick { position: sticky; left: 0; z-index: 2;
+                            background: var(--bg-raise); color: var(--ink);
+                            font-weight: 700; }
+table.grid thead th.stick { position: sticky; left: 0; z-index: 3; }
+table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.grid td.when { font-variant-numeric: tabular-nums; color: var(--ink-dim); }
+table.grid td.mono, table.grid td.dim { font-family: ui-monospace, monospace; }
+table.grid td.dim { color: var(--ink-dim); }
+table.grid tr.empty-row td, table.grid tr.empty-row th { opacity: .45; }
+table.grid tbody tr:hover td { background: var(--bg-raise); }

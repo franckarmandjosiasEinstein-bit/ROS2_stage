@@ -48,7 +48,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from agri.labels import all_labels
+from agri.catalogue import ROW_Y
+from agri.labels import PLANTS_PER_ROW, all_labels
 from agri.measurement import QUANTITIES, Measurement, utc_now
 
 #: The one format every timestamp in this system is written in (see
@@ -270,6 +271,59 @@ class Store:
                            + [pose.get("x", ""), pose.get("y", ""),
                               v.parking_error_m if v.parking_error_m is not None else "",
                               ";".join(v.flags)])
+        return path
+
+    # ------------------------------------------------- per-plant export
+    #: ONE ROW PER PLANT, both sides on the line, in the same shape the
+    #: dashboard's /table page draws. Two files rather than one because they
+    #: answer different questions and neither is a view of the other:
+    #:
+    #:   measurements.csv   one row per VISIT. The audit trail. A station
+    #:                      measured three times has three rows, each with
+    #:                      its own three timestamps, and nothing is lost.
+    #:   plants.csv         one row per PLANT, latest reading per side. The
+    #:                      agronomic view, and the one an operator actually
+    #:                      reads, because the comparison that carries the
+    #:                      information is R against L on the same plant.
+    #:
+    #: Collapsing the first into the second would discard the history; not
+    #: writing the second means the comparison has to be done by hand,
+    #: forty lines apart, in a spreadsheet.
+    PLANT_COLUMNS = (["plant", "row", "index"]
+                     + [f"R_{c}" for c in
+                        ["measured_at", "received_at"]
+                        + [q.name for q in QUANTITIES]
+                        + ["parking_error_m", "flags", "photo", "qr"]]
+                     + [f"L_{c}" for c in
+                        ["measured_at", "received_at"]
+                        + [q.name for q in QUANTITIES]
+                        + ["parking_error_m", "flags", "photo", "qr"]])
+
+    def export_plants_csv(self, path: Path | None = None) -> Path:
+        path = Path(path or self.root / "plants.csv")
+        latest = self.latest_by_label()
+
+        def side(row: int, plant: int, s: str) -> list:
+            v = latest.get(f"P{row},{plant}{s}")
+            if v is None:
+                # Empty, not zero: a plant that was never visited on this
+                # side has no reading, which is a different fact from a
+                # reading of 0.0 and must not export as one.
+                return [""] * (4 + len(QUANTITIES) + 2)
+            return ([v.timestamp, v.received_at or ""]
+                    + [v.values.get(q.name, "") for q in QUANTITIES]
+                    + [v.parking_error_m if v.parking_error_m is not None
+                       else "",
+                       ";".join(v.flags), v.photo_path or "", v.qr_path or ""])
+
+        with path.open("w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(self.PLANT_COLUMNS)
+            for row in sorted(ROW_Y):
+                for plant in range(1, PLANTS_PER_ROW + 1):
+                    w.writerow([f"P{row},{plant}", row, plant]
+                               + side(row, plant, "R")
+                               + side(row, plant, "L"))
         return path
 
 
