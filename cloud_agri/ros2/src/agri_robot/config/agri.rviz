@@ -89,6 +89,20 @@ Visualization Manager:
         Color: 0; 200; 255
         Shaft Length: 0.4
         Head Length: 0.2
+    - Class: rviz_default_plugins/Image
+      Name: plant camera
+      Enabled: true
+      Topic:
+        Value: /camera/image
+        Reliability Policy: Best Effort
+      Max Width: 320
+    - Class: rviz_default_plugins/Image
+      Name: floor camera
+      Enabled: true
+      Topic:
+        Value: /floor_cam/image
+        Reliability Policy: Best Effort
+      Max Width: 240
     - Class: rviz_default_plugins/TF
       Name: TF
       Enabled: false

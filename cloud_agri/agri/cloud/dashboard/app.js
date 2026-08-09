@@ -693,5 +693,47 @@ document.getElementById("detail-close").onclick = () => {
   renderMap();
 };
 
+/* -------------------------------------------------------- LSTM predict */
+async function predictStation() {
+  if (!S.selected) return;
+  const hint = document.getElementById("predict-status");
+  const box = document.getElementById("predict-result");
+  hint.textContent = "training model…";
+  hint.className = "hint working";
+  box.hidden = true;
+  try {
+    const r = await fetch(apiUrl("/api/predict"), {
+      method: "POST", ...CRED,
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({label: S.selected})
+    });
+    const d = await r.json();
+    if (!r.ok) { hint.textContent = d.error || "failed"; hint.className = "hint err"; return; }
+    const qs = S.state.quantities || [];
+    const s = (S.state.stations || []).find(x => x.label === S.selected);
+    let html = `<table><thead><tr><th>quantity</th><th>measured</th>` +
+      `<th>predicted</th><th>delta</th></tr></thead><tbody>`;
+    for (const Q of qs) {
+      const m = s && s.values ? s.values[Q.name] : null;
+      const p = d.predicted[Q.name];
+      const delta = m != null && p != null ? (p - m).toFixed(Q.decimals ?? 1) : "—";
+      html += `<tr><td>${Q.name}</td><td>${m ?? "—"} ${Q.unit}</td>` +
+        `<td class="pred">${p ?? "—"} ${Q.unit}</td>` +
+        `<td class="${Math.abs(parseFloat(delta)) > (Q.hi - Q.lo) * 0.15 ? "warn" : ""}">${delta}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    html += `<div class="hint">model: ${d.model.epochs} epochs, ` +
+      `loss ${d.model.loss.toFixed(6)}, ${d.model.samples} samples, ` +
+      `${d.model.missing} missing values</div>`;
+    box.innerHTML = html;
+    box.hidden = false;
+    hint.textContent = "done";
+    hint.className = "hint ok";
+  } catch (e) {
+    hint.textContent = e.message;
+    hint.className = "hint err";
+  }
+}
+
 poll();
 setInterval(poll, 2000);

@@ -57,6 +57,7 @@ from agri.protocol import (ALL, DEFAULT_BROKER, MODE_COLLECTOR,
                            expand_targets, make_query, make_request,
                            mqtt_client, node_id_from_topic,
                            open_handshake, topic_query)
+from agri.prediction import TrainResult, predict, prepare_series, train
 from agri.sensors import ANOMALIES
 from agri.survey import energy_wh
 
@@ -88,6 +89,8 @@ class Cloud:
         self.trust.check(self.cloud_keys.public_pem, "cloud (our own)")
         self.nodes: dict[str, dict[str, Any]] = {}
         self.progress: dict[str, Any] = {}
+        self._train_result: TrainResult | None = None
+        self._train_n: int = 0
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
         self.accepted = 0
         self.started = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -665,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:                       # noqa: N802
         path = self.path.split("?")[0]
         if path not in ("/api/request", "/api/export", "/api/quit",
-                        "/api/mode"):
+                        "/api/mode", "/api/predict"):
             return self._json({"error": "not found"}, 404)
         if not self._check_auth():
             return
@@ -675,6 +678,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._quit()
         if path == "/api/mode":
             return self._mode()
+        if path == "/api/predict":
+            return self._predict()
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -723,6 +728,54 @@ class Handler(BaseHTTPRequestHandler):
 
         return self._json({"mode": self.cloud.mode,
                            "receiving": self.cloud.receiving})
+
+    def _predict(self) -> None:
+        """Train (or reuse) the LSTM and return predictions for a station."""
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, 400)
+
+        label = body.get("label")
+        if not label:
+            return self._json({"error": "label is required"}, 400)
+        label = normalise(label)
+
+        visits = self.cloud.store.all_visits()
+        if len(visits) < 4:
+            return self._json({"error": "not enough data to predict "
+                                        f"({len(visits)} visits)"}, 400)
+
+        labels = sorted({v.label for v in visits})
+        need_train = (self.cloud._train_result is None
+                      or len(visits) > self.cloud._train_n + 4)
+        if need_train:
+            try:
+                result = train(visits, labels, epochs=40,
+                               log=lambda m: print(f"cloud: {m}"))
+            except ImportError:
+                return self._json({"error": "PyTorch not available"}, 500)
+            self.cloud._train_result = result
+            self.cloud._train_n = len(visits)
+        else:
+            result = self.cloud._train_result
+
+        minutes = body.get("minutes")
+        if minutes is None:
+            s = prepare_series(visits, label)
+            minutes = float(s.times[-1]) if s and s.n else 0.0
+
+        pred = predict(result, visits, label, minutes)
+        if pred is None:
+            return self._json({"error": f"not enough history for {label}"},
+                              400)
+        return self._json({"label": label, "minutes": minutes,
+                           "predicted": pred,
+                           "model": {"epochs": result.epochs,
+                                     "loss": round(result.final_loss, 6),
+                                     "samples": result.n_samples,
+                                     "missing": result.n_missing}})
 
     def _export(self) -> None:
         """Write both CSVs and say where they landed, on disk and over HTTP.

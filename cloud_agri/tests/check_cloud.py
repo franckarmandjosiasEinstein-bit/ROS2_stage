@@ -4439,6 +4439,93 @@ def _const(src: str, name: str) -> float:
     return float(m.group(1))
 
 
+def check_prediction() -> None:
+    """The LSTM prediction module: failure simulation, training, inference."""
+    print("\nLSTM prediction for missing sensor data")
+    import numpy as np                                      # noqa: PLC0415
+    from agri.labels import all_labels                      # noqa: PLC0415
+    from agri.measurement import QUANTITIES                 # noqa: PLC0415
+    from agri.prediction import (FailureSimulator, HAS_TORCH,  # noqa: PLC0415
+                                 build_dataset, prepare_series,
+                                 QUANTITY_NAMES, N_QUANTITIES)
+    from agri.sensors import GreenhouseField                # noqa: PLC0415
+
+    field = GreenhouseField()
+    labels = all_labels()[:6]
+
+    class FakeVisit:
+        def __init__(self, label, ts, vals):
+            self.label = label
+            self.timestamp = ts
+            self.values = vals
+
+    visits = []
+    for label in labels:
+        for m in range(0, 120, 10):
+            reading = field.read(label, float(m))
+            ts = f"2026-08-04T{m // 60:02d}:{m % 60:02d}:00Z"
+            visits.append(FakeVisit(label, ts, reading.values))
+
+    sim = FailureSimulator(rate=0.1, burst_rate=0.05, seed=99)
+    mask = sim.mask(20)
+    check("the failure simulator produces a boolean mask of the right shape",
+          mask.shape == (20, N_QUANTITIES) and mask.dtype == bool)
+    dropped = (~mask).sum()
+    check("some values are dropped (not all kept)",
+          0 < dropped < 20 * N_QUANTITIES,
+          f"dropped {dropped} out of {20 * N_QUANTITIES}")
+    mask2 = FailureSimulator(rate=0.1, burst_rate=0.05, seed=99).mask(20)
+    check("the same seed produces the same mask",
+          np.array_equal(mask, mask2))
+
+    s = prepare_series(visits, labels[0])
+    check("prepare_series builds a station time series",
+          s is not None and s.n == 12 and s.values.shape == (12, N_QUANTITIES),
+          f"got n={s.n if s else 0}")
+
+    X, Y, drop = build_dataset(visits, labels, seq_len=4)
+    check("build_dataset produces training tensors",
+          X.shape[0] > 0 and X.shape[1] == 4 and X.shape[2] == 10,
+          f"X shape {X.shape}")
+    check("Y has the right shape",
+          Y.shape == (X.shape[0], N_QUANTITIES), f"Y shape {Y.shape}")
+    check("the drop mask flags some values as missing",
+          drop.shape == Y.shape and drop.any(),
+          f"drop shape {drop.shape}, any={drop.any()}")
+
+    if not HAS_TORCH:
+        check("PyTorch is available for training", False, "torch not installed")
+        return
+
+    from agri.prediction import train, predict              # noqa: PLC0415
+
+    result = train(visits, labels, seq_len=4, epochs=40, lr=0.01)
+    check("training completes and reports a finite loss",
+          result.epochs == 40 and result.final_loss < float("inf"),
+          f"epochs={result.epochs}, loss={result.final_loss}")
+    check("the model was trained on real samples",
+          result.n_samples > 0, f"n_samples={result.n_samples}")
+
+    pred = predict(result, visits, labels[0], minutes=60.0)
+    check("predict returns a dict with all five quantities",
+          pred is not None and set(pred.keys()) == set(QUANTITY_NAMES),
+          f"got {pred}")
+    truth = field.truth(labels[0], 60.0)
+    errors = {q: abs(pred[q] - truth[q]) for q in QUANTITY_NAMES}
+    check("predictions are within a plausible range of the truth",
+          all(errors[q] < (QUANTITIES[i].hi - QUANTITIES[i].lo) * 0.5
+              for i, q in enumerate(QUANTITY_NAMES)),
+          f"errors: {errors}")
+
+    # RViz camera displays
+    rviz = (ROOT / "ros2" / "src" / "agri_robot" / "config" / "agri.rviz"
+            ).read_text()
+    check("RViz shows the plant camera feed",
+          "/camera/image" in rviz and "plant camera" in rviz)
+    check("RViz shows the floor camera feed",
+          "/floor_cam/image" in rviz and "floor camera" in rviz)
+
+
 def check_demo() -> None:
     """The offline demo is the thing that gets run in front of people, so it
     is the thing most worth having a check on. Running it as a SUBPROCESS is
@@ -4517,7 +4604,7 @@ def main() -> int:
                check_dashboard_auth, check_mode_buttons,
                check_active_station, check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
-               check_demo, check_hygiene):
+               check_prediction, check_demo, check_hygiene):
         fn()
     print()
     if FAILURES:

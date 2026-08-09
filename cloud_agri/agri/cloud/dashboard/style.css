@@ -369,3 +369,22 @@ table.grid tbody tr:hover td { background: var(--bg-raise); }
 .dialogue .node  .who { color: #57c7d4; }
 .dialogue .what { color: var(--ink-dim); }
 .dialogue .quiet { color: var(--ink-dim); opacity: 0.6; }
+
+/* ------------------------------------------------ LSTM predict */
+.predict-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; }
+.predict-row button {
+  font: 600 11px/1.2 var(--mono, monospace);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 4px 12px; border: 1px solid var(--accent); border-radius: 3px;
+  color: var(--accent); background: transparent; cursor: pointer;
+}
+.predict-row button:hover { background: var(--accent); color: var(--bg); }
+.predict-row .hint { font-size: 11px; color: var(--ink-dim); }
+.predict-row .working { color: var(--accent); }
+.predict-row .ok { color: #3ab; }
+.predict-row .err { color: var(--alert); }
+.predict-result table { width: 100%; font-size: 12px; border-collapse: collapse; margin: 4px 0; }
+.predict-result th, .predict-result td { padding: 3px 6px; text-align: left; }
+.predict-result th { color: var(--ink-dim); border-bottom: 1px solid var(--line); }
+.predict-result .pred { color: var(--accent); font-weight: 600; }
+.predict-result .warn { color: var(--alert); font-weight: 600; }
