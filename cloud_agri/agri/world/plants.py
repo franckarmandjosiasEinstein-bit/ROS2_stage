@@ -633,14 +633,21 @@ def build_meshes(world: Path, meshes: list[Path], base_z: float,
     total = sum(t for _, _, _, t in fitted)
     lines = [f"{replaced} plant(s) from {len(fitted)} mesh(es), "
              f"alternated and rotated per plant"]
+    flat = 0
     for path, scale, lift, tris in fitted:
+        textured = (path.suffix.lower() == ".glb"
+                    and glb_is_self_contained(path))
+        flat += not textured
         lines.append(f"  {path.name:<20} {tris:>7,} tris  "
-                     f"scale {scale:.4f}  lifted {lift * 100:.1f} cm")
+                     f"scale {scale:.4f}  lifted {lift * 100:.1f} cm  "
+                     f"{'textured' if textured else 'flat colour'}")
     lines.append(f"  {width_m * 100:.0f} cm across, standing on z = "
                  f"{base_z:.2f} m; {replaced * total // max(1, len(fitted)):,}"
                  " triangles in the scene")
-    lines.append("  collision stays a primitive cylinder; STL carries no "
-                 "colour, so the plants render one flat green")
+    lines.append("  collision stays a primitive cylinder whatever the mesh")
+    if flat:
+        lines.append(f"  {flat} mesh(es) carry no colour and render one flat "
+                     "green -- that is the format, not a fault")
     return "\n".join(lines)
 
 

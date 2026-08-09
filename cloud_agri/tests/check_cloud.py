@@ -578,6 +578,61 @@ def check_world() -> None:
             refuses("and an ASCII STL is refused with the fix, not misread",
                     lambda: stl_bounds(_ascii_stl(Path(d))), ValueError)
 
+        # --- the textured GLB plants, which is what actually ships -------
+        from agri.world.plants import (glb_bounds,  # noqa: PLC0415
+                                       glb_is_self_contained, mesh_bounds,
+                                       triangle_count)
+        glbs = sorted((ROOT / "meshes").glob("strawberry_*.glb"))
+        check("the textured strawberry variants are in the repository",
+              len(glbs) >= 4, f"found {[m.name for m in glbs]}")
+        if len(glbs) >= 4:
+            for m in glbs:
+                check(f"{m.name} carries its own texture",
+                      glb_is_self_contained(m),
+                      "a GLB that names a baseColorTexture and embeds no "
+                      "image renders WHITE in Gazebo, silently")
+                lo, hi = glb_bounds(m)
+                check(f"{m.name} has a non-degenerate bounding box",
+                      all(h > l for l, h in zip(lo, hi)),
+                      f"{tuple(round(v, 3) for v in lo)} .. "
+                      f"{tuple(round(v, 3) for v in hi)}")
+                check(f"{m.name} fits the render budget",
+                      triangle_count(m) < 15000,
+                      f"{triangle_count(m):,} triangles")
+                check(f"{m.name} reads the same through the dispatcher",
+                      mesh_bounds(m) == (lo, hi),
+                      "fit() goes through mesh_bounds, so a GLB that only "
+                      "worked via glb_bounds would still be wrong")
+            check("the four variants are four DIFFERENT plants",
+                  len({m.read_bytes() for m in glbs}) == 4,
+                  "duplicates were shipped once already, and 24 copies of "
+                  "one asset read as 24 copies")
+
+            gmeshed = Path(d) / "glb.sdf"
+            build(default_source(), gmeshed)
+            grep_ = build_meshes(gmeshed, glbs, 0.80, 1)
+            gtext = gmeshed.read_text()
+            check("every plant gets one of the four", gtext.count("<mesh>") == 24,
+                  grep_)
+            check("and all four are actually used",
+                  all(gtext.count(m.name) > 0 for m in glbs),
+                  {m.name: gtext.count(m.name) for m in glbs})
+            # Scoped to the plant models: the greenhouse itself is full of
+            # legitimate materials (walls, gutters, the 48 crosses).
+            plant_blocks = re.findall(
+                r'<model name="plant_\d+_\d+">.*?</model>', gtext, re.S)
+            check("a TEXTURED mesh gets NO material override",
+                  len(plant_blocks) == 24
+                  and not any("<material>" in b for b in plant_blocks),
+                  "overriding it repaints a photographed plant flat green, "
+                  "which is the entire reason for using a GLB")
+        if len(stls) >= 2 and len(glbs) >= 4:
+            stl_blocks = re.findall(
+                r'<model name="plant_\d+_\d+">.*?</model>', mtext, re.S)
+            check("while an UNTEXTURED one still gets tinted",
+                  all("<material>" in b for b in stl_blocks),
+                  "otherwise the STL plants render bare white")
+
         # --- the procedural strawberry, for when there is no budget ------
         # It will not be mistaken for a bought asset. What it must get
         # right is the SILHOUETTE, and the silhouette is three facts:
