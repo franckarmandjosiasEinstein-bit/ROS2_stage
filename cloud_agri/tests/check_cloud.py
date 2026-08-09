@@ -338,6 +338,96 @@ def check_crypto() -> None:
             lambda: verify_json(tampered, cloud.public_pem), CryptoError)
 
 
+def check_replay() -> None:
+    print("\nreplay: a signed order stops being an order")
+    from datetime import datetime, timedelta, timezone
+
+    from agri.replay import (FRESHNESS_S, ReplayError, ReplayGuard,
+                             parse_stamp)
+
+    T0 = datetime(2026, 8, 9, 12, 0, 0, tzinfo=timezone.utc)
+
+    def at(seconds: float) -> datetime:
+        return T0 + timedelta(seconds=seconds)
+
+    def stamp(dt) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    g = ReplayGuard(window_s=120.0)
+    age = g.check("aaaa1111", stamp(T0), now=at(3))
+    check("a fresh order is accepted", abs(age - 3.0) < 1e-6, f"age {age} s")
+    check("and its age is reported, not merely approved", age > 0)
+
+    refuses("the SAME order a second time is refused",
+            lambda: g.check("aaaa1111", stamp(T0), now=at(4)), ReplayError)
+    check("a DIFFERENT order at the same instant is still accepted",
+          g.check("bbbb2222", stamp(T0), now=at(4)) is not None,
+          "the guard must reject repeats, not throttle the fleet")
+
+    refuses("an order older than the window is refused",
+            lambda: g.check("cccc3333", stamp(T0), now=at(121)), ReplayError)
+    check("an order at exactly the window edge is still obeyed",
+          ReplayGuard(120.0).check("dddd4444", stamp(T0), now=at(120)) is not None,
+          "an off-by-one here refuses work at the boundary, intermittently")
+
+    # A future-dated order cannot be a replay -- nobody captures a message
+    # before it is sent -- so it must be diagnosed as a clock, not an attack.
+    try:
+        ReplayGuard(120.0).check("eeee5555", stamp(at(600)), now=T0)
+        check("a future-dated order is refused", False, "it was accepted")
+    except ReplayError as exc:
+        check("a future-dated order is refused", True)
+        check("and is blamed on the CLOCK, not on an attacker",
+              "FUTURE" in str(exc) and "timedatectl" in str(exc),
+              str(exc).splitlines()[0])
+    try:
+        ReplayGuard(120.0).check("ffff6666", stamp(T0), now=at(9000))
+        check("a stale order is refused", False, "it was accepted")
+    except ReplayError as exc:
+        msg = str(exc)
+        check("a stale order is refused", True)
+        check("and the refusal says HOW stale, so it is diagnosable",
+              "9000 s" in msg and "120 s" in msg, msg.splitlines()[0])
+        check("and offers both readings: a clock, or an actual replay",
+              "timedatectl" in msg and "replayed" in msg)
+
+    # The skew warning must fire BEFORE the day the drift starts refusing.
+    g2 = ReplayGuard(120.0)
+    check("a comfortable age produces no warning",
+          g2.suspicious_skew(3.0) == "")
+    check("but an age eating half the window does",
+          "clock skew" in g2.suspicious_skew(70.0),
+          "a drift should be visible on the day it is harmless")
+
+    # The set must not grow without bound over a long campaign: ids older
+    # than the window are refused on age anyway, so keeping them buys
+    # nothing.
+    g3 = ReplayGuard(window_s=60.0)
+    for i in range(200):
+        g3.check(f"id{i:04d}", stamp(at(i)), now=at(i))
+    check("the seen-set is pruned to the window, not grown forever",
+          g3.remembered <= 61, f"{g3.remembered} ids after 200 requests")
+    check("and a pruned id is refused on AGE, so pruning opens no hole",
+          _raises(lambda: g3.check("id0000", stamp(T0), now=at(199))),
+          "this is why the two halves are needed together")
+
+    refuses("a request with no date at all is refused",
+            lambda: ReplayGuard().check("gggg7777", ""), ReplayError)
+    refuses("and so is one with a date in the wrong format",
+            lambda: parse_stamp("09/08/2026 12:00"), ReplayError)
+
+    check("the default window is stated in seconds, not guessed",
+          FRESHNESS_S == 120.0, f"{FRESHNESS_S} s")
+
+
+def _raises(fn) -> bool:
+    try:
+        fn()
+    except Exception:                                # noqa: BLE001
+        return True
+    return False
+
+
 def check_qr() -> None:
     print("\nQR: the numbers survive the round trip")
     from agri.labels import all_labels
@@ -763,6 +853,13 @@ def check_end_to_end() -> None:
         unsigned = {"payload": signed["payload"]}
         check("and refuses one with no signature at all",
               link.on_request(json.dumps(unsigned).encode()) is None)
+
+        # The replay. Byte-identical to the order it just obeyed, so every
+        # cryptographic check passes -- it really is the Cloud's signature.
+        check("and REFUSES the very same signed order a second time",
+              link.on_request(json.dumps(signed).encode()) is None,
+              "a signature proves who wrote an order, not that this is the "
+              "first time you are reading it")
 
         # 3. run it
         link.mission = mission
@@ -2824,7 +2921,8 @@ def check_hygiene() -> None:
 
 def main() -> int:
     print("cloud_agri pre-flight checks")
-    for fn in (check_labels, check_catalogue, check_crypto, check_qr,
+    for fn in (check_labels, check_catalogue, check_crypto, check_replay,
+               check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,
                check_vision,

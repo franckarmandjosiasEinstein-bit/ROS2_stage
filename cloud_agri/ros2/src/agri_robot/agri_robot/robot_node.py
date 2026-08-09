@@ -49,6 +49,7 @@ from agri import keys
 from agri.protocol import (DEFAULT_BROKER, DEFAULT_PORT, QOS, TOPIC_REQUEST,
                            topic_query,
                            mqtt_client, topic_status)
+from agri.replay import FRESHNESS_S
 from agri.robot import Mission, RobotLink, Visitor
 from agri.sensors import GreenhouseField
 from agri_robot.driver import DriveError, GazeboDriver
@@ -68,6 +69,10 @@ class AgriRobot(Node):
         self.declare_parameter("broker_port", DEFAULT_PORT)
         self.declare_parameter("keys", "keys")
         self.declare_parameter("status_period", 5.0)
+        # How old a signed order may be before the robot refuses it as a
+        # replay. Raise it only if the two machines' clocks genuinely
+        # cannot be synced -- the refusal says by how much they disagree.
+        self.declare_parameter("replay_window", FRESHNESS_S)
         # Drive a list of stations with no Cloud at all. For bringing the
         # simulator up and watching the robot find its crosses before any
         # broker exists -- the reports are built and thrown away.
@@ -131,8 +136,10 @@ class AgriRobot(Node):
         host = self.get_parameter("broker").value
         port = int(self.get_parameter("broker_port").value)
         self.client = mqtt_client(f"agri-{self.robot_id}")
-        self.link = RobotLink(self.visitor, self.cloud_public, self.client,
-                              log=self.get_logger().info)
+        self.link = RobotLink(
+            self.visitor, self.cloud_public, self.client,
+            log=self.get_logger().info,
+            replay_window_s=float(self.get_parameter("replay_window").value))
 
         # Last will: if this process dies, the broker tells the Cloud. A
         # dashboard that shows a robot as online because nobody said

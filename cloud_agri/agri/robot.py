@@ -48,7 +48,7 @@ from agri.protocol import (MODE_COLLECTOR, MODE_COMMAND, QOS, STEP_FILED,
                            check_request, make_ack, make_reply, make_status,
                            request_mode, topic_ack, topic_reply, topic_report,
                            topic_status)
-
+from agri.replay import FRESHNESS_S, ReplayError, ReplayGuard
 from agri.survey import crossings, path_length, survey_order
 
 #: How many sealed reports the robot will hold while the Cloud is not
@@ -202,11 +202,15 @@ class RobotLink:
     """MQTT wiring. Given a Visitor, it is a complete robot node."""
 
     def __init__(self, visitor: Visitor, cloud_public_pem: bytes,
-                 client, log: Callable[[str], None] = print) -> None:
+                 client, log: Callable[[str], None] = print,
+                 replay_window_s: float = FRESHNESS_S) -> None:
         self.visitor = visitor
         self.cloud_public_pem = cloud_public_pem
         self.client = client
         self.log = log
+        #: A verified signature says who wrote an order, not that this is
+        #: the first time we are reading it. See agri/replay.py.
+        self.guard = ReplayGuard(replay_window_s)
         self.mission: Mission | None = None
         self.started = time.time()
         #: Sealed reports the Cloud has not yet agreed to receive. The whole
@@ -239,6 +243,19 @@ class RobotLink:
         except ProtocolError as exc:
             self.log(f"robot: malformed request ({exc})")
             return None
+
+        # AFTER the signature, BEFORE anything moves. A replayed order is a
+        # genuine order arriving a second time: it passes every check above
+        # because it really was signed by the Cloud.
+        try:
+            age = self.guard.check(rid, body.get("issued_at", ""))
+        except ReplayError as exc:
+            self.log(f"robot: REFUSED {exc}")
+            self.ack(rid, "failed", detail="refused: stale or replayed")
+            return None
+        warn = self.guard.suspicious_skew(age)
+        if warn:
+            self.log(f"robot: WARNING {warn}")
 
         if self.mission and not self.mission.finished:
             self.log(f"robot: busy with {self.mission.request_id}, "
