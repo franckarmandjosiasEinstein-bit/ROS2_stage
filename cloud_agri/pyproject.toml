@@ -34,6 +34,15 @@ dependencies = [
 # the primary decoder rather than the fallback.
 cloud = ["zxing-cpp>=2.2", "opencv-python-headless>=4.8,<5"]
 
+# agri.prediction imports torch inside a try/except, so its absence never
+# breaks the rest of the Cloud -- only the LSTM training and the /api/predict
+# endpoint stay unavailable, and check_prediction says so by name instead of
+# silently skipping. The CPU wheel is deliberate: nothing here needs a GPU,
+# and the CUDA build is an order of magnitude larger for no benefit. It does
+# not force numpy>=2, so it coexists with the numpy>=1.26 ROS 2 needs, same
+# as the "cloud" extra above.
+ml = ["torch>=2.0"]
+
 [project.scripts]
 agri-cloud = "agri.cloud.server:main"
 agri-demo = "agri.demo:main"

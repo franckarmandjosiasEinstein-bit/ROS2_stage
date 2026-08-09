@@ -65,6 +65,7 @@ sudo apt install mosquitto mosquitto-clients      # the MQTT broker
 python3 -m venv --system-site-packages ~/.venvs/agri
 source ~/.venvs/agri/bin/activate
 pip install -e ".[cloud]"        # the [cloud] extra adds the QR decoders
+pip install -e ".[ml]"           # the [ml] extra adds torch, for the LSTM
 ```
 
 **`--system-site-packages` is not optional if you intend to run the robot.**
