@@ -35,12 +35,40 @@ same station: two measurements a minute apart, both real. So the store does
 NOT deduplicate by label. It deduplicates by (label, timestamp, robot),
 which catches only the case that is actually a duplicate -- the same message
 delivered twice, which MQTT at QoS 1 explicitly permits.
+
+THE CHAIN, AND WHAT IT IS HONESTLY WORTH
+
+Every report is verified on arrival: signature, seal, QR against numbers,
+pose against catalogue. Then it is written here in plain text, and from
+that moment the cryptography has nothing more to say about it. Anyone with
+write access to the disk could change a temperature in a filed line, and
+nothing in the system would ever notice -- the whole verified pipeline
+protects the reading in flight and abandons it on landing.
+
+So each line carries `prev` and `hash`: the SHA-256 of that line's content
+together with the hash before it. Change one byte of one reading and its
+hash no longer matches, and neither does every hash after it.
+
+What that buys, precisely: a SURGICAL edit becomes detectable, and a
+convincing forgery requires rewriting the entire file from the edit point
+to the end. What it does not buy: protection from someone who does exactly
+that. The chain and the data live on the same disk, so an attacker with
+write access can recompute all of it.
+
+It becomes a real control the moment the tip is pinned somewhere the
+attacker cannot reach -- an operator noting it at the end of a campaign, a
+nightly copy off the machine, a signature made by a key that is not on the
+box. `verify_chain()` and `--verify` exist so that pinning the tip is a
+thing somebody can actually do, and the export prints it. Saying this
+plainly is the point: an integrity control described as more than it is
+provides less than nothing.
 """
 
 from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import json
 import threading
 from dataclasses import dataclass, field
@@ -56,6 +84,79 @@ from agri.measurement import QUANTITIES, Measurement, utc_now
 #: measurement.utc_now). Parsed here so a duration can be computed from two
 #: of them without guessing.
 TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+#: The two fields that carry the chain. Excluded from the hash of their own
+#: line, obviously, and stripped before a visit is reconstructed.
+CHAIN_FIELDS = ("prev", "hash")
+
+#: What `prev` says on the first line of a file. A literal rather than an
+#: empty string so that a truncated file cannot be mistaken for a fresh one.
+GENESIS = "genesis"
+
+
+def line_hash(record: dict[str, Any], prev: str) -> str:
+    """SHA-256 over one line's content and the hash before it.
+
+    Canonical JSON -- sorted keys, no spaces -- because the hash has to be
+    reproducible from a file somebody may have reformatted, and because two
+    dicts that differ only in key order are the same record.
+    """
+    body = {k: v for k, v in record.items() if k not in CHAIN_FIELDS}
+    raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(prev.encode() + raw).hexdigest()
+
+
+def verify_chain(path: Path) -> tuple[int, list[str]]:
+    """(lines checked, problems). Empty problems means the file is intact.
+
+    Reports EVERY break rather than stopping at the first: a file that was
+    edited in two places should say so, and an operator running this after
+    an incident wants the whole picture in one pass.
+
+    A line with no `hash` at all is reported as unchained, not as a break.
+    Campaigns filed before the chain existed are legitimate data, and a
+    verifier that called them tampering would make its own output useless.
+    """
+    if not path.exists():
+        return 0, []
+    problems: list[str] = []
+    prev = GENESIS
+    checked = unchained = 0
+    with path.open() as fh:
+        for n, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception as exc:                # noqa: BLE001
+                problems.append(f"line {n}: not JSON ({exc})")
+                continue
+            if "hash" not in rec:
+                unchained += 1
+                # An unchained line still has to advance the chain, or every
+                # line after it would be reported as broken.
+                prev = GENESIS
+                continue
+            if rec.get("prev") != prev:
+                problems.append(
+                    f"line {n} ({rec.get('label', '?')}): follows "
+                    f"{str(rec.get('prev'))[:12]}... but the line before it "
+                    f"hashes to {prev[:12]}... -- a line was inserted, "
+                    f"removed or reordered here")
+            want = line_hash(rec, rec.get("prev", ""))
+            if rec["hash"] != want:
+                problems.append(
+                    f"line {n} ({rec.get('label', '?')}): content does not "
+                    f"match its own hash -- this line was EDITED after it "
+                    f"was filed")
+            prev = rec["hash"]
+            checked += 1
+    if unchained:
+        problems.append(
+            f"{unchained} line(s) carry no hash: filed before the chain "
+            f"existed. Not tampering -- but not covered either.")
+    return checked, problems
 
 
 def _safe(label: str) -> str:
@@ -153,6 +254,9 @@ class Store:
         self.jsonl = self.root / "measurements.jsonl"
         self._lock = threading.Lock()
         self._visits: list[StoredVisit] = []
+        #: Hash of the last line written, so an append can chain to it
+        #: without re-reading the file.
+        self._tip = GENESIS
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "photos").mkdir(exist_ok=True)
         (self.root / "qr").mkdir(exist_ok=True)
@@ -168,12 +272,35 @@ class Store:
                 if not line:
                     continue
                 try:
-                    self._visits.append(StoredVisit.from_json(json.loads(line)))
+                    rec = json.loads(line)
+                    self._visits.append(StoredVisit.from_json(rec))
+                    self._tip = rec.get("hash", GENESIS)
                 except Exception as exc:            # noqa: BLE001
                     # One corrupt line must not cost the whole campaign. Say
                     # which, keep the rest: a truncated final line is what a
                     # kill during a write looks like, and it is recoverable.
                     print(f"store: skipping {self.jsonl}:{n} ({exc})")
+
+        # Say it at startup, once, rather than making somebody remember to
+        # run --verify. A store that was edited between two runs is exactly
+        # the thing nobody thinks to check.
+        _, problems = verify_chain(self.jsonl)
+        for p in problems:
+            print(f"store: INTEGRITY {p}")
+
+    def verify(self) -> tuple[int, list[str]]:
+        """(lines checked, problems) for this store's own file."""
+        return verify_chain(self.jsonl)
+
+    @property
+    def tip(self) -> str:
+        """The hash of the last filed line.
+
+        Worth recording at the end of a campaign somewhere other than this
+        machine. That -- and only that -- is what turns the chain from a
+        consistency check into an integrity control.
+        """
+        return self._tip
 
     # -------------------------------------------------------------- adding
     def add_report(self, report: dict[str, Any],
@@ -217,8 +344,14 @@ class Store:
                    and v.robot == visit.robot for v in self._visits):
                 return visit          # redelivery, not a second visit
             self._visits.append(visit)
+            rec = visit.to_json()
+            rec["prev"] = self._tip
+            rec["hash"] = line_hash(rec, self._tip)
             with self.jsonl.open("a") as fh:
-                fh.write(json.dumps(visit.to_json(), sort_keys=True) + "\n")
+                fh.write(json.dumps(rec, sort_keys=True) + "\n")
+            # Only after the write. A tip advanced before a failed write
+            # would chain the next line to something that is not on disk.
+            self._tip = rec["hash"]
         return visit
 
     # ------------------------------------------------------------- reading
@@ -338,3 +471,49 @@ def summarise(visits: Iterable[StoredVisit]) -> dict[str, Any]:
         "worst_parking_m": round(max(parks), 3) if parks else None,
         "mean_parking_m": round(sum(parks) / len(parks), 3) if parks else None,
     }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`python3 -m agri.cloud.store --verify` -- check a filed campaign.
+
+    Exists so that checking is a command somebody can run, and can be put in
+    a cron job, rather than a property the code merely claims. Exit status
+    is 0 for an intact chain and 1 for anything else, so it composes.
+    """
+    import argparse                                      # noqa: PLC0415
+
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--root", type=Path, default=Path("store"))
+    ap.add_argument("--verify", action="store_true",
+                    help="check the hash chain and print the tip")
+    args = ap.parse_args(argv)
+
+    path = args.root / "measurements.jsonl"
+    if not path.exists():
+        print(f"{path} does not exist -- nothing filed yet.")
+        return 0
+    checked, problems = verify_chain(path)
+    tip = ""
+    with path.open() as fh:
+        for line in fh:
+            if line.strip():
+                try:
+                    tip = json.loads(line).get("hash", "")
+                except Exception:                        # noqa: BLE001, S110
+                    pass
+    print(f"{path}: {checked} chained line(s)")
+    if problems:
+        for p in problems:
+            print(f"  PROBLEM  {p}")
+    else:
+        print("  the chain is intact")
+    if tip:
+        print(f"\n  tip  {tip}")
+        print("  Record this somewhere other than this machine. The chain\n"
+              "  proves the file is self-consistent; only a tip kept out of\n"
+              "  reach proves it is the same file you were given.")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

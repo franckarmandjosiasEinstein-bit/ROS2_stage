@@ -428,6 +428,155 @@ def _raises(fn) -> bool:
     return False
 
 
+def _chain_links(path: Path) -> bool:
+    """Every line names the hash of the one before it."""
+    prev = None
+    for line in path.read_text().splitlines():
+        rec = json.loads(line)
+        if prev is not None and rec.get("prev") != prev:
+            return False
+        prev = rec.get("hash")
+    return prev is not None
+
+
+def check_chain() -> None:
+    print("\nstore: a filed reading that changes says so")
+    import subprocess
+
+    from agri.cloud.store import (GENESIS, Store,  # noqa: PLC0415
+                                  line_hash, verify_chain)
+    from agri.envelope import build_report                # noqa: PLC0415
+    from agri.measurement import Measurement              # noqa: PLC0415
+
+    def file_one(st, label: str, temp: float = 21.4) -> None:
+        m = Measurement(label=label,
+                        values={"temperature": temp, "humidity": 63.2,
+                                "luminosity": 12480, "co2": 431, "ph": 6.42})
+        st.add_report(build_report(m, b"\xff\xd8jpg", (4, 4), "youbot-01"))
+
+    d = Path(tempfile.mkdtemp())
+    st = Store(d / "s")
+    check("an empty store's tip is genesis, not an empty string",
+          st.tip == GENESIS,
+          "an empty string would make a truncated file look like a fresh one")
+
+    for i, lab in enumerate(["P1,1R", "P1,1L", "P1,2R"]):
+        file_one(st, lab, 20.0 + i)
+
+    checked, problems = st.verify()
+    check("three filed readings chain cleanly", checked == 3 and not problems,
+          str(problems))
+    check("and the tip moved off genesis", st.tip != GENESIS)
+    check("each line names the hash of the one before it",
+          _chain_links(st.jsonl),
+          "without prev, reordering the file would go unnoticed")
+
+    # THE ACTUAL ATTACK: change one number in one filed line. Everything
+    # upstream verified this reading -- signature, seal, QR against the
+    # numbers, pose against the catalogue -- and then wrote it in plain text.
+    lines = st.jsonl.read_text().splitlines()
+    rec = json.loads(lines[1])
+    rec["values"]["temperature"] = 99.9
+    lines[1] = json.dumps(rec, sort_keys=True)
+    st.jsonl.write_text("\n".join(lines) + "\n")
+
+    _, problems = verify_chain(st.jsonl)
+    check("editing a filed temperature is DETECTED", bool(problems),
+          "the pipeline protects the reading in flight; without this it "
+          "abandons it on landing")
+    check("and the report names the line and says it was edited",
+          any("line 2" in p and "EDITED" in p for p in problems),
+          str(problems))
+    check("and ONLY that line, so the report points at the damage",
+          len(problems) == 1, str(problems))
+
+    # Now the forger does it properly: edits the line AND recomputes its
+    # hash, so line 2 is internally consistent again. This is the cascade,
+    # and it is the reason a hash chain is worth more than a per-line
+    # checksum -- line 3 now points at a hash that no longer exists.
+    rec = json.loads(lines[1])
+    rec["hash"] = line_hash(rec, rec["prev"])
+    lines[1] = json.dumps(rec, sort_keys=True)
+    st.jsonl.write_text("\n".join(lines) + "\n")
+    _, problems = verify_chain(st.jsonl)
+    check("repairing the edited line's own hash just moves the break down",
+          any("line 3" in p and "inserted, removed or reordered" in p
+              for p in problems),
+          "a convincing forgery has to rewrite every line to the end of "
+          "the file, not one")
+
+    # Deleting a line is the other half: every remaining line still hashes
+    # to itself, so only `prev` catches it.
+    d2 = Path(tempfile.mkdtemp())
+    st2 = Store(d2 / "s")
+    for i, lab in enumerate(["P1,1R", "P1,1L", "P1,2R"]):
+        file_one(st2, lab, 20.0 + i)
+    keep = st2.jsonl.read_text().splitlines()
+    st2.jsonl.write_text(keep[0] + "\n" + keep[2] + "\n")
+    _, problems = verify_chain(st2.jsonl)
+    check("REMOVING a filed reading is detected as well",
+          any("inserted, removed or reordered" in p for p in problems),
+          "each line hashes itself, so a deletion leaves every remaining "
+          "line internally valid -- prev is what catches it")
+
+    # A campaign filed before the chain existed is data, not an attack.
+    d3 = Path(tempfile.mkdtemp())
+    (d3 / "s").mkdir(parents=True)
+    legacy = d3 / "s" / "measurements.jsonl"
+    legacy.write_text(json.dumps(
+        {"label": "P1,1R", "timestamp": "2026-01-01T00:00:00Z",
+         "robot": "youbot-01", "values": {}}) + "\n")
+    _, problems = verify_chain(legacy)
+    check("an unchained legacy line is reported, not called tampering",
+          len(problems) == 1 and "carry no hash" in problems[0]
+          and "Not tampering" in problems[0],
+          "a verifier that cried wolf over old data would be ignored")
+    file_one(Store(d3 / "s"), "P1,2L")
+    _, problems = verify_chain(legacy)
+    check("and appending to a legacy file still works",
+          not any("EDITED" in p or "reordered" in p for p in problems),
+          str(problems))
+
+    # The hash must cover the CONTENT, not merely exist.
+    rec = {"label": "P1,1R", "values": {"temperature": 20.0}}
+    h1 = line_hash(rec, GENESIS)
+    check("the hash is canonical: key order does not change it",
+          line_hash({"values": {"temperature": 20.0}, "label": "P1,1R"},
+                    GENESIS) == h1,
+          "otherwise re-serialising a file would look like tampering")
+    check("but changing a value does",
+          line_hash({"label": "P1,1R", "values": {"temperature": 20.1}},
+                    GENESIS) != h1)
+    check("and so does moving the line in the chain",
+          line_hash(rec, "somethingelse") != h1)
+
+    # It has to be runnable, not merely callable.
+    r = subprocess.run([sys.executable, "-m", "agri.cloud.store", "--verify",
+                        "--root", str(d2 / "s")],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    check("--verify reports a broken chain and exits non-zero",
+          r.returncode == 1 and "PROBLEM" in r.stdout, r.stdout[-200:])
+    r = subprocess.run([sys.executable, "-m", "agri.cloud.store", "--verify",
+                        "--root", str(d / "nothing-here")],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    check("and says so plainly when there is nothing filed",
+          r.returncode == 0 and "nothing filed" in r.stdout, r.stdout[-200:])
+
+    d4 = Path(tempfile.mkdtemp())
+    file_one(Store(d4 / "s"), "P1,1R", 21.0)
+    r = subprocess.run([sys.executable, "-m", "agri.cloud.store", "--verify",
+                        "--root", str(d4 / "s")],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    check("an intact chain exits zero and prints the tip",
+          r.returncode == 0 and "intact" in r.stdout and "tip" in r.stdout,
+          r.stdout[-200:])
+    check("and says why the tip is worth keeping off the machine",
+          "other than this machine" in r.stdout,
+          "a chain on the same disk as its data is a consistency check, "
+          "not an integrity control, and claiming otherwise is worse than "
+          "claiming nothing")
+
+
 def check_qr() -> None:
     print("\nQR: the numbers survive the round trip")
     from agri.labels import all_labels
@@ -2987,6 +3136,7 @@ def check_hygiene() -> None:
 def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_replay,
+               check_chain,
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,
