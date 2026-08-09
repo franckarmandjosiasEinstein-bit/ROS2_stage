@@ -318,10 +318,19 @@ class AgriRobot(Node):
                 self.link.ack(mission.request_id, "failed", detail=str(exc))
             finally:
                 self.driver.stop()
-            self.get_logger().info(
-                f"{mission.request_id}: done in {time.time() - t0:.0f} s, "
-                f"floor camera used at {self.driver.visual_used} station(s), "
-                f"unavailable at {self.driver.visual_missed}")
+            msg = (f"{mission.request_id}: done in {time.time() - t0:.0f} s, "
+                  f"floor camera used at {self.driver.visual_used} "
+                  f"station(s), unavailable at {self.driver.visual_missed}")
+            if self.driver.visual_unsettled:
+                # Loud on purpose. This used to be counted as "used" --
+                # a station where the fine correction ran every try and
+                # never got under tolerance looked, in this summary,
+                # identical to a clean fix.
+                msg += (f", NOT SETTLED at {self.driver.visual_unsettled} "
+                       "(camera saw a cross and kept correcting toward it "
+                       "without ever converging -- check VISUAL_SETTLE "
+                       "against this run's per-visit log lines)")
+            self.get_logger().info(msg)
 
     def _minutes(self) -> float:
         """Minutes since midnight, on SIM time -- the sensor field's diurnal

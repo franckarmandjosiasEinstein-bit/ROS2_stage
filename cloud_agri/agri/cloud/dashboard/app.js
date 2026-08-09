@@ -104,8 +104,10 @@ async function poll() {
     const p = S.parked
       ? ` // parked on ${S.parked.label}, ${(S.parked.d * 1000).toFixed(0)} mm off`
       : "";
+    const act = S.state.active_station
+      ? ` // collecting ${S.state.active_station}` : "";
     document.getElementById("foot").textContent =
-      `link up // ${S.state.summary.visits} visits filed${p} // `
+      `link up // ${S.state.summary.visits} visits filed${p}${act} // `
       + `cloud since ${S.state.since}`;
   } catch (e) {
     document.getElementById("foot").textContent = `cloud unreachable: ${e}`;
@@ -300,6 +302,7 @@ function renderMap() {
    * would draw the robot half a metre past every mark it is parked on. */
   const BOOM = 0.50;
   svg += robotLayer(st);
+  svg += activeStationLayer(st);
 
   const map = document.getElementById("map");
   /* SVG y grows downward; the greenhouse's +y is north. Flip so the map
@@ -428,6 +431,26 @@ function robotLayer(stations) {
     <line class="boom" x1="${bx}" y1="${by}" x2="${bx + BOOM}" y2="${by}"/>
     <circle class="lens" cx="${bx + BOOM}" cy="${by}" r="0.045"/>
   </g>`;
+  return g;
+}
+
+/* The station being collected RIGHT NOW -- pulsing ring + dashed line from
+   the robot so the map shows the intent, not only the result. */
+function activeStationLayer(stations) {
+  const label = S.state.active_station;
+  if (!label) return "";
+  const s = stations.find(st => st.label === label);
+  if (!s) return "";
+  const node = Object.values(S.state.nodes || {}).find(n => n.online && n.pose);
+  let g = `<g class="collecting">
+    <circle class="collect-ring" cx="${s.x}" cy="${s.y}" r="0.22"/>`;
+  if (node) {
+    const yaw = (node.pose.yaw_deg || 0) * Math.PI / 180;
+    const bx = node.pose.x - 0.50 * Math.cos(yaw);
+    const by = node.pose.y - 0.50 * Math.sin(yaw);
+    g += `<line class="collect-line" x1="${bx}" y1="${by}" x2="${s.x}" y2="${s.y}"/>`;
+  }
+  g += `</g>`;
   return g;
 }
 

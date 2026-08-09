@@ -31,6 +31,7 @@ import json
 import mimetypes
 import os
 import secrets
+import sys
 import threading
 import time
 from collections import deque
@@ -370,6 +371,15 @@ class Cloud:
         return {**p, "energy_wh": e["total_wh"],
                 "energy_idle_wh": e["idle_wh"], "energy_drive_wh": e["drive_wh"]}
 
+    def _active_station(self) -> str | None:
+        """The station the robot is currently visiting, or None."""
+        for p in reversed(list(self.progress.values())):
+            if p["state"] in ("issued", "accepted", "driving",
+                               "sent", "held", "failed") \
+                    and p.get("completed_at") is None:
+                return p.get("label")
+        return None
+
     def state(self) -> dict[str, Any]:
         """Everything the dashboard needs, in one call."""
         latest = self.store.latest_by_label()
@@ -398,6 +408,7 @@ class Cloud:
                 "parking_error_m": v.parking_error_m if v else None,
             })
         measured, total = self.store.coverage()
+        active = self._active_station()
         return {
             "stations": stations,
             "quantities": [{"name": q.name, "unit": q.unit, "lo": q.lo,
@@ -407,6 +418,7 @@ class Cloud:
                         "coverage": [measured, total],
                         "accepted": self.accepted,
                         "rejected": len(self.rejected)},
+            "active_station": active,
             "nodes": dict(self.nodes),
             # How the Cloud is driving the fleet, and whether it is taking
             # readings. Both are switchable from the dashboard, because a

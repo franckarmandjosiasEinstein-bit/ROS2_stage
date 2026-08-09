@@ -311,6 +311,22 @@ table.grid tbody tr:hover td { background: var(--bg-raise); }
   opacity: 0.75;
 }
 
+/* ------------------------------------------ active collection target */
+.collecting .collect-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 0.025;
+  animation: collect-pulse 1.4s ease-in-out infinite;
+}
+.collecting .collect-line {
+  stroke: var(--accent);
+  stroke-width: 0.012;
+  stroke-dasharray: 0.04 0.03;
+  opacity: 0.6;
+}
+@keyframes collect-pulse { 50% { stroke-width: 0.04; opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .collecting .collect-ring { animation: none; } }
+
 /* ------------------------------------------------- the two modes */
 /* A segmented pair, not a dropdown: there are exactly two modes, both
    worth naming on screen, and the one in force has to be readable from

@@ -287,6 +287,43 @@ def find_cross(rgb: np.ndarray, camera: NadirCamera | None = None
     return best
 
 
+# ---------------------------------------------------- fine-docking verdict
+#: What one attempt at closing on a sighting comes down to.
+DOCK_SETTLED = "settled"        # under tolerance -- stop, this is it
+DOCK_CAPPED = "capped"          # implausibly far -- refuse, keep odometry
+DOCK_NO_CROSS = "no-cross"      # nothing in frame -- keep odometry
+DOCK_CORRECTING = "correcting"  # worth another small move, try again
+#: NOT returned by classify_sighting -- this is the CALLER's verdict after
+#: every attempt came back DOCK_CORRECTING and none ever settled. Named
+#: here anyway so the caller has no reason to spell the string itself.
+DOCK_UNSETTLED = "unsettled"
+
+
+def classify_sighting(range_m: float | None, settle: float, cap: float) -> str:
+    """One reading -> one of the four outcomes above. Pure, no camera, no ROS.
+
+    WHY THIS IS ITS OWN FUNCTION
+
+    The caller that loops on this -- GazeboDriver._centre_on_cross -- needs
+    rclpy to even import, so nothing inside it can run in this project's
+    offline pre-flight suite. The BOUNDARY decisions here (is this reading
+    good enough, is it too far to trust) are exactly the kind of thing that
+    quietly drifts when nobody can test it: an earlier version fell through
+    a loop of DOCK_CORRECTING results with no case for "and if that keeps
+    happening", which the caller then read as a plain success. Pulling the
+    boundary out to a pure function makes THAT possible to test without a
+    simulator; the retry COUNT and the actual driving stay in the ROS file,
+    which is the only part of this that genuinely needs Gazebo.
+    """
+    if range_m is None:
+        return DOCK_NO_CROSS
+    if range_m < settle:
+        return DOCK_SETTLED
+    if range_m > cap:
+        return DOCK_CAPPED
+    return DOCK_CORRECTING
+
+
 # --------------------------------------------------------------- rendering
 FLOOR_RGB = (38, 64, 54)          # the aisle paint, as the world defines it
 CROSS_RGB = (232, 26, 26)

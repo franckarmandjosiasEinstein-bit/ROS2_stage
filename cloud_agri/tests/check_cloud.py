@@ -2254,6 +2254,99 @@ def check_vision() -> None:
           "its centroid is biased inwards and the robot would stop short")
 
 
+def check_visual_docking() -> None:
+    """The fine-correction decision, and the loop that used to hide giving up.
+
+    classify_sighting is pure and importable with no ROS -- unlike its only
+    caller, GazeboDriver._centre_on_cross, which cannot even be imported on
+    a machine with no rclpy. That gap is exactly how a silent fall-through
+    survived: nothing here could run against the real loop, so the boundary
+    logic is pulled out and tested on its own, and the driver source is
+    checked as text for the parts that cannot be.
+    """
+    print("\nvisual docking: settle, refuse, or say it did not")
+    import math                                            # noqa: PLC0415
+
+    from agri.catalogue import all_stations                # noqa: PLC0415
+    from agri.vision import (DOCK_CAPPED, DOCK_CORRECTING,  # noqa: PLC0415
+                             DOCK_NO_CROSS, DOCK_SETTLED, classify_sighting)
+
+    SETTLE, CAP = 0.008, 0.04
+
+    check("no reading is refused, not averaged into a guess",
+          classify_sighting(None, SETTLE, CAP) == DOCK_NO_CROSS)
+    check("a reading under the settle tolerance is accepted",
+          classify_sighting(0.005, SETTLE, CAP) == DOCK_SETTLED)
+    check("a reading past the cap is refused",
+          classify_sighting(0.05, SETTLE, CAP) == DOCK_CAPPED)
+    check("and everything between is worth another small move",
+          classify_sighting(0.02, SETTLE, CAP) == DOCK_CORRECTING)
+
+    # THE BOUNDARIES. An earlier version's inline comparisons used < and >
+    # (never <= or >=); classify_sighting has to make the identical choice
+    # or a station sitting exactly on the line changes behaviour with no
+    # camera or robot noticing.
+    check("exactly AT the settle tolerance does not count as settled",
+          classify_sighting(SETTLE, SETTLE, CAP) == DOCK_CORRECTING,
+          "a reading that just touches the tolerance still gets one more "
+          "look rather than being accepted on a coin flip")
+    check("exactly AT the cap does not count as refused",
+          classify_sighting(CAP, SETTLE, CAP) == DOCK_CORRECTING,
+          "the cap exists for corrections BEYOND it, not at it")
+
+    # THE BUG. Four DOCK_CORRECTING readings in a row -- a camera whose
+    # noise floor sits above VISUAL_SETTLE would produce exactly this --
+    # used to fall out of the loop into the SAME counter as a clean
+    # convergence, with no log line saying anything had gone wrong. It is
+    # small-amplitude, unexplained, and it is what "it does not stop, it
+    # oscillates" looks like from the outside.
+    tries = [classify_sighting(0.015, SETTLE, CAP) for _ in range(4)]
+    check("four readings that never settle are all DOCK_CORRECTING",
+          all(t == DOCK_CORRECTING for t in tries),
+          "none of these is settled, capped or missing -- the caller has "
+          "to notice on its own that the count ran out")
+
+    drv = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+          / "driver.py").read_text()
+    check("the driver counts this outcome separately from a clean fix",
+          "self.visual_unsettled" in drv and "visual_used" in drv
+          and "visual_unsettled += 1" in drv,
+          "it used to increment visual_used -- the SAME counter as a "
+          "station that converged cleanly")
+    check("and it is not silent about it",
+          "giving up, NOT settled" in drv,
+          "a station that never converged used to produce no log line "
+          "at all, identical to one that did")
+    check("the driver's loop and the pure classifier make the same call",
+          "classify_sighting(" in drv and "DOCK_CORRECTING" in drv,
+          "two copies of the same three comparisons is two places for "
+          "them to drift apart")
+    check("drive_to prints the achieved parking error live, per station",
+          "parked {err * 1000:.0f} mm from the mark" in drv,
+          "not only inside the sealed report the Cloud opens minutes "
+          "later -- an evaluator watching the terminal needs the number "
+          "the moment it happens")
+
+    node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+           / "robot_node.py").read_text()
+    check("an unsettled station is called out in the mission summary too",
+          "NOT SETTLED at" in node and "visual_unsettled" in node)
+
+    # The geometry that makes this worth checking at all: two DIFFERENT
+    # stations really do sit close enough to be co-visible.
+    from agri.vision import NadirCamera                     # noqa: PLC0415
+    _, fov_y = NadirCamera().footprint()
+    sts = all_stations()
+    closest = min(
+        math.hypot(a.cross[0] - b.cross[0], a.cross[1] - b.cross[1])
+        for i, a in enumerate(sts) for b in sts[i + 1:]
+        if a.label != b.label)
+    check("two distinct stations sit well inside one camera frame",
+          closest < fov_y,
+          f"{closest:.3f} m apart against a {fov_y:.3f} m wide frame -- "
+          "a fine-correction bug does not need bad luck to be visible")
+
+
 def check_ros_package() -> None:
     """The ROS package cannot be imported here -- there is no rclpy on this
     machine -- so it is checked as TEXT. Every one of these caught something
@@ -3121,6 +3214,61 @@ def check_mode_buttons() -> None:
     check("and the two directions are told apart without reading the words",
           "CLOUD ──►" in js and "◄── NODE" in js,
           "the same arrows the terminal log uses")
+
+
+def check_active_station() -> None:
+    """The dashboard shows which station is being collected right now."""
+    print("\nactive station indicator during collection")
+    from agri import keys as K                              # noqa: PLC0415
+    from agri.cloud.server import Cloud                     # noqa: PLC0415
+    from agri.cloud.store import Store                      # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        K.bootstrap(d / "keys")
+        cloud = Cloud(Store(d / "store"), d / "keys")
+
+        check("no active station before any request",
+              cloud._active_station() is None)
+
+        rid, _ = cloud.build_request("ALL")
+        check("a freshly issued request reports no label yet",
+              cloud._active_station() is None)
+
+        cloud.on_ack(json.dumps({
+            "request_id": rid, "state": "driving",
+            "label": "P1,1R", "at": ""}).encode())
+        check("once the robot says it is driving, the label appears",
+              cloud._active_station() == "P1,1R")
+
+        cloud.on_ack(json.dumps({
+            "request_id": rid, "state": "sent",
+            "label": "P1,1R", "at": ""}).encode())
+        check("after delivery the station stays active (mission ongoing)",
+              cloud._active_station() == "P1,1R")
+
+        cloud.on_ack(json.dumps({
+            "request_id": rid, "state": "driving",
+            "label": "P1,2L", "at": ""}).encode())
+        check("moving to the next station updates the active label",
+              cloud._active_station() == "P1,2L")
+
+        cloud.on_ack(json.dumps({
+            "request_id": rid, "state": "finished", "at": "",
+            "metres": 12.3}).encode())
+        check("once the mission finishes there is no active station",
+              cloud._active_station() is None,
+              f"got {cloud._active_station()!r}")
+
+    st_js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    st_css = (ROOT / "agri" / "cloud" / "dashboard" / "style.css").read_text()
+    check("the dashboard draws the active station indicator",
+          "activeStationLayer" in st_js and "active_station" in st_js)
+    check("with a pulsing ring and a dashed line to the robot",
+          "collect-ring" in st_css and "collect-line" in st_css
+          and "collect-pulse" in st_css)
+    check("the footer mentions the station being collected",
+          "collecting" in st_js and "active_station" in st_js)
 
 
 def check_session_buttons() -> None:
@@ -4363,11 +4511,11 @@ def main() -> int:
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,
-               check_vision,
+               check_vision, check_visual_docking,
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
                check_dashboard_auth, check_mode_buttons,
-               check_session_buttons, check_multinode,
+               check_active_station, check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
                check_demo, check_hygiene):
         fn()

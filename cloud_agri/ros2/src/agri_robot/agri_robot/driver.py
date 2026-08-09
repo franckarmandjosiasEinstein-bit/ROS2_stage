@@ -63,7 +63,9 @@ from std_msgs.msg import Float64
 
 from agri.aisles import brake_clearance, known_structure, route
 from agri.catalogue import SENSOR_OFFSET_X, Station
-from agri.vision import NadirCamera, find_cross
+from agri.vision import (DOCK_CAPPED, DOCK_CORRECTING, DOCK_NO_CROSS,
+                         DOCK_SETTLED, DOCK_UNSETTLED, NadirCamera,
+                         classify_sighting, find_cross)
 
 # --- control ------------------------------------------------------------
 RATE = 20.0                    # Hz
@@ -152,6 +154,14 @@ class GazeboDriver:
         self._blocked_by: tuple[float, float, float] | None = None
         self.visual_used = 0
         self.visual_missed = 0
+        #: Camera saw a cross and corrected toward it every try, but never
+        #: got under VISUAL_SETTLE within VISUAL_TRIES attempts. Counted
+        #: apart from visual_missed (no data) and visual_used (converged):
+        #: this is neither -- the fine correction ran and did not settle,
+        #: and the loop used to fall through into visual_used SILENTLY,
+        #: reporting a station as a clean visual fix when it was really a
+        #: parking pass that gave up.
+        self.visual_unsettled = 0
         #: Metres the base has driven since this node started. See _on_odom.
         self._driven = 0.0
 
@@ -405,7 +415,7 @@ class GazeboDriver:
             last = i == len(legs) - 1
             self._drive(wx, wy, DOCK_TOL if last else WAYPOINT_TOL,
                         f"{s.label} leg {i + 1}/{len(legs)}")
-        self._centre_on_cross(s)
+        visual = self._centre_on_cross(s)
 
         # Stage 2. Measured from where the fix ACTUALLY left the robot, not
         # from the nominal mark: the point of the fix is that those two
@@ -414,23 +424,52 @@ class GazeboDriver:
         px, py, _ = self.pose()
         self._drive(px + SENSOR_OFFSET_X, py, DOCK_TOL,
                     f"{s.label} onto the mark")
+
+        # THE NUMBER THIS WHOLE SEQUENCE EXISTS TO PRODUCE, printed HERE,
+        # live, on the robot's own terminal -- not only inside the sealed
+        # report the Cloud opens minutes later. "Did it actually park on
+        # the mark" is worth answering the moment it happens, and it is
+        # exactly the number an evaluator asks for.
+        bx, by, _ = self.pose()
+        bx -= SENSOR_OFFSET_X            # sensor point -> base_link
+        err = math.hypot(bx - s.cross[0], by - s.cross[1])
+        self.log(f"{s.label}: parked {err * 1000:.0f} mm from the mark "
+                 f"(visual fix: {visual})")
         return self.pose()
 
-    def _centre_on_cross(self, s: Station) -> None:
-        """Close the last centimetres on what the camera sees."""
-        for _ in range(VISUAL_TRIES):
+    def _centre_on_cross(self, s: Station) -> str:
+        """Close the last centimetres on what the camera sees.
+
+        Returns one word for the caller to log against the FINAL parked
+        distance: "settled" / "no-cross" / "capped" / "unsettled". That
+        last one is the one this method used to hide: falling out of the
+        loop after VISUAL_TRIES corrections that never got under
+        VISUAL_SETTLE looked, from the caller's side, IDENTICAL to a clean
+        early return -- no log line, no counter that said anything went
+        wrong, just whatever position the last correction happened to
+        leave. A camera whose per-frame noise sits above VISUAL_SETTLE
+        would settle on nothing, try four times, and stop silently a few
+        millimetres off -- which is small-amplitude, unexplained motion at
+        every single station, exactly what "it does not stop, it wobbles"
+        looks like from outside.
+        """
+        err = None
+        for attempt in range(1, VISUAL_TRIES + 1):
             sighting = self.look_down()
-            if sighting is None:
+            err = sighting.range if sighting else None
+            verdict = classify_sighting(err, VISUAL_SETTLE,
+                                        VISUAL_MAX_CORRECTION)
+
+            if verdict == DOCK_NO_CROSS:
                 self.visual_missed += 1
                 self.log(f"{s.label}: no cross in the floor camera -- "
                          "parked on odometry alone")
-                return
+                return DOCK_NO_CROSS
             self.last_sighting = sighting
-            err = sighting.range
-            if err < VISUAL_SETTLE:
+            if verdict == DOCK_SETTLED:
                 self.visual_used += 1
-                return
-            if err > VISUAL_MAX_CORRECTION:
+                return DOCK_SETTLED
+            if verdict == DOCK_CAPPED:
                 # Refuse, loudly. Either the detector is wrong or the robot
                 # is not where it thinks it is; moving 20 cm on the word of
                 # a red blob is how a visit gets filed under the neighbour.
@@ -439,13 +478,21 @@ class GazeboDriver:
                          f"{VISUAL_MAX_CORRECTION:.2f} m cap -- ignoring it "
                          "and keeping the odometric position")
                 self.visual_missed += 1
-                return
+                return DOCK_CAPPED
+
+            assert verdict == DOCK_CORRECTING
             x, y, yaw = self.pose()
             c, sn = math.cos(yaw), math.sin(yaw)
             tx = x + c * sighting.dx - sn * sighting.dy
             ty = y + sn * sighting.dx + c * sighting.dy
-            self._drive(tx, ty, VISUAL_SETTLE, f"{s.label} visual centring")
-        self.visual_used += 1
+            self._drive(tx, ty, VISUAL_SETTLE,
+                        f"{s.label} visual centring {attempt}/{VISUAL_TRIES}")
+        self.visual_unsettled += 1
+        self.log(f"{s.label}: floor camera still says the cross is "
+                 f"{err * 1000:.0f} mm away after {VISUAL_TRIES} corrections "
+                 f"-- giving up, NOT settled (VISUAL_SETTLE is "
+                 f"{VISUAL_SETTLE * 1000:.0f} mm)")
+        return DOCK_UNSETTLED
 
     def look_down(self):
         """The current floor-camera sighting, or None."""
