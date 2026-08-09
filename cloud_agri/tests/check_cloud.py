@@ -447,6 +447,172 @@ def _chain_links(path: Path) -> bool:
     return prev is not None
 
 
+def check_broker_auth() -> None:
+    print("\nbroker: TLS, credentials, and no silent downgrade")
+    import argparse                                       # noqa: PLC0415
+    import os                                             # noqa: PLC0415
+
+    from agri.protocol import (DEFAULT_PORT, PASSWORD_ENV,  # noqa: PLC0415
+                               TLS_PORT, BrokerAuth, ProtocolError,
+                               add_broker_arguments, broker_auth_from)
+
+    class FakeClient:
+        """Records what was asked of it, so 'we set TLS' can be checked."""
+
+        def __init__(self):
+            self.tls_args = None
+            self.insecure = False
+            self.creds = None
+
+        def tls_set(self, **kw):
+            self.tls_args = kw
+
+        def tls_insecure_set(self, v):
+            self.insecure = v
+
+        def username_pw_set(self, u, p=None):
+            self.creds = (u, p)
+
+    d = Path(tempfile.mkdtemp())
+    ca, crt, key = (d / "ca.crt", d / "c.crt", d / "c.key")
+    for f in (ca, crt, key):
+        f.write_text("not a real certificate")
+
+    # --- the default: plain, and it SAYS plain ---------------------------
+    plain, c = BrokerAuth(), FakeClient()
+    line = plain.apply(c)
+    check("with no flags the broker link is plaintext", not plain.tls)
+    check("and the program says so out loud",
+          "PLAINTEXT" in line and "no authentication" in line, line)
+    check("and nothing was configured on the client", c.tls_args is None)
+    check("the plain default port is 1883", plain.port(None) == DEFAULT_PORT)
+
+    # --- TLS -------------------------------------------------------------
+    tls = BrokerAuth(ca=str(ca))
+    c = FakeClient()
+    line = tls.apply(c)
+    check("naming a CA is what turns TLS on", tls.tls)
+    check("and the port follows to 8883 without being asked twice",
+          tls.port(None) == TLS_PORT,
+          "two things to change is one thing to forget")
+    check("an explicit port still wins", tls.port(1884) == 1884)
+    check("the certificate is REQUIRED, not merely offered",
+          c.tls_args and c.tls_args["cert_reqs"].name == "CERT_REQUIRED",
+          str(c.tls_args))
+    check("and the line printed names TLS", "TLS" in line, line)
+    check("hostname checking is on unless it is switched off", not c.insecure)
+
+    c = FakeClient()
+    BrokerAuth(ca=str(ca), insecure=True).apply(c)
+    check("--broker-insecure is honoured", c.insecure)
+    check("and is loud about it in the printed line",
+          "HOSTNAME NOT CHECKED" in BrokerAuth(ca=str(ca),
+                                               insecure=True).apply(FakeClient()),
+          "a certificate nobody checks the name on is decorative")
+
+    # --- client certificates ---------------------------------------------
+    c = FakeClient()
+    both = BrokerAuth(ca=str(ca), cert=str(crt), key=str(key))
+    line = both.apply(c)
+    check("a client certificate is passed through with its key",
+          c.tls_args["certfile"] == str(crt)
+          and c.tls_args["keyfile"] == str(key), str(c.tls_args))
+    check("and is named in the line", "client certificate" in line, line)
+    refuses("a certificate with no key is refused",
+            lambda: BrokerAuth(ca=str(ca), cert=str(crt)).apply(FakeClient()),
+            ProtocolError)
+    refuses("and a key with no certificate",
+            lambda: BrokerAuth(ca=str(ca), key=str(key)).apply(FakeClient()),
+            ProtocolError)
+    refuses("a path that does not exist is refused before connecting",
+            lambda: BrokerAuth(ca=str(d / "nope.crt")).apply(FakeClient()),
+            ProtocolError)
+
+    # --- the refusal that matters ----------------------------------------
+    try:
+        BrokerAuth(username="cloud", password="hunter2").apply(FakeClient())
+        check("a password with NO TLS is refused", False, "it was accepted")
+    except ProtocolError as exc:
+        check("a password with NO TLS is refused", True)
+        check("and the refusal says the password would go out in clear",
+              "CLEAR TEXT" in str(exc), str(exc).splitlines()[0])
+    c = FakeClient()
+    BrokerAuth(ca=str(ca), username="cloud", password="hunter2").apply(c)
+    check("with TLS the credentials are set", c.creds == ("cloud", "hunter2"))
+
+    # --- the password never comes from argv ------------------------------
+    ap = argparse.ArgumentParser()
+    add_broker_arguments(ap)
+    flags = {a.option_strings[0] for a in ap._actions if a.option_strings}
+    check("there is NO --broker-password flag, by design",
+          "--broker-password" not in flags and "--broker-pass" not in flags,
+          f"/proc/<pid>/cmdline is world-readable; found {sorted(flags)}")
+    check("and the help says where the password does come from",
+          PASSWORD_ENV in ap.format_help(), PASSWORD_ENV)
+
+    saved = os.environ.get(PASSWORD_ENV)
+    os.environ[PASSWORD_ENV] = "from-the-environment"
+    try:
+        args = ap.parse_args(["--broker-ca", str(ca), "--broker-user", "cloud"])
+        auth = broker_auth_from(args)
+        check("the password is read from the environment",
+              auth.password == "from-the-environment")
+        c = FakeClient()
+        auth.apply(c)
+        check("and reaches the client", c.creds == ("cloud",
+                                                    "from-the-environment"))
+        del os.environ[PASSWORD_ENV]
+        auth = broker_auth_from(ap.parse_args(
+            ["--broker-ca", str(ca), "--broker-user", "cloud"]))
+        line = auth.apply(FakeClient())
+        check("and a MISSING password is said out loud, not passed as empty",
+              "NO password" in line and PASSWORD_ENV in line,
+              "connecting anonymously while believing you authenticated is "
+              "the failure this exists to make impossible")
+    finally:
+        if saved is None:
+            os.environ.pop(PASSWORD_ENV, None)
+        else:
+            os.environ[PASSWORD_ENV] = saved
+
+    # --- both programs must offer the same flags -------------------------
+    srv = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+            / "robot_node.py").read_text()
+    check("the Cloud takes the broker flags",
+          "add_broker_arguments(ap)" in srv and "broker_auth_from(args)" in srv)
+    check("and the robot node takes the same settings as parameters",
+          all(f'declare_parameter("{p}"' in node
+              for p in ("broker_ca", "broker_cert", "broker_key",
+                        "broker_user", "broker_insecure")),
+          "a TLS Cloud and a plaintext robot is two programs that cannot "
+          "talk, diagnosed as a broken broker")
+    check("neither falls back to plaintext when TLS was asked for",
+          "return 2" in srv and "raise SystemExit" in node,
+          "a silent downgrade is worse than no TLS: somebody believes it")
+    check("the reference broker config is in the repository",
+          (ROOT / "deploy" / "mosquitto.conf").exists()
+          and (ROOT / "deploy" / "acl").exists())
+    conf = (ROOT / "deploy" / "mosquitto.conf").read_text()
+    check("and it does not leave the plain port listening",
+          "listener 8883" in conf and "listener 1883" not in conf,
+          "a broker still answering on 1883 is a broker every client can "
+          "still reach in the clear")
+    check("and it requires a client certificate, not just a server one",
+          "require_certificate true" in conf
+          and "allow_anonymous false" in conf)
+    acl = (ROOT / "deploy" / "acl").read_text()
+    check("the ACL stops a robot publishing as another robot",
+          "pattern write agri/v1/status/%u" in acl,
+          "%u is the certificate's own name; without it one node can "
+          "report another as dead")
+    check("and stops any robot issuing orders at all",
+          "topic write agri/v1/request" in acl
+          and "pattern write agri/v1/request" not in acl,
+          "the day one node is compromised, this is the difference "
+          "between one bad node and the fleet")
+
+
 def check_chain() -> None:
     print("\nstore: a filed reading that changes says so")
     import subprocess
@@ -548,6 +714,29 @@ def check_chain() -> None:
     # The hash must cover the CONTENT, not merely exist.
     rec = {"label": "P1,1R", "values": {"temperature": 20.0}}
     h1 = line_hash(rec, GENESIS)
+    # Found by pyflakes, not by a test: one dict literal named two
+    # different values "plant", and Python resolves that last-wins in
+    # silence. The report carried coordinates where the plant index
+    # belonged for as long as the format existed.
+    from agri.catalogue import station as _station        # noqa: PLC0415
+    rep = build_report(Measurement(label="P2,5R",
+                                   values={"temperature": 21.4,
+                                           "humidity": 63.2,
+                                           "luminosity": 12480,
+                                           "co2": 431, "ph": 6.42}),
+                       b"\xff\xd8jpg", (4, 4), "youbot-01")
+    st = rep["station"]
+    check("the report's plant number is a NUMBER, beside its row",
+          st["plant"] == _station("P2,5R").plant and isinstance(st["row"], int),
+          f"row={st['row']!r} plant={st['plant']!r}")
+    check("and the plant's position has a name of its own",
+          st["plant_at"] == {"x": _station("P2,5R").plant_x,
+                             "y": _station("P2,5R").plant_y},
+          str(st))
+    check("the cross and the plant are not the same point",
+          st["cross"] != st["plant_at"],
+          "the robot parks on one and photographs the other")
+
     check("the hash is canonical: key order does not change it",
           line_hash({"values": {"temperature": 20.0}, "label": "P1,1R"},
                     GENESIS) == h1,
@@ -3299,7 +3488,7 @@ def check_hygiene() -> None:
 def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_replay,
-               check_chain,
+               check_broker_auth, check_chain,
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,

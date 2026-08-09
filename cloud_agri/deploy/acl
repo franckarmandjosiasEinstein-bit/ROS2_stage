@@ -1,0 +1,47 @@
+# mosquitto ACL -- who may say what.
+#
+# This is the file that turns "the link is encrypted" into "the robot only
+# takes orders from the Cloud". TLS alone gets a private channel between
+# two parties who have not been told what they are allowed to do; without
+# an ACL any authenticated client -- including a second robot, or a laptop
+# whose certificate was issued for a different purpose -- can publish on
+# agri/v1/request and drive the fleet.
+#
+# The usernames come from the certificates: `use_identity_as_username true`
+# in mosquitto.conf means the Common Name IS the username, so these lines
+# are matched against who the certificate says you are.
+#
+# Copy to /etc/mosquitto/acl.
+
+# ------------------------------------------------------------- the Cloud
+# Issues orders and questions; listens to everything the fleet says.
+user cloud
+topic write agri/v1/request
+topic write agri/v1/query/+
+topic read  agri/v1/report/+
+topic read  agri/v1/ack/+
+topic read  agri/v1/status/+
+topic read  agri/v1/reply/+
+
+# ------------------------------------------------------------ each robot
+# One block per node, and the %u substitution is what makes it worth
+# writing: a robot may publish ONLY on its own subtopic. Without it,
+# youbot-01 could publish a status saying youbot-02 is offline, or file a
+# report under its name -- the Cloud would reject the report (wrong signing
+# key) but would believe the status, and a dashboard showing a healthy
+# robot as dead is how a campaign gets abandoned for no reason.
+#
+# Note there is no `topic write agri/v1/request` here. A robot has no
+# business issuing orders, and the day one is compromised this line is the
+# difference between one bad node and a fleet.
+pattern write agri/v1/report/%u
+pattern write agri/v1/ack/%u
+pattern write agri/v1/status/%u
+pattern write agri/v1/reply/%u
+pattern read  agri/v1/query/%u
+pattern read  agri/v1/request
+
+# ---------------------------------------------------------- fixed nodes
+# An ESP bolted to a post reports and is never asked to go anywhere, so it
+# gets the reporting topics and not the query topic. Same %u rule.
+# (No node of this kind exists yet; the protocol carries node_kind for it.)

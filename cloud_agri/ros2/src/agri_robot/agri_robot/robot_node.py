@@ -46,9 +46,9 @@ import rclpy
 from rclpy.node import Node
 
 from agri import keys
-from agri.protocol import (DEFAULT_BROKER, DEFAULT_PORT, QOS, TOPIC_REQUEST,
-                           topic_query,
-                           mqtt_client, topic_status)
+from agri.protocol import (DEFAULT_BROKER, QOS, TOPIC_REQUEST,
+                           BrokerAuth, ProtocolError, mqtt_client,
+                           topic_query, topic_status)
 from agri.replay import FRESHNESS_S
 from agri.robot import Mission, RobotLink, Visitor
 from agri.sensors import GreenhouseField
@@ -66,7 +66,20 @@ class AgriRobot(Node):
         super().__init__("agri_robot")
         self.declare_parameter("robot_id", "youbot-01")
         self.declare_parameter("broker", DEFAULT_BROKER)
-        self.declare_parameter("broker_port", DEFAULT_PORT)
+        # 0 means "decide from the transport": 8883 with TLS, 1883 without.
+        # A ROS parameter cannot be None, so 0 is the sentinel.
+        self.declare_parameter("broker_port", 0)
+        # TLS and broker credentials. Off by default -- the demonstration
+        # runs mosquitto on the same laptop -- but a flag away, so the step
+        # to a deployment is configuration and not a rewrite. The password
+        # is read from $AGRI_BROKER_PASSWORD and never from a parameter,
+        # because a ROS parameter is readable by `ros2 param get` from any
+        # node on the graph.
+        self.declare_parameter("broker_ca", "")
+        self.declare_parameter("broker_cert", "")
+        self.declare_parameter("broker_key", "")
+        self.declare_parameter("broker_user", "")
+        self.declare_parameter("broker_insecure", False)
         self.declare_parameter("keys", "keys")
         self.declare_parameter("status_period", 5.0)
         # How old a signed order may be before the robot refuses it as a
@@ -134,8 +147,23 @@ class AgriRobot(Node):
         as well, so the ordering of two terminals stops being load-bearing.
         """
         host = self.get_parameter("broker").value
-        port = int(self.get_parameter("broker_port").value)
         self.client = mqtt_client(f"agri-{self.robot_id}")
+
+        auth = BrokerAuth.from_env(
+            ca=str(self.get_parameter("broker_ca").value),
+            cert=str(self.get_parameter("broker_cert").value),
+            key=str(self.get_parameter("broker_key").value),
+            username=str(self.get_parameter("broker_user").value),
+            insecure=bool(self.get_parameter("broker_insecure").value))
+        try:
+            self.get_logger().info(auth.apply(self.client))
+        except ProtocolError as exc:
+            # Fatal on purpose. A node that fell back to plaintext after
+            # being told to use TLS would be the worst of both: an operator
+            # who believes the link is protected and a link that is not.
+            raise SystemExit(f"agri_robot: {exc}") from exc
+        given = int(self.get_parameter("broker_port").value)
+        port = auth.port(given or None)
         self.link = RobotLink(
             self.visitor, self.cloud_public, self.client,
             log=self.get_logger().info,

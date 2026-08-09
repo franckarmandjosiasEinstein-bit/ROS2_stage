@@ -105,10 +105,18 @@ def build_report(m: Measurement, photo_jpeg: bytes, photo_size: tuple[int, int],
         "robot": robot_id,
         "request_id": request_id,
         "sent_at": utc_now(),
+        # "plant" is the plant NUMBER, beside "row"; "plant_at" is where it
+        # stands. Both were called "plant" -- one dict literal with the same
+        # key twice, which Python accepts in silence and resolves last-wins.
+        # Every report ever filed therefore carried a coordinate pair where
+        # the plant index belonged, next to a row index that was a plain
+        # integer. Nothing downstream read it, so nothing ever broke; it was
+        # simply wrong in the file, which is the kind of wrong only found by
+        # reading the file.
         "station": {
             "label": s.label, "row": s.row, "plant": s.plant, "side": s.side,
             "cross": {"x": s.x, "y": s.y},
-            "plant": {"x": s.plant_x, "y": s.plant_y},
+            "plant_at": {"x": s.plant_x, "y": s.plant_y},
         },
         "measurement": m.to_dict(),
         "qr_png_b64": encode_b64(m.to_qr_text()),

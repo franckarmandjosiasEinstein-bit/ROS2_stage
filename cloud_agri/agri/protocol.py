@@ -61,6 +61,8 @@ any.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from agri.labels import (LabelError, all_labels, expand_target,
@@ -289,6 +291,160 @@ def mqtt_client(client_id: str):
         warnings.simplefilter("ignore", DeprecationWarning)
         return mqtt.Client(api.VERSION1, client_id=client_id,
                            protocol=mqtt.MQTTv311)
+
+
+# ------------------------------------------------------------ broker auth
+#: The environment variable the broker password is read from.
+#:
+#: NOT a command-line flag, and that is the whole reason this exists. On
+#: Linux /proc/<pid>/cmdline is world-readable: `ps aux` on the greenhouse
+#: PC would print the broker password to anybody with a shell, and the
+#: shell history would keep a copy. An environment variable is not secret
+#: either -- /proc/<pid>/environ exists -- but it is readable only by the
+#: same user and root, which is the difference between "anyone logged in"
+#: and "whoever already owns the account".
+PASSWORD_ENV = "AGRI_BROKER_PASSWORD"
+
+#: The IANA port for MQTT over TLS. Used automatically when TLS is on and
+#: no port was given, so nobody has to remember to change two things.
+TLS_PORT = 8883
+
+
+@dataclass
+class BrokerAuth:
+    """How to reach the broker safely, or plainly, and which one you chose.
+
+    WHY THIS IS OPTIONAL AND NOT DEFAULT
+
+    The demonstration runs mosquitto on the same laptop, with no TLS and no
+    password, and requiring certificates for that would mean generating a
+    CA before anyone can see a robot move. So plain is the default and the
+    code says so out loud rather than pretending.
+
+    What matters is that the step from there to a deployment is a flag and
+    not a rewrite. ECIES protects the CONTENT of a report; it does nothing
+    for the metadata -- who published what, to which topic, when -- and it
+    does nothing to stop an unauthenticated stranger publishing on
+    `agri/v1/query/<node>`. Only the transport can do those, so the
+    transport has to be able to do them.
+    """
+
+    ca: str = ""
+    cert: str = ""
+    key: str = ""
+    username: str = ""
+    #: Never set from the command line. See PASSWORD_ENV.
+    password: str = ""
+    #: Accept a certificate whose name does not match the host. For a broker
+    #: reached by bare IP with a certificate issued to a name -- which is
+    #: the usual first-deployment snag. Explicit, because a silent default
+    #: here would make the certificate decorative.
+    insecure: bool = False
+
+    @property
+    def tls(self) -> bool:
+        return bool(self.ca or self.cert)
+
+    @classmethod
+    def from_env(cls, **kw) -> "BrokerAuth":
+        """Build one, taking the password from the environment only."""
+        import os                                        # noqa: PLC0415
+
+        return cls(password=os.environ.get(PASSWORD_ENV, ""), **kw)
+
+    def port(self, given: int | None) -> int:
+        if given is not None:
+            return given
+        return TLS_PORT if self.tls else DEFAULT_PORT
+
+    def check(self) -> None:
+        """Refuse a combination that would not do what it looks like."""
+        if self.cert and not self.key:
+            raise ProtocolError(
+                "--broker-cert without --broker-key: a client certificate "
+                "is useless without the private half that proves it.")
+        if self.key and not self.cert:
+            raise ProtocolError(
+                "--broker-key without --broker-cert: nothing to present.")
+        if self.username and not self.tls:
+            raise ProtocolError(
+                f"a broker password with no TLS sends it in CLEAR TEXT on "
+                f"the first packet, where the whole network can read it. "
+                f"Add --broker-ca, or drop --broker-user.\n"
+                f"    (The password itself comes from ${PASSWORD_ENV}, "
+                f"never from the command line.)")
+        if self.insecure and not self.tls:
+            raise ProtocolError("--broker-insecure means nothing without TLS")
+        for label, path in (("--broker-ca", self.ca),
+                            ("--broker-cert", self.cert),
+                            ("--broker-key", self.key)):
+            if path and not Path(path).exists():
+                raise ProtocolError(f"{label}: {path} does not exist")
+
+    def apply(self, client) -> str:
+        """Configure the client. Returns one line saying what was done.
+
+        The line is returned rather than printed so both programs can put
+        it where their own logs go -- and so that a run can never claim TLS
+        it did not get, which is the failure mode that matters: a system
+        that silently falls back to plaintext is worse than one with no TLS
+        at all, because somebody will believe it.
+        """
+        self.check()
+        if not self.tls:
+            if self.username:                            # unreachable: check()
+                raise ProtocolError("credentials without TLS")
+            return "broker: PLAINTEXT, no authentication (fine on one laptop)"
+
+        import ssl                                       # noqa: PLC0415
+
+        client.tls_set(ca_certs=self.ca or None,
+                       certfile=self.cert or None,
+                       keyfile=self.key or None,
+                       cert_reqs=ssl.CERT_REQUIRED,
+                       tls_version=ssl.PROTOCOL_TLS_CLIENT)
+        if self.insecure:
+            client.tls_insecure_set(True)
+        if self.username:
+            client.username_pw_set(self.username, self.password or None)
+
+        how = ["TLS"]
+        if self.cert:
+            how.append("client certificate")
+        if self.username:
+            how.append(f"password for {self.username}"
+                       if self.password else
+                       f"user {self.username} with NO password "
+                       f"(${PASSWORD_ENV} is not set)")
+        if self.insecure:
+            how.append("HOSTNAME NOT CHECKED")
+        return "broker: " + ", ".join(how)
+
+
+def add_broker_arguments(ap) -> None:
+    """The same four flags on both programs, described the same way once."""
+    ap.add_argument("--broker-ca", default="", metavar="PEM",
+                    help="CA certificate that signed the broker's. Presence "
+                         "of this flag is what turns TLS on.")
+    ap.add_argument("--broker-cert", default="", metavar="PEM",
+                    help="this node's client certificate")
+    ap.add_argument("--broker-key", default="", metavar="PEM",
+                    help="the private half of --broker-cert")
+    ap.add_argument("--broker-user", default="", metavar="NAME",
+                    help=f"broker username. The password is read from "
+                         f"${PASSWORD_ENV} and is never accepted on the "
+                         f"command line, because /proc/<pid>/cmdline is "
+                         f"world-readable.")
+    ap.add_argument("--broker-insecure", action="store_true",
+                    help="do not check the broker's certificate against its "
+                         "hostname (for a broker reached by bare IP)")
+
+
+def broker_auth_from(args) -> BrokerAuth:
+    return BrokerAuth.from_env(ca=args.broker_ca, cert=args.broker_cert,
+                               key=args.broker_key,
+                               username=args.broker_user,
+                               insecure=args.broker_insecure)
 
 
 # ---------------------------------------------------------------- request

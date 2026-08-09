@@ -44,7 +44,7 @@ from agri.envelope import PARK_TOLERANCE, build_report, seal_report, synthetic_p
 from agri.measurement import Measurement
 from agri.protocol import (MODE_COLLECTOR, MODE_COMMAND, QOS, STEP_FILED,
                            STEP_HOLD, STEP_IDLE, STEP_IDLE_ASK, STEP_OFFER,
-                           STEP_SEND, TOPIC_REQUEST, ProtocolError,
+                           STEP_SEND, ProtocolError,
                            check_request, make_ack, make_reply, make_status,
                            open_handshake, request_mode, topic_ack,
                            topic_reply, topic_report,

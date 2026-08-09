@@ -47,11 +47,12 @@ from agri.crypto_ecc import CryptoError, sign_json
 from agri.envelope import EnvelopeError, new_request_id, open_envelope
 from agri.labels import all_labels, normalise
 from agri.measurement import QUANTITIES, utc_now
-from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, MODE_COLLECTOR,
-                           MODE_COMMAND, MODES, QOS, STEP_FILED, STEP_HOLD,
+from agri.protocol import (ALL, DEFAULT_BROKER, MODE_COLLECTOR,
+                           MODE_COMMAND, QOS, STEP_FILED, STEP_HOLD,
                            STEP_IDLE, STEP_IDLE_ASK, STEP_OFFER, STEP_SEND,
                            TOPIC_ACK_ALL, TOPIC_REPLY_ALL, TOPIC_REPORT_ALL,
                            TOPIC_REQUEST, TOPIC_STATUS_ALL, ProtocolError,
+                           add_broker_arguments, broker_auth_from,
                            expand_targets, make_query, make_request,
                            mqtt_client, node_id_from_topic,
                            open_handshake, topic_query)
@@ -949,7 +950,10 @@ def no_auth_refusal(host: str, port: int) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Smart-agriculture Cloud")
     ap.add_argument("--broker", default=DEFAULT_BROKER)
-    ap.add_argument("--broker-port", type=int, default=DEFAULT_PORT)
+    # None, not DEFAULT_PORT: with TLS on, the port should follow to 8883
+    # without anyone having to remember to change two things at once.
+    ap.add_argument("--broker-port", type=int, default=None)
+    add_broker_arguments(ap)
     ap.add_argument("--http-port", type=int, default=8088)
     ap.add_argument("--store", type=Path, default=Path("store"))
     ap.add_argument("--keys", type=Path, default=Path("keys"))
@@ -990,6 +994,14 @@ def main(argv: list[str] | None = None) -> int:
     cloud = Cloud(Store(args.store), args.keys)
     client = mqtt_client("agri-cloud")
 
+    auth = broker_auth_from(args)
+    try:
+        print(auth.apply(client))
+    except ProtocolError as exc:
+        print(f"cloud: {exc}")
+        return 2
+    broker_port = auth.port(args.broker_port)
+
     def publish(topic: str, payload: str) -> None:
         client.publish(topic, payload, qos=QOS)
 
@@ -1000,7 +1012,7 @@ def main(argv: list[str] | None = None) -> int:
         for topic in (TOPIC_REPORT_ALL, TOPIC_ACK_ALL, TOPIC_STATUS_ALL,
                       TOPIC_REPLY_ALL):
             cl.subscribe(topic, qos=QOS)
-        print(f"cloud: connected to {args.broker}:{args.broker_port}, "
+        print(f"cloud: connected to {args.broker}:{broker_port}, "
               f"listening on {TOPIC_REPORT_ALL}")
         if args.request:
             rid, signed = cloud.build_request(
@@ -1034,10 +1046,10 @@ def main(argv: list[str] | None = None) -> int:
 
     client.on_connect, client.on_message = on_connect, on_message
     try:
-        client.connect(args.broker, args.broker_port, keepalive=30)
+        client.connect(args.broker, broker_port, keepalive=30)
     except OSError as exc:
         print(f"cloud: cannot reach the broker at {args.broker}:"
-              f"{args.broker_port} ({exc}).\n"
+              f"{broker_port} ({exc}).\n"
               "       Start one:  mosquitto -p 1883 -v")
         return 1
     client.loop_start()
