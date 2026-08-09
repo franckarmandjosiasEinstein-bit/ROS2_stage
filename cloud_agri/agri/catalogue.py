@@ -268,7 +268,20 @@ class Station:
     row: int            # 1..3
     plant: int          # 1..8
     side: str           # "R" | "L"
-    x: float            # where the robot must stand (the cross)
+    #: WHERE THE SENSOR POINT ENDS UP -- not the cross, and not base_link.
+    #:
+    #: This field was commented "where the robot must stand (the cross)"
+    #: and it is neither. It is the boom tip's final position, which is
+    #: SENSOR_OFFSET_X ahead of the parked chassis and therefore
+    #: SENSOR_OFFSET_X ahead of the paint. Everything that drives uses it
+    #: correctly, because Driver.pose() also reports the sensor point --
+    #: but two things that only DISPLAY it read it as the mark, and drew
+    #: the robot stopping half a metre short of every cross.
+    #:
+    #: Use .cross for the paint, .park_pose for the chassis, and
+    #: .sensor_pose for this. The suite asserts all three agree with the
+    #: world, the markers and the report.
+    x: float
     y: float
     plant_x: float      # the plant to measure and photograph
     plant_y: float
@@ -290,6 +303,21 @@ class Station:
         length so the chassis comes to rest on it. See Driver.drive_to.
         """
         return (self.x - SENSOR_OFFSET_X, self.y)
+
+    @property
+    def park_pose(self) -> tuple[float, float]:
+        """Where BASE_LINK comes to rest: on the mark, covering it.
+
+        The same point as .cross, and named separately because they are
+        two different claims -- one about paint, one about a chassis --
+        and the check that they coincide is the whole design.
+        """
+        return self.cross
+
+    @property
+    def sensor_pose(self) -> tuple[float, float]:
+        """Where the boom tip ends up, SENSOR_OFFSET_X past the mark."""
+        return (self.x, self.y)
 
     @property
     def fix_pose(self) -> tuple[float, float]:

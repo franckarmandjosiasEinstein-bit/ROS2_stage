@@ -95,27 +95,40 @@ def build_report(m: Measurement, photo_jpeg: bytes, photo_size: tuple[int, int],
                  robot_id: str, request_id: str | None = None) -> dict[str, Any]:
     """The plaintext report for one visit."""
     s = station(m.label)
+    # SENSOR POINT against SENSOR TARGET, which is the same number as
+    # chassis-against-paint: both ends of the comparison are offset by the
+    # boom length, so it cancels. Measurement.pose is the sensor point
+    # (Driver.pose), and s.sensor_pose is where it is meant to finish.
     park_error = None
     if m.pose is not None:
-        park_error = round(((m.pose[0] - s.x) ** 2
-                            + (m.pose[1] - s.y) ** 2) ** 0.5, 4)
+        sx, sy = s.sensor_pose
+        park_error = round(((m.pose[0] - sx) ** 2
+                            + (m.pose[1] - sy) ** 2) ** 0.5, 4)
     return {
         "schema": SCHEMA,
         "kind": "measurement",
         "robot": robot_id,
         "request_id": request_id,
         "sent_at": utc_now(),
-        # "plant" is the plant NUMBER, beside "row"; "plant_at" is where it
-        # stands. Both were called "plant" -- one dict literal with the same
-        # key twice, which Python accepts in silence and resolves last-wins.
-        # Every report ever filed therefore carried a coordinate pair where
-        # the plant index belonged, next to a row index that was a plain
-        # integer. Nothing downstream read it, so nothing ever broke; it was
-        # simply wrong in the file, which is the kind of wrong only found by
-        # reading the file.
+        # FOUR POINTS, EACH NAMED FOR WHAT IT IS. Two of these were wrong
+        # in every report ever filed, and neither broke anything -- which
+        # is why they lasted.
+        #
+        #   cross      the paint. Carried s.x, the BOOM TIP's target, which
+        #              is SENSOR_OFFSET_X past the mark. So the report
+        #              placed the cross half a metre from where it is, in
+        #              the field an evaluator checks first.
+        #   parked_at  where base_link comes to rest: on the paint.
+        #   sensor_at  where the boom tip finishes.
+        #   plant_at   the plant. Was also called "plant" -- the same key
+        #              twice in one dict literal, which Python resolves
+        #              last-wins in silence, so the plant INDEX was
+        #              overwritten by a coordinate pair.
         "station": {
             "label": s.label, "row": s.row, "plant": s.plant, "side": s.side,
-            "cross": {"x": s.x, "y": s.y},
+            "cross": {"x": s.cross[0], "y": s.cross[1]},
+            "parked_at": {"x": s.park_pose[0], "y": s.park_pose[1]},
+            "sensor_at": {"x": s.sensor_pose[0], "y": s.sensor_pose[1]},
             "plant_at": {"x": s.plant_x, "y": s.plant_y},
         },
         "measurement": m.to_dict(),

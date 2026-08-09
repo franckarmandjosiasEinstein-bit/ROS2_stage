@@ -893,6 +893,141 @@ def check_plant_camera() -> None:
           "it looks at a 4 cm cross 45 cm below it and needs the width")
 
 
+def check_on_the_cross() -> None:
+    """One point, named the same way by the world, RViz and the report."""
+    print("\nparking: the robot stands ON the mark, and everything says so")
+    import re as _re                                       # noqa: PLC0415
+
+    from agri.catalogue import (BASE_HALF_LENGTH,  # noqa: PLC0415
+                                BASE_HALF_WIDTH, CROSS_ARM, SENSOR_OFFSET_X,
+                                all_stations, station)
+    from agri.envelope import PARK_TOLERANCE, build_report  # noqa: PLC0415
+    from agri.measurement import Measurement               # noqa: PLC0415
+    from agri.world import ensure as _ensure               # noqa: PLC0415
+
+    # 1. THE THREE POINTS ARE THREE POINTS, and only one of them is paint.
+    s = station("P2,5R")
+    check("the mark, the chassis and the boom tip are named separately",
+          s.cross == s.park_pose and s.sensor_pose == (s.x, s.y)
+          and s.cross != s.sensor_pose,
+          f"cross {s.cross}, parked {s.park_pose}, sensor {s.sensor_pose}")
+    check("and the boom tip finishes exactly one boom past the mark",
+          abs((s.sensor_pose[0] - s.cross[0]) - SENSOR_OFFSET_X) < 1e-9)
+
+    # 2. THE CHASSIS COVERS THE PAINT. At every station, with the whole
+    #    cross inside the footprint and not merely its centre.
+    worst = 0.0
+    for st in all_stations():
+        bx, by = st.park_pose
+        along = BASE_HALF_LENGTH - CROSS_ARM
+        across = BASE_HALF_WIDTH - CROSS_ARM
+        worst = max(worst, CROSS_ARM + abs(st.cross[0] - bx),
+                    CROSS_ARM + abs(st.cross[1] - by))
+        if along < 0 or across < 0:
+            break
+    check("the parked chassis covers the WHOLE cross, at all 48 stations",
+          all(abs(st.cross[0] - st.park_pose[0]) + CROSS_ARM
+              <= BASE_HALF_LENGTH
+              and abs(st.cross[1] - st.park_pose[1]) + CROSS_ARM
+              <= BASE_HALF_WIDTH for st in all_stations()),
+          f"chassis {2 * BASE_HALF_LENGTH:.2f} x {2 * BASE_HALF_WIDTH:.2f} m, "
+          f"cross arm {CROSS_ARM} m")
+    check("and with room to spare for the worst allowed parking error",
+          BASE_HALF_WIDTH - CROSS_ARM > PARK_TOLERANCE,
+          f"{BASE_HALF_WIDTH - CROSS_ARM:.3f} m of margin across against "
+          f"{PARK_TOLERANCE} m of tolerance")
+
+    # 3. THE PAINT IN THE WORLD IS AT .cross.
+    _ensure.ensure()
+    world = (ROOT / "worlds" / "greenhouse_cloud.sdf").read_text()
+    painted = {}
+    for m in _re.finditer(r'<model name="(cross_[^"]+)">\s*<static>true</static>'
+                          r'\s*<pose>([-\d.]+) ([-\d.]+)', world):
+        painted[m.group(1)] = (float(m.group(2)), float(m.group(3)))
+    check("the world paints one cross per station", len(painted) == 48,
+          f"{len(painted)} found")
+    if painted:
+        want = {(round(st.cross[0], 3), round(st.cross[1], 3))
+                for st in all_stations()}
+        got = {(round(x, 3), round(y, 3)) for x, y in painted.values()}
+        check("and paints them where .cross says, not where .x says",
+              got == want,
+              f"{len(got - want)} painted somewhere else")
+
+    # 4. RVIZ DRAWS THE SAME POINT. This is the one that was wrong: the
+    #    markers were at s.x, so a robot parked exactly on its mark
+    #    appeared to stop half a metre short of every cross -- in the view
+    #    an evaluator watches.
+    viz = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+           / "viz_node.py").read_text()
+    check("RViz draws its markers on the PAINT, not on the boom target",
+          "cx, cy = s.cross" in viz and "_seg(s.x - CROSS_ARM" not in viz,
+          "markers at s.x put every cross 0.50 m ahead of the painted one")
+
+    # 5. THE REPORT SAYS THE SAME POINT.
+    m = Measurement(label="P2,5R",
+                    values={"temperature": 21.4, "humidity": 63.2,
+                            "luminosity": 12480, "co2": 431, "ph": 6.42})
+    rep = build_report(m, b"\xff\xd8jpg", (4, 4), "youbot-01")["station"]
+    check("the report's cross is the painted cross",
+          (rep["cross"]["x"], rep["cross"]["y"]) == s.cross,
+          f"{rep['cross']} vs {s.cross}")
+    check("and it also says where the chassis and the boom tip end up",
+          (rep["parked_at"]["x"], rep["parked_at"]["y"]) == s.park_pose
+          and (rep["sensor_at"]["x"], rep["sensor_at"]["y"]) == s.sensor_pose)
+    check("and the four points are not silently the same",
+          len({tuple(rep[k].values())
+               for k in ("cross", "sensor_at", "plant_at")}) == 3)
+
+    # 6. THE DASHBOARD SHOWS THE SAME POINT, AND SHOWS THE ROBOT ON IT.
+    from agri.cloud.server import Cloud                    # noqa: PLC0415
+    from agri.cloud.store import Store                     # noqa: PLC0415
+    d = Path(tempfile.mkdtemp())
+    cl = Cloud(Store(d / "s"), d / "k")
+    api = {r["label"]: r for r in cl.state()["stations"]}
+    check("the dashboard is sent the PAINTED cross as x, y",
+          (api["P2,5R"]["x"], api["P2,5R"]["y"]) == s.cross,
+          f"{api['P2,5R']['x'], api['P2,5R']['y']} vs {s.cross}")
+    check("and the boom target separately, so neither has to be inferred",
+          (api["P2,5R"]["sensor_x"], api["P2,5R"]["sensor_y"])
+          == s.sensor_pose)
+
+    js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    css = (ROOT / "agri" / "cloud" / "dashboard" / "style.css").read_text()
+    check("the map draws the robot at all",
+          "function robotLayer" in js and "svg += robotLayer(st)" in js,
+          "48 crosses and no robot meant 'did it park on the mark' was a "
+          "question only Gazebo could answer")
+    check("and draws the CHASSIS where the chassis is, not the boom tip",
+          "node.pose.x - BOOM * Math.cos(yaw)" in js,
+          "the status pose is the sensor point; drawing the base there "
+          "would put the robot half a metre past every mark it is on")
+    check("the station it is standing on is highlighted",
+          'class="parked"' in js and ".parked line" in css)
+    check("in a hue nothing else on the map uses",
+          "#ffd166" in css and "#ffb020" in css)
+    check("but only when it is genuinely ON it",
+          "bestD <= 0.12" in js,
+          "highlighting the nearest mark from 30 cm away would say the "
+          "opposite of the truth")
+    check("and the offset is given as a NUMBER, in millimetres",
+          "mm off" in js and "S.parked.d * 1000" in js,
+          "the highlight says which mark; the evaluation is about how far")
+
+    # 7. THE DRIVER'S TWO STAGES STILL ADD UP TO base_link ON THE MARK.
+    drv = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+           / "driver.py").read_text()
+    check("the driver reads the mark with the boom, then advances onto it",
+          "s.fix_pose" in drv and "px + SENSOR_OFFSET_X" in drv
+          and drv.index("_centre_on_cross(s)") < drv.index("px + SENSOR"),
+          "correcting AFTER the advance would throw the fix away")
+    check("and Driver.pose() is the sensor point, which is what makes that "
+          "arithmetic land on the mark",
+          "The SENSOR point, which is what a station names" in drv,
+          "if pose() were base_link the same code would park a boom "
+          "length past every cross")
+
+
 def check_textures() -> None:
     print("\ntextures: a 2 MB file that costs half a gigabyte")
     import shutil                                          # noqa: PLC0415
@@ -4061,6 +4196,7 @@ def main() -> int:
     for fn in (check_labels, check_catalogue, check_crypto, check_replay,
                check_trust, check_broker_auth, check_chain,
                check_ensure, check_plant_camera, check_textures,
+               check_on_the_cross,
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,

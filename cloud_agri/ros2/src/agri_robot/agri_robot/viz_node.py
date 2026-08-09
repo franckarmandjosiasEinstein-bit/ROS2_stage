@@ -186,8 +186,14 @@ class Viz(Node):
         """The 48 stations, drawn as the crosses that are painted there."""
         m = _marker(0, Marker.LINE_LIST, (0.012, 0.0, 0.0), (0.95, 0.1, 0.1, 1.0))
         for s in all_stations():
-            m.points.extend(_seg(s.x - CROSS_ARM, s.y, s.x + CROSS_ARM, s.y))
-            m.points.extend(_seg(s.x, s.y - CROSS_ARM, s.x, s.y + CROSS_ARM))
+            # s.cross, NOT s.x. s.x is where the boom tip ends up, half a
+            # metre past the paint; drawing the marker there put every
+            # cross in RViz 0.50 m ahead of the one painted in Gazebo, so
+            # a robot parked exactly on its mark appeared to stop short of
+            # it -- in the view an evaluator watches.
+            cx, cy = s.cross
+            m.points.extend(_seg(cx - CROSS_ARM, cy, cx + CROSS_ARM, cy))
+            m.points.extend(_seg(cx, cy - CROSS_ARM, cx, cy + CROSS_ARM))
         return m
 
     def _structure(self) -> Marker:

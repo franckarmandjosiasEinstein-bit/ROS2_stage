@@ -13,7 +13,7 @@
  */
 
 const S = { state: null, quantity: "temperature", selected: null,
-            row: "", side: "", token: "" };
+            row: "", side: "", token: "", parked: null };
 
 /* AUTH. The token normally arrives as an HttpOnly cookie: the operator
    opens the ?token= URL the Cloud printed exactly once, the server sets the
@@ -97,8 +97,16 @@ async function poll() {
     }
     S.state = await r.json();
     render();
+    /* The parked station and its offset, in the footer, in millimetres.
+       The highlight on the map says WHICH mark; this says HOW WELL, which
+       is the number the evaluation is actually about -- and it is the same
+       number the report carries as parking_error_m. */
+    const p = S.parked
+      ? ` // parked on ${S.parked.label}, ${(S.parked.d * 1000).toFixed(0)} mm off`
+      : "";
     document.getElementById("foot").textContent =
-      `link up // ${S.state.summary.visits} visits filed // cloud since ${S.state.since}`;
+      `link up // ${S.state.summary.visits} visits filed${p} // `
+      + `cloud since ${S.state.since}`;
   } catch (e) {
     document.getElementById("foot").textContent = `cloud unreachable: ${e}`;
   }
@@ -278,6 +286,20 @@ function renderMap() {
     </g>`;
   });
 
+  /* WHERE THE ROBOT IS, AND WHICH MARK IT IS STANDING ON.
+   *
+   * The map showed 48 crosses and no robot, so "did it park on the mark"
+   * was a question only Gazebo could answer -- and the number the report
+   * carries, which is the one being evaluated, appeared nowhere near the
+   * picture it describes.
+   *
+   * The pose in a status message is the SENSOR point (the boom tip). The
+   * chassis is SENSOR_OFFSET_X behind it, and that is what lands on the
+   * paint, so the base is drawn where the base is. Getting this backwards
+   * would draw the robot half a metre past every mark it is parked on. */
+  const BOOM = 0.50;
+  svg += robotLayer(st);
+
   const map = document.getElementById("map");
   /* SVG y grows downward; the greenhouse's +y is north. Flip so the map
      reads the way the operator stands in the building. */
@@ -293,6 +315,52 @@ function renderMap() {
      <span class="ramp" style="background:linear-gradient(90deg,${
        [0, .25, .5, .75, 1].map(t => ramp(S.quantity, t)).join(",")})"></span>
      <span>${Ql.hi} ${Ql.unit}</span>`;
+}
+
+/* The live robot, and the station it is standing on. Returns SVG. */
+function robotLayer(stations) {
+  const BOOM = 0.50, ARM = 0.045;
+  const node = Object.values(S.state.nodes || {}).find(n => n.online && n.pose);
+  if (!node) { S.parked = null; return ""; }
+
+  /* The status pose is the boom tip; the chassis is one boom behind it,
+     along the robot's own heading. */
+  const yaw = (node.pose.yaw_deg || 0) * Math.PI / 180;
+  const bx = node.pose.x - BOOM * Math.cos(yaw);
+  const by = node.pose.y - BOOM * Math.sin(yaw);
+
+  /* Which mark is it on? Nearest, and only if it is genuinely on it --
+     PARK_TOLERANCE is 0.04 m, and calling a robot "parked" at 0.30 m
+     would make the highlight say the opposite of the truth. */
+  let best = null, bestD = Infinity;
+  stations.forEach(s => {
+    const d = Math.hypot(s.x - bx, s.y - by);
+    if (d < bestD) { bestD = d; best = s; }
+  });
+  const parked = best && bestD <= 0.12;
+  S.parked = parked ? { label: best.label, d: bestD } : null;
+
+  let g = "";
+  if (parked) {
+    /* The mark it is on, in its own colour, over the top of the one drawn
+       in the station layer. Plus the offset in millimetres: the highlight
+       says WHICH, the number says HOW WELL, and the evaluation is about
+       the second. */
+    g += `<g class="parked">
+      <circle class="parkhalo" cx="${best.x}" cy="${best.y}" r="0.20"/>
+      <line x1="${best.x - ARM}" y1="${best.y}" x2="${best.x + ARM}" y2="${best.y}"/>
+      <line x1="${best.x}" y1="${best.y - ARM}" x2="${best.x}" y2="${best.y + ARM}"/>
+    </g>`;
+  }
+  /* The chassis footprint, to scale (0.58 x 0.38 m), so that "the mark is
+     under the robot" is something the picture shows rather than claims. */
+  g += `<g class="robot${parked ? " on" : ""}"
+           transform="rotate(${node.pose.yaw_deg || 0} ${bx} ${by})">
+    <rect x="${bx - 0.29}" y="${by - 0.19}" width="0.58" height="0.38" rx="0.04"/>
+    <line class="boom" x1="${bx}" y1="${by}" x2="${bx + BOOM}" y2="${by}"/>
+    <circle class="lens" cx="${bx + BOOM}" cy="${by}" r="0.045"/>
+  </g>`;
+  return g;
 }
 
 /* ISO 8601 UTC -> the operator's own wall clock, to the second.

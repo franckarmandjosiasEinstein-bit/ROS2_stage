@@ -378,7 +378,12 @@ class Cloud:
             v = latest.get(s.label)
             stations.append({
                 "label": s.label, "row": s.row, "plant": s.plant,
-                "side": s.side, "x": s.x, "y": s.y,
+                # x, y are the PAINTED cross -- the same point RViz draws
+                # and the world paints. They used to be s.x, the boom tip's
+                # target half a metre further on, so the map put every mark
+                # where the robot was not.
+                "side": s.side, "x": s.cross[0], "y": s.cross[1],
+                "sensor_x": s.sensor_pose[0], "sensor_y": s.sensor_pose[1],
                 "plant_x": s.plant_x, "plant_y": s.plant_y,
                 "measured": v is not None,
                 "timestamp": v.timestamp if v else None,

@@ -282,3 +282,31 @@ table.grid td.mono, table.grid td.dim { font-family: ui-monospace, monospace; }
 table.grid td.dim { color: var(--ink-dim); }
 table.grid tr.empty-row td, table.grid tr.empty-row th { opacity: .45; }
 table.grid tbody tr:hover td { background: var(--bg-raise); }
+
+/* ------------------------------------------------ the robot on the map */
+/* Drawn in the one hue nothing else on the map uses. The value ramps are
+   all sequential within a single family, the crosses are dim ink and the
+   plants are green -- amber is left, and it has to be left, or "where is
+   the robot" becomes a question about which shade of teal. */
+.robot rect {
+  fill: rgba(255, 176, 32, 0.22);
+  stroke: #ffb020;
+  stroke-width: 0.02;
+}
+.robot .boom { stroke: #ffb020; stroke-width: 0.018; }
+.robot .lens { fill: #ffb020; }
+/* ON the mark: the same shape, filled harder. A different colour here
+   would say "different thing"; it is the same robot, arrived. */
+.robot.on rect { fill: rgba(255, 176, 32, 0.42); stroke-width: 0.028; }
+
+.parked line {
+  stroke: #ffd166;
+  stroke-width: 0.030;
+  stroke-linecap: round;
+}
+.parked .parkhalo {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 0.014;
+  opacity: 0.75;
+}
