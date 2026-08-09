@@ -39,14 +39,15 @@ from typing import Callable, Protocol
 
 from agri.aisles import HEADLAND_WEST
 from agri.catalogue import Station, nearest_station, station
-from agri.crypto_ecc import CryptoError, verify_json
+from agri.crypto_ecc import CryptoError, sign_json, verify_json
 from agri.envelope import PARK_TOLERANCE, build_report, seal_report, synthetic_photo
 from agri.measurement import Measurement
 from agri.protocol import (MODE_COLLECTOR, MODE_COMMAND, QOS, STEP_FILED,
                            STEP_HOLD, STEP_IDLE, STEP_IDLE_ASK, STEP_OFFER,
                            STEP_SEND, TOPIC_REQUEST, ProtocolError,
                            check_request, make_ack, make_reply, make_status,
-                           request_mode, topic_ack, topic_reply, topic_report,
+                           open_handshake, request_mode, topic_ack,
+                           topic_reply, topic_report,
                            topic_status)
 from agri.replay import FRESHNESS_S, ReplayError, ReplayGuard
 from agri.survey import crossings, path_length, survey_order
@@ -333,10 +334,15 @@ class RobotLink:
             return False
 
     def reply(self, step: str, **extra) -> None:
+        """One SIGNED reply. A forged `idle` would tell the Cloud that a
+        moving robot is stopped, and collector mode would issue an order
+        into a robot mid-drive."""
         nid = self.visitor.robot_id
-        self.client.publish(topic_reply(nid),
-                            json.dumps(make_reply(step, nid, **extra)),
-                            qos=QOS)
+        self.client.publish(
+            topic_reply(nid),
+            json.dumps(sign_json(make_reply(step, nid, **extra),
+                                 self.visitor.robot_private_pem)),
+            qos=QOS)
 
     def on_query(self, payload: bytes) -> None:
         """The Cloud asking, or granting.
@@ -347,7 +353,15 @@ class RobotLink:
         failure cost forty minutes once already -- see status().
         """
         try:
-            d = json.loads(payload)
+            try:
+                d = open_handshake(payload, self.cloud_public_pem, "query")
+            except ProtocolError as exc:
+                # The refusal that matters. A forged `hold` answered to
+                # every offer fills the outbox, starts dropping the oldest
+                # readings, and leaves a robot that reports itself healthy
+                # while the campaign produces nothing.
+                self.log(f"robot: REFUSED a query -- {exc}")
+                return
             step = d.get("step")
             if step == STEP_IDLE_ASK:
                 still = self.is_still()

@@ -16,9 +16,17 @@ decorative.
 TOPICS
 
     agri/v1/request              Cloud -> nodes   signed, not encrypted
+    agri/v1/query/<node_id>      Cloud -> node    signed: a question, a grant
+    agri/v1/reply/<node_id>      node  -> Cloud   signed: an answer, an offer
     agri/v1/ack/<node_id>        node  -> Cloud   plain: progress, no payload
     agri/v1/report/<node_id>     node  -> Cloud   sealed: the measurement
     agri/v1/status/<node_id>     node  -> Cloud   plain, retained: am I alive
+
+Everything that can CHANGE WHAT THE OTHER SIDE DOES is signed; everything
+that only reports is not. An ack and a status are observations -- forging
+one lies to a dashboard, which is bad and is not the same as steering a
+robot. A query, a reply and a request all decide something, so all three
+carry a signature.
 
 Each node publishes on its own subtopic; the Cloud subscribes with an MQTT
 wildcard (agri/v1/status/+) to hear every one. Requests stay on a flat topic
@@ -126,21 +134,99 @@ def topic_reply(node_id: str) -> str:
 
 
 def make_query(step: str, node: str, **extra) -> dict:
-    """Cloud -> node. Plain: a question is not a secret and needs no seal.
-
-    NOT signed either, unlike a request, and the distinction is the point:
-    a query cannot make the robot go anywhere. The worst a forged 'send'
-    can do is make the robot offer a reading it was going to offer anyway,
-    to a Cloud that will refuse to open it without the right key.
-    """
+    """Cloud -> node. The BODY of a query; sign it before it goes out."""
     return {"schema": SCHEMA, "kind": "query", "step": step,
             "node": node, "at": utc_now(), **extra}
 
 
 def make_reply(step: str, node: str, **extra) -> dict:
-    """node -> Cloud. Also plain, and for the same reason."""
+    """node -> Cloud. The BODY of a reply; sign it before it goes out."""
     return {"schema": SCHEMA, "kind": "reply", "step": step,
             "node": node, "at": utc_now(), **extra}
+
+
+# ------------------------------------------------- signing the handshake
+# WHY THE HANDSHAKE IS SIGNED TOO, AFTER ALL.
+#
+# The first version left queries and replies plain, with a reasoning that
+# looked sound: a query carries no secret, and a forged `send` only makes
+# the robot offer a reading it was going to offer anyway, to a Cloud that
+# cannot open it without the right key. Confidentiality was genuinely not
+# needed, and it still is not -- these messages stay in the clear.
+#
+# What that reasoning missed is the OTHER grant. `hold` means "keep it, I
+# am not ready", and the robot obeys it by putting the reading in the
+# outbox and carrying on. Anyone who could publish to agri/v1/query/<node>
+# could answer `hold` to every offer. The robot would measure the whole
+# greenhouse, fill its 48-slot outbox, start dropping the oldest readings,
+# and report itself perfectly healthy throughout. No error anywhere,
+# nothing rejected, no measurement corrupted -- just a campaign that
+# quietly produces nothing. That is a denial of service, and it costs one
+# MQTT publish.
+#
+# The same holds in the other direction: a forged `idle` reply tells the
+# Cloud that a moving robot is stopped, and collector mode issues an order
+# into a robot mid-drive.
+#
+# So both directions are signed, each with the key that side already holds
+# and the other side already trusts. Nothing new to distribute.
+def open_handshake(payload: bytes | str | dict, signer_public_pem,
+                   kind: str, window_s: float | None = None) -> dict:
+    """Verify a query or a reply and return its body, or raise ProtocolError.
+
+    Freshness is checked but NOT uniqueness, and the asymmetry is
+    deliberate. A repeated `send` is harmless -- the robot sends a reading
+    it already offered. A repeated `hold` is equally harmless: the outbox
+    is where the reading already is. These messages are idempotent, so the
+    seen-set that requests need would cost memory and buy nothing here.
+
+    A STALE one is a different matter, which is why the window applies: a
+    `hold` captured today and replayed during next week's campaign is the
+    denial of service above, arriving late.
+    """
+    import json as _json                                  # noqa: PLC0415
+    from datetime import datetime, timezone               # noqa: PLC0415
+
+    from agri.crypto_ecc import CryptoError, verify_json  # noqa: PLC0415
+    from agri.replay import (FRESHNESS_S, ReplayError,    # noqa: PLC0415
+                             parse_stamp)
+
+    if isinstance(payload, (bytes, str)):
+        try:
+            signed = _json.loads(payload)
+        except Exception as exc:                     # noqa: BLE001
+            raise ProtocolError(f"{kind} is not JSON ({exc})") from exc
+    else:
+        signed = payload
+
+    try:
+        body = verify_json(signed, signer_public_pem)
+    except CryptoError as exc:
+        raise ProtocolError(
+            f"{kind} is unsigned or forged ({exc}). Anyone who can reach "
+            f"the broker can publish on this topic; only the holder of the "
+            f"key can sign.") from exc
+
+    if not isinstance(body, dict):
+        raise ProtocolError(f"{kind} body is not an object")
+    if body.get("schema") != SCHEMA:
+        raise ProtocolError(f"{kind} schema {body.get('schema')!r}")
+    if body.get("kind") != kind:
+        raise ProtocolError(f"expected a {kind}, got {body.get('kind')!r}")
+
+    window = FRESHNESS_S if window_s is None else window_s
+    try:
+        age = (datetime.now(timezone.utc)
+               - parse_stamp(body.get("at", ""))).total_seconds()
+    except ReplayError as exc:
+        raise ProtocolError(f"{kind}: {exc}") from exc
+    if abs(age) > window:
+        raise ProtocolError(
+            f"{kind} '{body.get('step')}' is {age:+.0f} s out of date and "
+            f"the window is {window:.0f} s -- REFUSED. Either the clocks "
+            f"disagree (timedatectl status) or this message was captured "
+            f"and replayed.")
+    return body
 
 
 def topic_status(node_id: str) -> str:

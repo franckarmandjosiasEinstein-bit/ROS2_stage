@@ -2185,23 +2185,40 @@ def check_modes() -> None:
           "would stop working on a Cloud upgrade")
 
     # --- the Cloud side of the negotiation, with no broker ---------------
-    cloud.on_reply(json.dumps(make_reply(STEP_IDLE, "n1", idle=True)).encode(),
-                   "n1")
+    # BOTH DIRECTIONS ARE SIGNED. The handshake was plain at first, on the
+    # grounds that a forged `send` only makes the robot offer a reading it
+    # was going to offer anyway. That missed `hold`: answered to every
+    # offer it fills the outbox, starts dropping the oldest readings, and
+    # leaves a robot that reports itself healthy while producing nothing.
+    from agri import crypto_ecc as _crypto
+    from agri.crypto_ecc import sign_json as _sign
+    robot_priv = _keys.ensure("robot", d / "k", generate=False).private_pem
+
+    def r_reply(step, node="n1", **extra):
+        """A reply as the real robot sends it: signed with the robot key."""
+        return json.dumps(_sign(make_reply(step, node, **extra),
+                                robot_priv)).encode()
+
+    def step_of(q):
+        """The step inside a SIGNED query."""
+        return q["payload"]["step"]
+
+    cloud.on_reply(r_reply(STEP_IDLE, idle=True), "n1")
     check("the Cloud records that the node said it was stopped",
           cloud.node_idle.get("n1") is True)
-    cloud.on_reply(json.dumps(make_reply(STEP_IDLE, "n1", idle=False)).encode(),
-                   "n1")
+    cloud.on_reply(r_reply(STEP_IDLE, idle=False), "n1")
     check("and that it said it was moving", cloud.node_idle.get("n1") is False)
 
-    qs = cloud.on_reply(json.dumps(
-        make_reply(STEP_OFFER, "n1", label="P2,4R", holding=1)).encode(), "n1")
+    qs = cloud.on_reply(r_reply(STEP_OFFER, label="P2,4R", holding=1), "n1")
     check("an offer is answered with send when the Cloud is receiving",
-          [q["step"] for q in qs] == [STEP_SEND])
+          [step_of(q) for q in qs] == [STEP_SEND])
+    check("and the answer is SIGNED, not a bare dict on the wire",
+          all("sig" in q and "payload" in q for q in qs),
+          "an unsigned grant is a grant anyone on the broker can write")
     cloud.receiving = False
-    qs = cloud.on_reply(json.dumps(
-        make_reply(STEP_OFFER, "n1", label="P2,4L", holding=2)).encode(), "n1")
+    qs = cloud.on_reply(r_reply(STEP_OFFER, label="P2,4L", holding=2), "n1")
     check("and with hold when it is not",
-          [q["step"] for q in qs] == [STEP_HOLD],
+          [step_of(q) for q in qs] == [STEP_HOLD],
           "the robot must be told to keep it, not left to time out")
     check("the decision is returned, not published",
           all(isinstance(q, dict) for q in qs),
@@ -2209,6 +2226,32 @@ def check_modes() -> None:
           "negotiation is exercisable with no broker in the room")
     check("and the exchange is recorded as dialogue for the dashboard",
           [e["step"] for e in cloud.dialogue][-2:] == [STEP_OFFER, STEP_HOLD])
+
+    # The refusals. An unsigned reply is what an attacker can write; a
+    # reply signed by the wrong key is what a decommissioned robot writes.
+    before = len(cloud.rejected)
+    plain = json.dumps(make_reply(STEP_IDLE, "n1", idle=True)).encode()
+    check("an UNSIGNED reply is refused",
+          cloud.on_reply(plain, "n1") == []
+          and len(cloud.rejected) == before + 1,
+          "a forged 'idle' tells the Cloud a moving robot is stopped, and "
+          "collector mode then orders it off mid-drive")
+    stranger = _crypto.generate_keypair()
+    forged = json.dumps(_sign(make_reply(STEP_OFFER, "n1", label="P2,4R"),
+                              stranger.private_pem)).encode()
+    check("and so is one signed by a key the Cloud does not trust",
+          cloud.on_reply(forged, "n1") == [])
+    check("and the refusal is COUNTED, not silently dropped",
+          any("handshake refused" in r["reason"]
+              for r in list(cloud.rejected)[-2:]),
+          "a pipeline that hides its rejections runs empty and looks fine")
+    stale = _sign(dict(make_reply(STEP_OFFER, "n1", label="P2,4R"),
+                       at="2020-01-01T00:00:00Z"), robot_priv)
+    check("a correctly signed reply from LAST YEAR is refused too",
+          cloud.on_reply(json.dumps(stale).encode(), "n1") == [],
+          "a 'hold' captured today and replayed next campaign is the same "
+          "denial of service, arriving late")
+    cloud.receiving = True
 
     # --- the robot side --------------------------------------------------
     import agri.robot as R
@@ -2230,16 +2273,38 @@ def check_modes() -> None:
                 def velocity(cls):
                     return (cls.moving[0], cls.moving[1], 0.0)
 
-        link = R.RobotLink(_V(), b"", _C(), log=lambda m: None)
+        _V.robot_private_pem = robot_priv
+        cloud_pub = _keys.public_of("cloud", d / "k", generate=False)
+        link = R.RobotLink(_V(), cloud_pub, _C(), log=lambda m: None)
         check("a stopped robot says so", link.is_still())
         _V.driver.moving = [0.5, 0.0]
         check("and a moving one does not", not link.is_still())
         _V.driver.moving = [0.0, 0.0]
 
-        link.on_query(json.dumps(make_query(STEP_IDLE_ASK, "n1")).encode())
+        link.on_query(json.dumps(cloud.query(STEP_IDLE_ASK, "n1")).encode())
         check("the robot answers the idleness question on its reply topic",
               sent and sent[-1][0] == topic_reply("n1")
-              and sent[-1][1]["step"] == STEP_IDLE)
+              and sent[-1][1]["payload"]["step"] == STEP_IDLE)
+        check("and its answer is SIGNED with the robot's own key",
+              "sig" in sent[-1][1]
+              and _crypto.verify_json(sent[-1][1],
+                                      _keys.public_of("robot", d / "k",
+                                                      generate=False))
+              is not None)
+
+        # The forged grant. This is the one that matters: `hold` answered to
+        # every offer fills the outbox and the robot never says anything is
+        # wrong, because from its side nothing is.
+        n0 = len(sent)
+        link.on_query(json.dumps(make_query(STEP_HOLD, "n1")).encode())
+        check("the robot REFUSES an unsigned query",
+              len(sent) == n0 and not link._grant.is_set(),
+              "an unsigned 'hold' answered to every offer is a silent "
+              "denial of service that costs one MQTT publish")
+        link.on_query(json.dumps(
+            _sign(make_query(STEP_SEND, "n1"), stranger.private_pem)).encode())
+        check("and one signed by a stranger",
+              not link._grant.is_set())
 
         n = len(sent)
         out = link._deliver("P1,1R", {"e": 1}, MODE_COMMAND)
@@ -2255,7 +2320,7 @@ def check_modes() -> None:
 
         def _grant():
             time.sleep(0.05)
-            link.on_query(json.dumps(make_query(STEP_SEND, "n1")).encode())
+            link.on_query(json.dumps(cloud.query(STEP_SEND, "n1")).encode())
 
         _th.Thread(target=_grant).start()
         n = len(sent)
@@ -2268,7 +2333,7 @@ def check_modes() -> None:
         _th.Thread(target=lambda: (
             time.sleep(0.05),
             link.on_query(json.dumps(
-                make_query(STEP_HOLD, "n1")).encode()))).start()
+                cloud.query(STEP_HOLD, "n1")).encode()))).start()
         out = link._deliver("P1,4R", {"e": 4}, MODE_COLLECTOR)
         check("an explicit hold keeps it too, without waiting for a timeout",
               out.endswith("held") and len(link.outbox) == 1)
@@ -2294,7 +2359,7 @@ def check_modes() -> None:
           "a query names one node; a second robot must not answer this "
           "one's")
     check("the Cloud acknowledges every filed report, in both modes",
-          "STEP_FILED" in srv and "make_query(STEP_FILED" in srv,
+          "STEP_FILED" in srv and "query(STEP_FILED" in srv,
           "a node that never hears its reading landed cannot tell a filed "
           "report from a lost one")
     check("collector mode asks whether the robot is stopped BEFORE ordering",

@@ -52,7 +52,8 @@ from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, MODE_COLLECTOR,
                            TOPIC_ACK_ALL, TOPIC_REPLY_ALL, TOPIC_REPORT_ALL,
                            TOPIC_REQUEST, TOPIC_STATUS_ALL, ProtocolError,
                            expand_targets, make_query, make_request,
-                           mqtt_client, node_id_from_topic, topic_query)
+                           mqtt_client, node_id_from_topic,
+                           open_handshake, topic_query)
 from agri.sensors import ANOMALIES
 from agri.survey import energy_wh
 
@@ -105,7 +106,7 @@ class Cloud:
         self._idle_seen.clear()
         self.node_idle.pop(node, None)
         self.say("cloud", f"asking {node}: are you stopped?", STEP_IDLE_ASK)
-        publish(topic_query(node), json.dumps(make_query(STEP_IDLE_ASK, node)))
+        publish(topic_query(node), json.dumps(self.query(STEP_IDLE_ASK, node)))
         if not self._idle_seen.wait(timeout):
             self.say("cloud", f"{node} did not answer", "timeout")
             return None
@@ -114,6 +115,16 @@ class Cloud:
     def say(self, who: str, text: str, step: str = "") -> None:
         self.dialogue.append({"who": who, "text": text, "step": step,
                               "at": utc_now()})
+
+    def query(self, step: str, node: str, **extra) -> dict:
+        """One signed query, ready to publish.
+
+        Every Cloud -> node message goes through here, so there is exactly
+        one place where a query could accidentally leave unsigned, and the
+        suite asserts that make_query is not called anywhere else.
+        """
+        return sign_json(make_query(step, node, **extra),
+                         self.cloud_keys.private_pem)
 
     # ------------------------------------------------------------ outbound
     def build_request(self, targets: str | list[str]) -> tuple[str, dict]:
@@ -226,8 +237,13 @@ class Cloud:
         the caller's business and the decision is this method's.
         """
         try:
-            d = json.loads(payload)
-        except Exception:                            # noqa: BLE001
+            d = open_handshake(payload, self.robot_public, "reply")
+        except ProtocolError as exc:
+            # Loud, and counted. A forged `idle` would tell the Cloud that
+            # a moving robot is stopped, and collector mode would issue an
+            # order into a robot mid-drive.
+            self._reject(node_id or "?", f"handshake refused: {exc}")
+            self.say("cloud", f"REFUSED a reply: {exc}", "refused")
             return []
         nid = node_id or d.get("node", "?")
         step = d.get("step")
@@ -247,10 +263,10 @@ class Cloud:
                      + (f" ({held} held)" if held > 1 else ""), STEP_OFFER)
             if self.receiving:
                 self.say("cloud", f"ready -- send {label}", STEP_SEND)
-                return [make_query(STEP_SEND, nid, label=label)]
+                return [self.query(STEP_SEND, nid, label=label)]
             # Not a failure. The robot keeps the reading and carries on.
             self.say("cloud", f"not ready -- hold {label}", STEP_HOLD)
-            return [make_query(STEP_HOLD, nid, label=label)]
+            return [self.query(STEP_HOLD, nid, label=label)]
         return []
 
     def on_status(self, payload: bytes, node_id: str = "") -> None:
@@ -798,8 +814,8 @@ def main(argv: list[str] | None = None) -> int:
             # landed cannot tell a filed report from a lost one.
             if not verdict.startswith("REJECTED"):
                 publish(topic_query(nid),
-                        json.dumps(make_query(STEP_FILED, nid,
-                                              label=verdict.split()[0])))
+                        json.dumps(cloud.query(STEP_FILED, nid,
+                                               label=verdict.split()[0])))
         elif msg.topic.startswith("agri/v1/ack/"):
             cloud.on_ack(msg.payload)
         elif msg.topic.startswith("agri/v1/status/"):
