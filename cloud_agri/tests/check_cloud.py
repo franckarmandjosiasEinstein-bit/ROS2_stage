@@ -3616,6 +3616,14 @@ def check_demo() -> None:
         # a reassuring refusal, so check the hole message never appears.
         check("the demo does not claim a refusal it did not get",
               "that is a hole" not in out)
+        # Every path the summary prints must be a path that exists. This
+        # line said visits.jsonl, which the store has never written, so an
+        # operator following it finds nothing and concludes the campaign
+        # was not filed.
+        named = re.findall(r"^  \w+\s+(/\S+)$", out, re.M)
+        missing = [n for n in named if not Path(n).exists()]
+        check("and every file the summary points at really exists",
+              named and not missing, f"named but absent: {missing}")
 
 
 def check_hygiene() -> None:

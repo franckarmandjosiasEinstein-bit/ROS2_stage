@@ -38,7 +38,7 @@ robot from a stationary ESP.
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
 | `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
 | `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
-| `tests/check_cloud.py` | 654 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 655 pre-flight checks, none of which need a broker, ROS or a network |
 | `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
@@ -846,7 +846,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the other 653 checks to pass first.
+prioritised over getting the other 654 checks to pass first.
 
 ---
 

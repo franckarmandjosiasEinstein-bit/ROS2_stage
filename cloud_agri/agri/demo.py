@@ -268,10 +268,15 @@ def run(targets: str | list[str], work: Path, explain: bool,
     _spread(cloud.store.all_visits())
     csv = cloud.store.export_csv()
     plants = cloud.store.export_plants_csv()
-    print(f"  visits   {store_dir / 'visits.jsonl'}")
+    # cloud.store.jsonl, not a literal: this line said visits.jsonl, which
+    # is not the name the store writes, so it pointed an operator at a file
+    # that has never existed.
+    print(f"  visits   {cloud.store.jsonl}")
     print(f"  export   {csv}")
     print(f"  plants   {plants}  (one row per plant, R then L)")
     print(f"  media    {store_dir / 'photos'} and {store_dir / 'qr'}")
+    print(f"  chain    python3 -m agri.cloud.store --verify "
+          f"--root {store_dir}")
 
     if explain and cloud.accepted:
         # One extra visit, kept in hand instead of published, purely to show
