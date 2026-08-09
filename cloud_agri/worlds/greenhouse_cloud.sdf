@@ -379,160 +379,1171 @@
       <static>true</static>
       <pose>-3.15 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 1.2741</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.976 0 0 0</pose>
+          <geometry><sphere><radius>0.134</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.063 -0.082 0.932 0 0 0</pose>
+          <geometry><sphere><radius>0.075</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.081 -0.035 0.974 0 0 0</pose>
+          <geometry><sphere><radius>0.087</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.024 0.013 0.963 0 0 0</pose>
+          <geometry><sphere><radius>0.078</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.028 0.040 0.963 0 0 0</pose>
+          <geometry><sphere><radius>0.126</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.54 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.045 -0.094 0.872 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.045 -0.094 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.006 0.099 0.866 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.006 0.099 0.892 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.135 -0.005 0.911 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.135 -0.005 0.940 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.110 0.002 0.864 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.58 0.02 0.03 1</ambient>
+            <diffuse>0.93 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.110 0.002 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.076 0.052 0.880 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.076 0.052 0.907 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>0.094 -0.070 0.863 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.93 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>0.094 -0.070 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_0_1">
       <static>true</static>
       <pose>-2.25 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 1.9199</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.980 0 0 0</pose>
+          <geometry><sphere><radius>0.138</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.039 0.063 0.906 0 0 0</pose>
+          <geometry><sphere><radius>0.075</radius></sphere></geometry>
+          <material><ambient>0.06 0.34 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.034 0.005 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.131</radius></sphere></geometry>
+          <material><ambient>0.06 0.34 0.08 1</ambient><diffuse>0.10 0.62 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.042 -0.066 0.955 0 0 0</pose>
+          <geometry><sphere><radius>0.106</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.077 0.019 0.961 0 0 0</pose>
+          <geometry><sphere><radius>0.081</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.49 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.122 0.016 0.903 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.87 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.122 0.016 0.931 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.103 -0.026 0.894 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.103 -0.026 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.049 -0.099 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.87 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.049 -0.099 0.930 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.087 -0.073 0.896 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.087 -0.073 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>-0.126 0.021 0.869 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>-0.126 0.021 0.897 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.030 0.109 0.861 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.030 0.109 0.886 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_0_2">
       <static>true</static>
       <pose>-1.3499999999999999 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 2.5656</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.992 0 0 0</pose>
+          <geometry><sphere><radius>0.147</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.011 0.023 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.131</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.49 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.087 0.025 0.986 0 0 0</pose>
+          <geometry><sphere><radius>0.106</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.54 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.009 -0.067 0.982 0 0 0</pose>
+          <geometry><sphere><radius>0.123</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.54 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.023 0.084 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.097</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>-0.083 0.040 0.941 0 0 0</pose>
+          <geometry><sphere><radius>0.083</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf6">
+          <pose>0.021 0.081 0.937 0 0 0</pose>
+          <geometry><sphere><radius>0.109</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.58 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.128 0.032 0.916 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.97 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.128 0.032 0.940 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.053 0.088 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.053 0.088 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.088 0.055 0.892 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.87 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.088 0.055 0.917 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.103 -0.061 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.103 -0.061 0.932 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.106 0.005 0.881 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.106 0.005 0.908 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.041 0.103 0.861 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.041 0.103 0.887 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_0_3">
       <static>true</static>
       <pose>-0.44999999999999973 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 3.2114</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.981 0 0 0</pose>
+          <geometry><sphere><radius>0.138</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.084 0.087 0.959 0 0 0</pose>
+          <geometry><sphere><radius>0.124</radius></sphere></geometry>
+          <material><ambient>0.06 0.34 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.005 -0.056 0.920 0 0 0</pose>
+          <geometry><sphere><radius>0.124</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.073 -0.027 0.937 0 0 0</pose>
+          <geometry><sphere><radius>0.099</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.005 -0.007 0.950 0 0 0</pose>
+          <geometry><sphere><radius>0.109</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.49 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.003 -0.029 0.932 0 0 0</pose>
+          <geometry><sphere><radius>0.135</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.58 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.028 -0.102 0.902 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.028 -0.102 0.929 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.019 -0.094 0.907 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.019 -0.094 0.936 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.042 -0.099 0.861 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.042 -0.099 0.888 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.098 0.027 0.861 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.58 0.02 0.03 1</ambient>
+            <diffuse>0.94 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.098 0.027 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>-0.032 0.090 0.906 0 0 0</pose>
+          <geometry><sphere><radius>0.036</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>-0.032 0.090 0.936 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.080 0.086 0.889 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.080 0.086 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_0_4">
       <static>true</static>
       <pose>0.4500000000000002 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 3.8572</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.968 0 0 0</pose>
+          <geometry><sphere><radius>0.128</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.035 -0.020 0.936 0 0 0</pose>
+          <geometry><sphere><radius>0.090</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.012 -0.034 0.947 0 0 0</pose>
+          <geometry><sphere><radius>0.116</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.49 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.026 -0.024 0.954 0 0 0</pose>
+          <geometry><sphere><radius>0.087</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.040 -0.071 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.093</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.54 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.010 -0.024 0.922 0 0 0</pose>
+          <geometry><sphere><radius>0.102</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.134 0.004 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.134 0.004 0.928 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.047 0.080 0.909 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.58 0.02 0.03 1</ambient>
+            <diffuse>0.93 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.047 0.080 0.939 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.114 -0.026 0.862 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.114 -0.026 0.888 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.110 -0.025 0.897 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.110 -0.025 0.927 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.110 -0.019 0.920 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.110 -0.019 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.012 -0.087 0.870 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.012 -0.087 0.897 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_0_5">
       <static>true</static>
       <pose>1.35 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 4.5029</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.975 0 0 0</pose>
+          <geometry><sphere><radius>0.134</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.085 -0.037 0.938 0 0 0</pose>
+          <geometry><sphere><radius>0.127</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.45 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.091 -0.024 0.916 0 0 0</pose>
+          <geometry><sphere><radius>0.109</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.092 0.050 0.953 0 0 0</pose>
+          <geometry><sphere><radius>0.123</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.048 -0.032 0.974 0 0 0</pose>
+          <geometry><sphere><radius>0.129</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>-0.001 0.025 0.981 0 0 0</pose>
+          <geometry><sphere><radius>0.117</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.060 -0.072 0.914 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.060 -0.072 0.943 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.097 -0.059 0.879 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.097 -0.059 0.903 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.035 -0.082 0.917 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.035 -0.082 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.088 0.052 0.902 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.088 0.052 0.930 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>-0.108 0.028 0.877 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>-0.108 0.028 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.105 -0.030 0.912 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.97 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.105 -0.030 0.938 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_0_6">
       <static>true</static>
       <pose>2.2500000000000004 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 5.1487</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.946 0 0 0</pose>
+          <geometry><sphere><radius>0.111</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.48 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.058 0.046 0.938 0 0 0</pose>
+          <geometry><sphere><radius>0.108</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.083 -0.068 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.062</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.055 -0.015 0.951 0 0 0</pose>
+          <geometry><sphere><radius>0.069</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.48 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.052 -0.063 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.091</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.59 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.104 -0.020 0.895 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.104 -0.020 0.920 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.108 0.005 0.872 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.108 0.005 0.898 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.105 0.016 0.870 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.105 0.016 0.898 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.110 0.033 0.868 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.87 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.110 0.033 0.894 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>-0.130 0.000 0.896 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>-0.130 0.000 0.922 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.102 0.025 0.902 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.102 0.025 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_0_7">
       <static>true</static>
       <pose>3.15 -1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 5.7945</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.975 0 0 0</pose>
+          <geometry><sphere><radius>0.134</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.091 0.026 0.929 0 0 0</pose>
+          <geometry><sphere><radius>0.111</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.006 0.011 0.978 0 0 0</pose>
+          <geometry><sphere><radius>0.111</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.050 0.090 0.973 0 0 0</pose>
+          <geometry><sphere><radius>0.086</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.083 -0.022 0.942 0 0 0</pose>
+          <geometry><sphere><radius>0.097</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>-0.007 -0.064 0.941 0 0 0</pose>
+          <geometry><sphere><radius>0.099</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.140 -0.001 0.889 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.97 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.140 -0.001 0.915 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.113 0.058 0.866 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.113 0.058 0.892 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.083 -0.053 0.879 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.083 -0.053 0.905 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.061 0.097 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.87 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.061 0.097 0.931 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.043 -0.074 0.876 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.043 -0.074 0.906 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="gutter_1">
@@ -560,160 +1571,1038 @@
       <static>true</static>
       <pose>-3.15 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 1.9199</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.972 0 0 0</pose>
+          <geometry><sphere><radius>0.132</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.087 0.045 0.911 0 0 0</pose>
+          <geometry><sphere><radius>0.126</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.46 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.046 -0.028 0.948 0 0 0</pose>
+          <geometry><sphere><radius>0.123</radius></sphere></geometry>
+          <material><ambient>0.06 0.34 0.08 1</ambient><diffuse>0.10 0.62 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.040 -0.071 0.938 0 0 0</pose>
+          <geometry><sphere><radius>0.111</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.59 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.020 0.046 0.958 0 0 0</pose>
+          <geometry><sphere><radius>0.076</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.59 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.065 0.085 0.920 0 0 0</pose>
+          <geometry><sphere><radius>0.086</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.050 0.104 0.885 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.050 0.104 0.912 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.088 -0.072 0.894 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.088 -0.072 0.923 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.123 -0.003 0.893 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.123 -0.003 0.918 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.108 -0.048 0.866 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.108 -0.048 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_1_1">
       <static>true</static>
       <pose>-2.25 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 2.5656</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.957 0 0 0</pose>
+          <geometry><sphere><radius>0.120</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.54 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.001 -0.047 0.913 0 0 0</pose>
+          <geometry><sphere><radius>0.113</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.46 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.053 -0.037 0.898 0 0 0</pose>
+          <geometry><sphere><radius>0.066</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.032 -0.046 0.959 0 0 0</pose>
+          <geometry><sphere><radius>0.080</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.061 -0.081 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.081</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>-0.099 -0.043 0.951 0 0 0</pose>
+          <geometry><sphere><radius>0.065</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.057 -0.085 0.874 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.057 -0.085 0.899 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.089 -0.052 0.880 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.089 -0.052 0.908 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.048 0.079 0.882 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.048 0.079 0.909 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.122 0.020 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.122 0.020 0.947 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_1_2">
       <static>true</static>
       <pose>-1.3499999999999999 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 3.2114</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.969 0 0 0</pose>
+          <geometry><sphere><radius>0.129</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.46 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.075 0.054 0.917 0 0 0</pose>
+          <geometry><sphere><radius>0.107</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.055 -0.032 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.071</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.022 -0.031 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.080</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.040 0.016 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.087</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.018 0.095 0.899 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.018 0.095 0.929 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.071 -0.083 0.899 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.071 -0.083 0.924 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.063 -0.080 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.063 -0.080 0.931 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.108 0.032 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.108 0.032 0.918 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.109 -0.004 0.880 0 0 0</pose>
+          <geometry><sphere><radius>0.036</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.109 -0.004 0.910 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>0.102 0.062 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>0.102 0.062 0.946 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_1_3">
       <static>true</static>
       <pose>-0.44999999999999973 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 3.8572</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.953 0 0 0</pose>
+          <geometry><sphere><radius>0.117</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.59 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.066 -0.041 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.097</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.000 -0.059 0.941 0 0 0</pose>
+          <geometry><sphere><radius>0.099</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.066 -0.027 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.081</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.088 0.080 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.090</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.067 -0.091 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.90 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.067 -0.091 0.915 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.040 0.077 0.889 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.040 0.077 0.915 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.047 0.087 0.888 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.93 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.047 0.087 0.916 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.102 -0.022 0.867 0 0 0</pose>
+          <geometry><sphere><radius>0.036</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.102 -0.022 0.897 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>-0.001 -0.085 0.906 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>-0.001 -0.085 0.934 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_1_4">
       <static>true</static>
       <pose>0.4500000000000002 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 4.5029</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.951 0 0 0</pose>
+          <geometry><sphere><radius>0.116</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.45 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.033 -0.057 0.932 0 0 0</pose>
+          <geometry><sphere><radius>0.095</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.59 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.098 -0.058 0.898 0 0 0</pose>
+          <geometry><sphere><radius>0.085</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.070 0.011 0.910 0 0 0</pose>
+          <geometry><sphere><radius>0.115</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.051 -0.081 0.940 0 0 0</pose>
+          <geometry><sphere><radius>0.074</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.58 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>-0.036 -0.059 0.941 0 0 0</pose>
+          <geometry><sphere><radius>0.064</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.120 -0.016 0.892 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.120 -0.016 0.916 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.109 -0.027 0.865 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.109 -0.027 0.895 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.072 -0.057 0.861 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.072 -0.057 0.889 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.014 -0.087 0.903 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.014 -0.087 0.932 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>-0.050 -0.070 0.883 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.62 0.02 0.03 1</ambient>
+            <diffuse>1.00 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>-0.050 -0.070 0.913 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.046 -0.106 0.907 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.046 -0.106 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_1_5">
       <static>true</static>
       <pose>1.35 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 5.1487</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.961 0 0 0</pose>
+          <geometry><sphere><radius>0.123</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.084 -0.054 0.913 0 0 0</pose>
+          <geometry><sphere><radius>0.092</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.031 -0.038 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.078</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.047 -0.031 0.930 0 0 0</pose>
+          <geometry><sphere><radius>0.097</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.061 -0.015 0.949 0 0 0</pose>
+          <geometry><sphere><radius>0.111</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.061 -0.044 0.948 0 0 0</pose>
+          <geometry><sphere><radius>0.073</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf6">
+          <pose>0.043 -0.046 0.953 0 0 0</pose>
+          <geometry><sphere><radius>0.115</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.137 -0.017 0.887 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.85 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.137 -0.017 0.913 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.061 -0.067 0.880 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.061 -0.067 0.906 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.123 0.053 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.123 0.053 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.107 0.046 0.889 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.107 0.046 0.913 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.060 -0.084 0.918 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.060 -0.084 0.943 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_1_6">
       <static>true</static>
       <pose>2.2500000000000004 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 5.7945</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.994 0 0 0</pose>
+          <geometry><sphere><radius>0.149</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.48 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.031 0.040 0.988 0 0 0</pose>
+          <geometry><sphere><radius>0.090</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.095 0.029 0.979 0 0 0</pose>
+          <geometry><sphere><radius>0.106</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.085 -0.013 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.131</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.012 -0.037 0.971 0 0 0</pose>
+          <geometry><sphere><radius>0.123</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.062 -0.025 0.927 0 0 0</pose>
+          <geometry><sphere><radius>0.119</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.59 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.006 -0.093 0.884 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.006 -0.093 0.909 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.090 0.058 0.865 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.85 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.090 0.058 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.103 -0.061 0.887 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.103 -0.061 0.917 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.097 -0.072 0.898 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.097 -0.072 0.924 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_1_7">
       <static>true</static>
       <pose>3.15 0.0 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 0.1571</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.977 0 0 0</pose>
+          <geometry><sphere><radius>0.136</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.46 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.074 0.075 0.951 0 0 0</pose>
+          <geometry><sphere><radius>0.075</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.092 -0.023 0.936 0 0 0</pose>
+          <geometry><sphere><radius>0.080</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.45 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.003 -0.052 0.961 0 0 0</pose>
+          <geometry><sphere><radius>0.087</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.014 -0.058 0.954 0 0 0</pose>
+          <geometry><sphere><radius>0.123</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.125 -0.016 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.58 0.02 0.03 1</ambient>
+            <diffuse>0.93 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.125 -0.016 0.947 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.132 0.025 0.882 0 0 0</pose>
+          <geometry><sphere><radius>0.036</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.132 0.025 0.912 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.090 -0.042 0.877 0 0 0</pose>
+          <geometry><sphere><radius>0.036</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.090 -0.042 0.907 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.116 0.052 0.917 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.116 0.052 0.946 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.106 -0.056 0.895 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.106 -0.056 0.920 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>-0.107 -0.035 0.865 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>-0.107 -0.035 0.895 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="gutter_2">
@@ -741,160 +2630,1033 @@
       <static>true</static>
       <pose>-3.15 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 2.5656</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.982 0 0 0</pose>
+          <geometry><sphere><radius>0.139</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.077 0.045 0.969 0 0 0</pose>
+          <geometry><sphere><radius>0.122</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.001 0.081 0.981 0 0 0</pose>
+          <geometry><sphere><radius>0.080</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.53 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.068 0.002 0.964 0 0 0</pose>
+          <geometry><sphere><radius>0.094</radius></sphere></geometry>
+          <material><ambient>0.06 0.27 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.003 -0.028 0.941 0 0 0</pose>
+          <geometry><sphere><radius>0.131</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.065 0.077 0.925 0 0 0</pose>
+          <geometry><sphere><radius>0.102</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.084 0.045 0.898 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.97 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.084 0.045 0.925 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.100 -0.040 0.899 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.100 -0.040 0.928 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.113 -0.046 0.909 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.113 -0.046 0.938 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.015 -0.104 0.864 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.015 -0.104 0.893 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>-0.080 0.069 0.895 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>-0.080 0.069 0.921 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>0.095 0.041 0.886 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.97 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>0.095 0.041 0.915 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_2_1">
       <static>true</static>
       <pose>-2.25 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 3.2114</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.976 0 0 0</pose>
+          <geometry><sphere><radius>0.134</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.048 -0.025 0.905 0 0 0</pose>
+          <geometry><sphere><radius>0.097</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.036 -0.027 0.949 0 0 0</pose>
+          <geometry><sphere><radius>0.084</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.062 -0.043 0.928 0 0 0</pose>
+          <geometry><sphere><radius>0.116</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.028 -0.054 0.925 0 0 0</pose>
+          <geometry><sphere><radius>0.131</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.58 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.087 -0.046 0.952 0 0 0</pose>
+          <geometry><sphere><radius>0.130</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.037 0.095 0.879 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.037 0.095 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.064 -0.084 0.918 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.064 -0.084 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.124 -0.050 0.888 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.124 -0.050 0.915 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.115 0.002 0.899 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.62 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.115 0.002 0.925 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.047 0.072 0.903 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.047 0.072 0.929 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_2_2">
       <static>true</static>
       <pose>-1.3499999999999999 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 3.8572</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.981 0 0 0</pose>
+          <geometry><sphere><radius>0.139</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.007 -0.027 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.093</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.076 0.002 0.955 0 0 0</pose>
+          <geometry><sphere><radius>0.108</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.54 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.003 0.011 0.955 0 0 0</pose>
+          <geometry><sphere><radius>0.100</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.46 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>0.097 -0.015 0.910 0 0 0</pose>
+          <geometry><sphere><radius>0.116</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.006 -0.086 0.892 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.006 -0.086 0.920 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.090 -0.041 0.918 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.090 -0.041 0.943 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.019 -0.096 0.860 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.90 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.019 -0.096 0.884 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.005 -0.084 0.870 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.005 -0.084 0.900 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.098 -0.055 0.887 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.098 -0.055 0.915 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_2_3">
       <static>true</static>
       <pose>-0.44999999999999973 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 4.5029</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.977 0 0 0</pose>
+          <geometry><sphere><radius>0.136</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.58 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.025 -0.035 0.964 0 0 0</pose>
+          <geometry><sphere><radius>0.133</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.036 0.080 0.963 0 0 0</pose>
+          <geometry><sphere><radius>0.103</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.043 -0.019 0.943 0 0 0</pose>
+          <geometry><sphere><radius>0.076</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.016 -0.005 0.946 0 0 0</pose>
+          <geometry><sphere><radius>0.124</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.50 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>0.015 0.071 0.944 0 0 0</pose>
+          <geometry><sphere><radius>0.109</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.46 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf6">
+          <pose>0.061 0.016 0.934 0 0 0</pose>
+          <geometry><sphere><radius>0.074</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>0.130 0.028 0.866 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.56 0.02 0.03 1</ambient>
+            <diffuse>0.91 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>0.130 0.028 0.894 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.069 -0.071 0.897 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.97 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.069 -0.071 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.087 0.059 0.903 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.86 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.087 0.059 0.931 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.060 0.069 0.894 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.85 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.060 0.069 0.922 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_2_4">
       <static>true</static>
       <pose>0.4500000000000002 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 5.1487</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.976 0 0 0</pose>
+          <geometry><sphere><radius>0.135</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.060 -0.039 0.911 0 0 0</pose>
+          <geometry><sphere><radius>0.135</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.071 -0.087 0.949 0 0 0</pose>
+          <geometry><sphere><radius>0.092</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.093 -0.076 0.921 0 0 0</pose>
+          <geometry><sphere><radius>0.093</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.001 0.084 0.914 0 0 0</pose>
+          <geometry><sphere><radius>0.074</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.035 -0.087 0.885 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.035 -0.087 0.913 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.097 -0.074 0.914 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.60 0.02 0.03 1</ambient>
+            <diffuse>0.97 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.097 -0.074 0.938 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.103 0.008 0.866 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.103 0.008 0.895 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.025 -0.088 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.96 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.025 -0.088 0.931 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_2_5">
       <static>true</static>
       <pose>1.35 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 5.7945</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.976 0 0 0</pose>
+          <geometry><sphere><radius>0.134</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.036 0.086 0.959 0 0 0</pose>
+          <geometry><sphere><radius>0.102</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.57 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.023 0.081 0.904 0 0 0</pose>
+          <geometry><sphere><radius>0.114</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.097 0.081 0.975 0 0 0</pose>
+          <geometry><sphere><radius>0.129</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.52 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.077 -0.052 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.076</radius></sphere></geometry>
+          <material><ambient>0.06 0.32 0.08 1</ambient><diffuse>0.10 0.58 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf5">
+          <pose>-0.055 0.082 0.965 0 0 0</pose>
+          <geometry><sphere><radius>0.079</radius></sphere></geometry>
+          <material><ambient>0.06 0.30 0.08 1</ambient><diffuse>0.10 0.55 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.104 -0.009 0.893 0 0 0</pose>
+          <geometry><sphere><radius>0.036</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.104 -0.009 0.923 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>0.098 0.046 0.871 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>0.098 0.046 0.899 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.020 0.080 0.892 0 0 0</pose>
+          <geometry><sphere><radius>0.036</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.020 0.080 0.922 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.094 0.046 0.877 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.57 0.02 0.03 1</ambient>
+            <diffuse>0.92 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.094 0.046 0.906 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.132 0.002 0.875 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.132 0.002 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry5">
+          <pose>0.038 -0.104 0.878 0 0 0</pose>
+          <geometry><sphere><radius>0.032</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.89 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx5">
+          <pose>0.038 -0.104 0.905 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_2_6">
       <static>true</static>
       <pose>2.2500000000000004 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8877 0 0 0.1571</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_b.stl</uri>
-              <scale>0.16036 0.16036 0.16036</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.985 0 0 0</pose>
+          <geometry><sphere><radius>0.142</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>-0.018 0.054 0.945 0 0 0</pose>
+          <geometry><sphere><radius>0.088</radius></sphere></geometry>
+          <material><ambient>0.06 0.25 0.08 1</ambient><diffuse>0.10 0.45 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>0.029 -0.079 0.937 0 0 0</pose>
+          <geometry><sphere><radius>0.106</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.48 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>0.047 0.070 0.992 0 0 0</pose>
+          <geometry><sphere><radius>0.079</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.016 0.073 0.933 0 0 0</pose>
+          <geometry><sphere><radius>0.098</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.61 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.124 -0.019 0.898 0 0 0</pose>
+          <geometry><sphere><radius>0.029</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.124 -0.019 0.923 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.063 -0.063 0.890 0 0 0</pose>
+          <geometry><sphere><radius>0.035</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.98 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.063 -0.063 0.919 0 0 0</pose>
+          <geometry><sphere><radius>0.016</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>-0.002 -0.102 0.874 0 0 0</pose>
+          <geometry><sphere><radius>0.031</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>-0.002 -0.102 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>-0.022 0.082 0.872 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.54 0.02 0.03 1</ambient>
+            <diffuse>0.87 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>-0.022 0.082 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.096 -0.060 0.876 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.53 0.02 0.03 1</ambient>
+            <diffuse>0.85 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.096 -0.060 0.905 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
     <model name="plant_2_7">
       <static>true</static>
       <pose>3.15 1.2 0 0 0 0</pose>
       <link name="link">
-        <visual name="plant">
-          <pose>0 0 0.8758 0 0 0.8029</pose>
-          <geometry>
-            <mesh>
-              <uri>file:///workspace/ros2_stage/cloud_agri/meshes/strawberry_a.stl</uri>
-              <scale>0.15180 0.15180 0.15180</scale>
-            </mesh>
-          </geometry>
-          <material><ambient>0.06 0.20 0.05 1</ambient><diffuse>0.16 0.44 0.13 1</diffuse><specular>0.10 0.16 0.08 1</specular></material>
+        <visual name="leaf0">
+          <pose>0.000 0.000 0.974 0 0 0</pose>
+          <geometry><sphere><radius>0.133</radius></sphere></geometry>
+          <material><ambient>0.06 0.26 0.08 1</ambient><diffuse>0.10 0.47 0.13 1</diffuse></material>
         </visual>
-        <collision name="stem">
-          <pose>0 0 0.910 0 0 0</pose>
-          <geometry><cylinder><radius>0.11</radius><length>0.22</length></cylinder></geometry>
-        </collision>
+        <visual name="leaf1">
+          <pose>0.035 0.045 0.943 0 0 0</pose>
+          <geometry><sphere><radius>0.086</radius></sphere></geometry>
+          <material><ambient>0.06 0.33 0.08 1</ambient><diffuse>0.10 0.60 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf2">
+          <pose>-0.017 -0.023 0.926 0 0 0</pose>
+          <geometry><sphere><radius>0.113</radius></sphere></geometry>
+          <material><ambient>0.06 0.28 0.08 1</ambient><diffuse>0.10 0.51 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf3">
+          <pose>-0.085 0.043 0.972 0 0 0</pose>
+          <geometry><sphere><radius>0.130</radius></sphere></geometry>
+          <material><ambient>0.06 0.31 0.08 1</ambient><diffuse>0.10 0.56 0.13 1</diffuse></material>
+        </visual>
+        <visual name="leaf4">
+          <pose>-0.044 0.015 0.912 0 0 0</pose>
+          <geometry><sphere><radius>0.117</radius></sphere></geometry>
+          <material><ambient>0.06 0.29 0.08 1</ambient><diffuse>0.10 0.54 0.13 1</diffuse></material>
+        </visual>
+        <visual name="berry0">
+          <pose>-0.086 -0.057 0.903 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.59 0.02 0.03 1</ambient>
+            <diffuse>0.95 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx0">
+          <pose>-0.086 -0.057 0.930 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry1">
+          <pose>-0.080 0.069 0.901 0 0 0</pose>
+          <geometry><sphere><radius>0.030</radius></sphere></geometry>
+          <material>
+            <ambient>0.58 0.02 0.03 1</ambient>
+            <diffuse>0.94 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx1">
+          <pose>-0.080 0.069 0.927 0 0 0</pose>
+          <geometry><sphere><radius>0.014</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry2">
+          <pose>0.100 -0.030 0.881 0 0 0</pose>
+          <geometry><sphere><radius>0.028</radius></sphere></geometry>
+          <material>
+            <ambient>0.62 0.02 0.03 1</ambient>
+            <diffuse>1.00 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx2">
+          <pose>0.100 -0.030 0.905 0 0 0</pose>
+          <geometry><sphere><radius>0.013</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry3">
+          <pose>0.055 0.101 0.912 0 0 0</pose>
+          <geometry><sphere><radius>0.034</radius></sphere></geometry>
+          <material>
+            <ambient>0.55 0.02 0.03 1</ambient>
+            <diffuse>0.88 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx3">
+          <pose>0.055 0.101 0.941 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
+        <visual name="berry4">
+          <pose>0.013 0.092 0.902 0 0 0</pose>
+          <geometry><sphere><radius>0.033</radius></sphere></geometry>
+          <material>
+            <ambient>0.61 0.02 0.03 1</ambient>
+            <diffuse>0.99 0.09 0.10 1</diffuse>
+            <!-- Was 0.8. Gazebo adds the specular term equally to R, G and B,
+                 so a near-white gloss that strong rendered the LIT face of a
+                 berry as (255, 106, 92): still red to the eye, but no longer
+                 red by any channel-RATIO test, which is what blinded the
+                 detector. 0.25 keeps the fruit shiny and keeps it red. -->
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>
+        </visual>
+        <visual name="calyx4">
+          <pose>0.013 0.092 0.930 0 0 0</pose>
+          <geometry><sphere><radius>0.015</radius></sphere></geometry>
+          <material><ambient>0.08 0.30 0.08 1</ambient><diffuse>0.14 0.50 0.14 1</diffuse></material>
+        </visual>
       </link>
     </model>
   

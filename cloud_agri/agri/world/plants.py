@@ -221,6 +221,112 @@ def stl_bounds(path: Path) -> tuple[tuple[float, float, float],
     return tuple(lo), tuple(hi)
 
 
+def glb_bounds(path: Path) -> tuple[tuple[float, float, float],
+                                    tuple[float, float, float]]:
+    """(min, max) of a binary glTF, read from its accessor metadata.
+
+    No mesh data is decoded: every POSITION accessor in a glTF is REQUIRED
+    to carry its own min and max, so the bounding box is in the JSON chunk
+    and reading it is a dictionary lookup rather than a parse of several
+    megabytes of vertices.
+    """
+    import json                                          # noqa: PLC0415
+    import struct                                        # noqa: PLC0415
+
+    d = path.read_bytes()
+    if len(d) < 12 or struct.unpack("<I", d[:4])[0] != 0x46546C67:
+        raise ValueError(
+            f"{path} is not a binary glTF (.glb).\n"
+            "    A text .gltf keeps its buffers in separate files; export "
+            "or convert to .glb so the mesh and its textures travel as one.")
+    total = struct.unpack("<I", d[8:12])[0]
+    off, js = 12, None
+    while off < total and off + 8 <= len(d):
+        ln, kind = struct.unpack("<II", d[off:off + 8])
+        if kind == 0x4E4F534A:                           # 'JSON'
+            js = json.loads(d[off + 8:off + 8 + ln])
+            break
+        off += 8 + ln
+    if js is None:
+        raise ValueError(f"{path} has no JSON chunk")
+    lo = [float("inf")] * 3
+    hi = [float("-inf")] * 3
+    for mesh in js.get("meshes", []):
+        for prim in mesh.get("primitives", []):
+            acc = js["accessors"][prim["attributes"]["POSITION"]]
+            if "min" not in acc or "max" not in acc:
+                raise ValueError(f"{path} has a POSITION accessor with no "
+                                 "min/max; the file is not spec-compliant")
+            for c in range(3):
+                lo[c] = min(lo[c], acc["min"][c])
+                hi[c] = max(hi[c], acc["max"][c])
+    if lo[0] == float("inf"):
+        raise ValueError(f"{path} contains no mesh")
+    return tuple(lo), tuple(hi)
+
+
+def glb_is_self_contained(path: Path) -> bool:
+    """Does this .glb carry the images its material asks for?
+
+    THE FAILURE THIS CATCHES IS SILENT. A glTF can reference a
+    baseColorTexture and ship none of the image data -- three of the four
+    plants offered to this project did exactly that. Gazebo loads the mesh,
+    finds no texture, and renders it white. Nothing errors; the greenhouse
+    just fills with pale plants and the cause is two levels down in a
+    binary file.
+    """
+    import json                                          # noqa: PLC0415
+    import struct                                        # noqa: PLC0415
+
+    d = path.read_bytes()
+    total = struct.unpack("<I", d[8:12])[0]
+    off, js = 12, None
+    while off < total and off + 8 <= len(d):
+        ln, kind = struct.unpack("<II", d[off:off + 8])
+        if kind == 0x4E4F534A:
+            js = json.loads(d[off + 8:off + 8 + ln])
+            break
+        off += 8 + ln
+    if js is None:
+        return False
+    wants = any("baseColorTexture" in m.get("pbrMetallicRoughness", {})
+                for m in js.get("materials", []))
+    return (not wants) or bool(js.get("images"))
+
+
+def mesh_bounds(path: Path):
+    """Bounding box of whatever format this is, by extension."""
+    if path.suffix.lower() == ".glb":
+        return glb_bounds(path)
+    return stl_bounds(path)
+
+
+def triangle_count(path: Path) -> int:
+    import json                                          # noqa: PLC0415
+    import struct                                        # noqa: PLC0415
+
+    d = path.read_bytes()
+    if path.suffix.lower() != ".glb":
+        return struct.unpack("<I", d[80:84])[0]
+    total = struct.unpack("<I", d[8:12])[0]
+    off, js = 12, None
+    while off < total and off + 8 <= len(d):
+        ln, kind = struct.unpack("<II", d[off:off + 8])
+        if kind == 0x4E4F534A:
+            js = json.loads(d[off + 8:off + 8 + ln])
+            break
+        off += 8 + ln
+    n = 0
+    for mesh in (js or {}).get("meshes", []):
+        for prim in mesh.get("primitives", []):
+            if "indices" in prim:
+                n += js["accessors"][prim["indices"]]["count"] // 3
+            else:
+                n += js["accessors"][
+                    prim["attributes"]["POSITION"]]["count"] // 3
+    return n
+
+
 def fit(path: Path, width_m: float = PLANT_WIDTH_M
         ) -> tuple[float, float, int]:
     """(scale, lift, triangles) to stand this mesh on the gutter top.
@@ -230,15 +336,12 @@ def fit(path: Path, width_m: float = PLANT_WIDTH_M
             than half-buried -- these meshes are centred on their own
             origin, so without this every plant sinks by half its height
     """
-    import struct                                        # noqa: PLC0415
-
-    lo, hi = stl_bounds(path)
+    lo, hi = mesh_bounds(path)
     span_xy = max(hi[0] - lo[0], hi[1] - lo[1])
     if span_xy <= 0:
         raise ValueError(f"{path} has no width; is it a valid mesh?")
     scale = width_m / span_xy
-    n = struct.unpack("<I", path.read_bytes()[80:84])[0]
-    return scale, -lo[2] * scale, n
+    return scale, -lo[2] * scale, triangle_count(path)
 
 
 # =====================================================================
@@ -438,7 +541,13 @@ MESH_MATERIAL = ("<ambient>0.06 0.20 0.05 1</ambient>"
 
 
 def mesh_plant_sdf(name: str, pose: str, uri: str, scale: float,
-                   lift: float, base_z: float, yaw: float) -> str:
+                   lift: float, base_z: float, yaw: float,
+                   textured: bool = False) -> str:
+    # A TEXTURED MESH MUST NOT BE GIVEN A MATERIAL. Ours would override the
+    # one in the file and turn a photographed strawberry plant into a flat
+    # green silhouette -- which is precisely the limitation the textured
+    # asset exists to remove. Only an untextured mesh gets tinted.
+    material = "" if textured else f"          <material>{MESH_MATERIAL}</material>"
     return f"""    <model name="{name}">
       <static>true</static>
       <pose>{pose}</pose>
@@ -451,7 +560,7 @@ def mesh_plant_sdf(name: str, pose: str, uri: str, scale: float,
               <scale>{scale:.5f} {scale:.5f} {scale:.5f}</scale>
             </mesh>
           </geometry>
-          <material>{MESH_MATERIAL}</material>
+{material}
         </visual>
 {COLLISION.format(cz=base_z + 0.11)}
       </link>
@@ -479,6 +588,13 @@ def build_meshes(world: Path, meshes: list[Path], base_z: float,
         if not m.exists():
             raise FileNotFoundError(f"{m} does not exist")
         scale, lift, tris = fit(m, width_m)
+        if m.suffix.lower() == ".glb" and not glb_is_self_contained(m):
+            raise ValueError(
+                f"{m.name} asks for a texture and does not carry the image.\n"
+                "    Gazebo would load it and render it WHITE, with nothing\n"
+                "    in any log to say why. Re-export with textures embedded\n"
+                "    (Blender: glTF Binary, Images = Automatic), or use the\n"
+                "    .stl and accept a flat colour.")
         fitted.append((m, scale, lift, tris))
 
     sdf = world.read_text()
@@ -507,7 +623,9 @@ def build_meshes(world: Path, meshes: list[Path], base_z: float,
         yaw = (h * 37 % 360) * 3.14159265 / 180.0
         out.append(mesh_plant_sdf(name, pose_m.group(1).strip(),
                                   "file://" + str(path.resolve()),
-                                  scale, lift, base_z, yaw))
+                                  scale, lift, base_z, yaw,
+                                  textured=path.suffix.lower() == ".glb"
+                                  and glb_is_self_contained(path)))
         replaced += 1
     out.append(sdf[pos:])
     world.write_text("".join(out))

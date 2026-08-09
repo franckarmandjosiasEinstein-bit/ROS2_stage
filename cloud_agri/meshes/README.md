@@ -1,43 +1,43 @@
 # meshes/
 
-Drop the strawberry plant mesh here as `strawberry.dae`, then:
+`strawberry.glb` is the plant used by the greenhouse. Put it in place, then:
 
-    python3 -m agri.world.make_world          # regenerate, blobs
-    python3 -m agri.world.make_plants         # swap in the mesh
+```bash
+python3 -m agri.world.make_world      # the greenhouse + the 48 marks
+python3 -m agri.world.make_plants --meshes meshes/strawberry.glb
+```
 
-Nothing in this directory is generated, and nothing else in the project
-depends on it: with no mesh here the world still builds, with the Phase B
-sphere plants.
+**The second command is not optional if you want plants that look like
+plants**, and it is separate from the first for a reason: the mesh URI it
+writes is an ABSOLUTE path, so a world generated on one machine cannot be
+committed and used on another. `worlds/` is generated, never edited, and
+never carries a mesh path from somebody else's disk.
 
-## What a usable mesh looks like
+## What makes a mesh usable here
 
 | | |
 |---|---|
-| format | `.dae` (Collada) preferred; `.obj`+`.mtl` and `.stl` also load |
-| up axis | **Z up**. Most stores export Y-up; convert on export or pass a rotation. |
-| origin | at the **root ball**, not at the canopy centre |
-| size | a strawberry plant is 20–30 cm across, ~25 cm tall. Use `--scale` rather than editing the file. |
-| triangles | **under ~15 k per plant** if you want all 24. See below. |
-| textures | relative paths, and the image files beside the mesh |
-| licence | must permit redistribution, or keep the file out of git and document where it came from |
+| format | `.glb` (binary glTF) — one file, textures inside. `.stl` also loads, with no colour. |
+| up axis | **Z up** |
+| origin | anywhere: `plants.py` measures the bounding box and lifts the mesh so its lowest point rests on the gutter |
+| size | anything: it is scaled to `PLANT_WIDTH_M` (27 cm) whatever units it came in |
+| triangles | under ~15 k. 24 plants share the render budget with a GPU lidar and two cameras. |
+| textures | **must be embedded.** See below. |
 
-## The render budget is the real constraint
+## The trap that cost three of the four plants offered to this project
 
-24 plants x 50 000 triangles is 1.2 M triangles, in a scene that also runs
-a GPU lidar, two rendering cameras and physics at 1 ms steps. That is where
-the frame rate goes on a laptop with integrated graphics.
+A glTF can reference a `baseColorTexture` and ship none of the image data.
+Gazebo loads the mesh, finds no texture, and renders it **white** — no
+error, nothing in any log. Three of the four `.glb` files supplied did
+exactly that; only one carried its two JPEGs.
 
-Three ways out, in order of preference:
-
-1. Export a **decimated** version of the asset (most stores ship an LOD, or
-   Blender's Decimate modifier at 0.2 keeps the silhouette).
-2. `--every-nth 3` puts the mesh on eight plants and leaves sixteen as
-   blobs. The rows still read as strawberries.
-3. Accept a lower frame rate. Gazebo will run; it will not be pleasant.
+`glb_is_self_contained()` checks for it and `make_plants` refuses rather
+than letting you discover it in the simulator. In Blender the setting is
+**glTF Binary (.glb)** with **Images: Automatic**.
 
 ## Collision is never the mesh
 
-`plants.py` gives every plant a primitive collision cylinder and uses the
-mesh for the visual only. A mesh collision would ask the physics engine to
-test every triangle on every contact query. The lidar still sees the
+Every plant gets a primitive collision cylinder; the mesh is visual only.
+A mesh collision asks the physics engine to test every triangle on every
+contact query, 24 times, every millisecond. The lidar still sees the
 cylinder, which is what the brake reasons about.

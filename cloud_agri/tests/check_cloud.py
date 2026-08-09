@@ -1667,6 +1667,7 @@ def check_session_buttons() -> None:
     finds out then whether the CSV exists.
     """
     print("\nthe dashboard's session buttons")
+    import time                                           # noqa: PLC0415
     import urllib.error                                   # noqa: PLC0415
     import urllib.request                                 # noqa: PLC0415
     from functools import partial                         # noqa: PLC0415
@@ -1739,8 +1740,21 @@ def check_session_buttons() -> None:
 
             code, body = post(f"{base}/api/quit?token={token}")
             check("QUITTER answers before it stops", code == 200, f"{code} {body}")
+            # WAIT for it, do not read it. _quit() replies and flushes
+            # BEFORE calling the shutdown hook -- deliberately, so the
+            # browser gets its answer rather than a connection reset -- so
+            # the client can be back here while the handler thread has not
+            # reached the hook yet. Sampling the flag the instant the POST
+            # returns is a race the test loses on a loaded machine and wins
+            # on an idle one, which is the worst kind of check: it passed
+            # here and failed on the operator's laptop.
+            for _ in range(100):
+                if stopped:
+                    break
+                time.sleep(0.02)
             check("and actually triggers the shutdown", stopped == [True],
-                  "the button replied 200 and did nothing")
+                  "the button replied 200 and did not stop the Cloud "
+                  "within 2 s")
         finally:
             httpd.shutdown()
 
