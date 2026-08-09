@@ -55,6 +55,7 @@ from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 WORLD = "worlds/greenhouse_cloud.sdf"
 URDF = "urdf/youbot_agri.urdf"
@@ -326,6 +327,14 @@ def generate_launch_description() -> LaunchDescription:
             description='Semicolon-separated stations to visit with NO Cloud, '
                         'e.g. "P1,1R;P2,4R". Diagnostic only: the reports are '
                         'built and discarded.'),
+        DeclareLaunchArgument(
+            "fail_rate", default_value="0.0",
+            description="Probability that a visit's sensor read genuinely "
+                        "fails, live -- 0.0 is off. Not the dashboard's "
+                        "'simulate a failure' button, which only changes a "
+                        "display: this makes the read itself fail, so the "
+                        "Cloud's automatic LSTM fallback can be shown "
+                        "against a real gap, e.g. fail_rate:=0.15"),
 
         gz, gz_headless,
 
@@ -375,7 +384,9 @@ def generate_launch_description() -> LaunchDescription:
              additional_env={"PYTHONPATH": py_path},
              parameters=[{"broker": LaunchConfiguration("broker"),
                           "keys": LaunchConfiguration("keys"),
-                          "standalone_targets": LaunchConfiguration("targets")},
+                          "standalone_targets": LaunchConfiguration("targets"),
+                          "fail_rate": ParameterValue(
+                              LaunchConfiguration("fail_rate"), value_type=float)},
                          sim_time]),
     ]
 

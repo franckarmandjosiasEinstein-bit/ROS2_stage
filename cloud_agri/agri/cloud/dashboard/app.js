@@ -461,22 +461,24 @@ function activeStationLayer(stations) {
   return g;
 }
 
-/* A station the operator has marked as a simulated sensor failure. Its
-   measured chip is not drawn here -- the per-station loop in renderMap
-   skips it -- so this ring and glyph are the ONLY thing that says the
-   station exists and is being watched, rather than the cross just going
-   quiet with no explanation. */
+/* A station that is faulted -- simulated by the operator, or REAL and
+   reported by the robot itself. Either way its measured chip is not drawn
+   in the per-station loop above, so this ring and glyph are the ONLY thing
+   that says the station exists and is being watched, rather than the
+   cross just going quiet with no explanation. Driven off each station's
+   own `faulted` flag rather than the two fault lists directly, so a
+   station is marked exactly once even if it is somehow in both. */
 function faultLayer(stations) {
-  const faults = S.state.simulated_faults || [];
-  if (!faults.length) return "";
+  const faulted = stations.filter(s => s.faulted);
+  if (!faulted.length) return "";
   let g = "";
-  faults.forEach(label => {
-    const s = stations.find(st => st.label === label);
-    if (!s) return;
+  faulted.forEach(s => {
     const ty = s.y + 0.30;
-    g += `<g class="faulted">
+    const real = s.fault_detected;
+    g += `<g class="faulted${real ? " real" : ""}">
       <circle class="fault-ring" cx="${s.x}" cy="${s.y}" r="0.18"/>
-      <text class="fault-mark" x="${s.x}" y="${ty}" ${upright(ty)}>⚠ PANNE</text>
+      <text class="fault-mark" x="${s.x}" y="${ty}" ${upright(ty)}>${
+        real ? "⚠ PANNE RÉELLE" : "⚠ PANNE"}</text>
     </g>`;
   });
   return g;
@@ -623,29 +625,45 @@ function renderDetail(label) {
   document.getElementById("detail-label").textContent =
     `${label}  //  row ${s.row} plant ${s.plant} ${s.side === "R" ? "right" : "left"}`;
 
-  const faulted = (S.state.simulated_faults || []).includes(label);
+  const simulated = (S.state.simulated_faults || []).includes(label);
+  const detected = (S.state.detected_faults || []).includes(label);
+  const faulted = simulated || detected;
   const faultBtn = document.getElementById("detail-fault");
-  faultBtn.textContent = faulted ? "✓ lever la panne" : "⚠ simuler une panne";
-  faultBtn.classList.toggle("active", faulted);
+  if (detected && !simulated) {
+    // A REAL failure the robot itself reported -- there is nothing here
+    // for the operator to demo-toggle, and clearing simulated_faults would
+    // not make the underlying gap go away, so the button steps aside
+    // rather than implying a control that does not do what it says.
+    faultBtn.textContent = "⚠ panne réelle en cours";
+    faultBtn.disabled = true;
+    faultBtn.classList.add("active");
+  } else {
+    faultBtn.disabled = false;
+    faultBtn.textContent = simulated ? "✓ lever la panne" : "⚠ simuler une panne";
+    faultBtn.classList.toggle("active", simulated);
+  }
 
   const banner = document.getElementById("fault-banner");
+  const label_word = detected ? "PANNE DÉTECTÉE (réelle)" : "PANNE SIMULÉE";
   let predicted = null;
   if (!faulted) {
     banner.hidden = true;
   } else if (!(label in S.predictionCache)) {
     banner.hidden = false;
     banner.className = "fault-banner working";
-    banner.textContent = "⚠ panne simulée — entraînement du modèle LSTM et calcul de la prédiction…";
+    banner.textContent = `⚠ ${label_word} — entraînement du modèle LSTM et calcul de la prédiction…`;
     if (!S._predicting.has(label)) fetchFaultPrediction(label);
   } else if (S.predictionCache[label] == null) {
     banner.hidden = false;
     banner.className = "fault-banner err";
-    banner.textContent = "⚠ panne simulée — historique insuffisant pour prédire cette station";
+    banner.textContent = `⚠ ${label_word} — historique insuffisant pour prédire cette station`;
   } else {
     predicted = S.predictionCache[label];
     banner.hidden = false;
     banner.className = "fault-banner";
-    banner.textContent = "⚠ panne simulée — capteur indisponible ; valeurs prédites par le LSTM ci-dessous";
+    banner.textContent = detected
+      ? "⚠ PANNE DÉTECTÉE — le capteur n'a pas répondu ; valeurs prédites par le LSTM ci-dessous"
+      : "⚠ PANNE SIMULÉE — capteur indisponible ; valeurs prédites par le LSTM ci-dessous";
   }
 
   const rows = (S.state.quantities || []).map(Q => {

@@ -97,6 +97,15 @@ class Cloud:
         #: FailureSimulator that drops readings during training, so the
         #: same gap that TRAINS the model can be demonstrated live.
         self.simulated_faults: set[str] = set()
+        #: Stations a REAL failed visit named, with no operator involved.
+        #: Populated from the robot's own "failed" ack (agri.robot.Visitor
+        #: raised -- e.g. GreenhouseField's live fail_rate fired) and
+        #: cleared the moment a fresh report for that station is filed, so
+        #: a station that recovers on its own stops being shown as faulted
+        #: without anyone having to notice and press a button. Kept apart
+        #: from simulated_faults so the dashboard can say which is which;
+        #: state() reports a station as faulted if it is in EITHER set.
+        self.detected_faults: set[str] = set()
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
         self.accepted = 0
         self.started = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -211,6 +220,12 @@ class Cloud:
         visit = self.store.add_report(
             report, request_issued_at=p["issued_at"] if p else None)
         self.accepted += 1
+        # A fresh, genuine report is the strongest possible evidence that a
+        # station has recovered -- clear any REAL failure noted for it so
+        # the dashboard stops showing a prediction for data it now has.
+        # (A DEMO fault stays until the operator lifts it: that one was
+        # never about the data being missing.)
+        self.detected_faults.discard(visit.label)
         if p is not None:
             p["done"] = min(p["total"], p["done"] + 1)
             p["label"] = visit.label
@@ -261,6 +276,22 @@ class Cloud:
         for f in ("metres", "planned_m"):
             if d.get(f) is not None:
                 p[f] = d[f]
+        # A REAL failure, named by the robot itself -- not the operator's
+        # demo button. The same "faulted" flag the dashboard already knows
+        # how to show a prediction for, but nobody had to press anything.
+        if d.get("state") == "failed" and d.get("label"):
+            try:
+                failed_label = normalise(d["label"])
+            except ValueError:
+                failed_label = None
+            if failed_label:
+                self.detected_faults.add(failed_label)
+                self.say("cloud", f"{failed_label} failed to report"
+                         + (f" ({d['detail']})" if d.get("detail") else "")
+                         + " -- LSTM fallback available", "fault")
+                log.cloud(log.err("detected failure") +
+                          f" at {log.data(failed_label)}"
+                          + (f": {d['detail']}" if d.get("detail") else ""))
         # A mission that ENDS without filing every report still ends, and the
         # record has to close or the dashboard shows it running for ever and
         # requests.csv carries a blank completion with nothing to explain it.
@@ -415,7 +446,9 @@ class Cloud:
                 "photo": v.photo_path if v else None,
                 "qr": v.qr_path if v else None,
                 "parking_error_m": v.parking_error_m if v else None,
-                "faulted": s.label in self.simulated_faults,
+                "faulted": s.label in self.simulated_faults
+                          or s.label in self.detected_faults,
+                "fault_detected": s.label in self.detected_faults,
             })
         measured, total = self.store.coverage()
         active = self._active_station()
@@ -430,6 +463,7 @@ class Cloud:
                         "rejected": len(self.rejected)},
             "active_station": active,
             "simulated_faults": sorted(self.simulated_faults),
+            "detected_faults": sorted(self.detected_faults),
             "nodes": dict(self.nodes),
             # How the Cloud is driving the fleet, and whether it is taking
             # readings. Both are switchable from the dashboard, because a

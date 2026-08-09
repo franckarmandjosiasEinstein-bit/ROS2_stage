@@ -58,7 +58,7 @@ from dataclasses import dataclass
 
 from agri.catalogue import WALL_X, WALL_Y, plant_position, station
 from agri.labels import normalise
-from agri.measurement import BY_NAME, Measurement
+from agri.measurement import BY_NAME, Measurement, MeasurementError
 
 #: Known faults, injected into the truth. label -> (quantity, delta).
 #: A demonstration that surfaces these has surfaced something real; one that
@@ -95,6 +95,17 @@ class GreenhouseField:
     """
 
     seed: int = 20260804
+    #: Probability that a single visit's read fails OUTRIGHT -- a dead
+    #: sensor board, not a bad number. 0.0 by default, so nothing about the
+    #: existing pipeline changes unless a demonstration turns it on; every
+    #: check in the suite runs at the default and stays deterministic. When
+    #: it fires, read() raises MeasurementError BEFORE a Measurement is
+    #: built, exactly as a real hardware fault would -- run_mission's
+    #: existing exception handler marks the station FAILED and the Cloud's
+    #: on_ack sees a real gap it did not manufacture, which is what lets the
+    #: LSTM fallback be demonstrated against an actual failure rather than
+    #: only a button that fakes the display.
+    fail_rate: float = 0.0
 
     # -------------------------------------------------------------- truth
     def truth(self, label: str, minutes: float = 0.0) -> dict[str, float]:
@@ -143,10 +154,18 @@ class GreenhouseField:
              pose: tuple[float, float, float] | None = None) -> Measurement:
         """What the robot's sensors report: truth plus noise, clamped."""
         label = normalise(label)
-        values = self.truth(label, minutes)
         # Seeded per (run, station, time bucket): repeatable, but a second
         # visit a minute later legitimately differs.
         rng = random.Random(f"{self.seed}:{label}:{int(minutes * 60) // 5}")
+        # `if self.fail_rate` short-circuits at the default 0.0, so this
+        # draws NOTHING from rng in that case -- the noise below is drawn
+        # from the exact same untouched stream as before this existed, and
+        # every check that assumed a particular sequence still passes.
+        if self.fail_rate and rng.random() < self.fail_rate:
+            raise MeasurementError(
+                f"{label}: sensor read failed "
+                f"(live fault, rate {self.fail_rate:.0%})")
+        values = self.truth(label, minutes)
         out = {}
         for name, v in values.items():
             q = BY_NAME[name]

@@ -4626,6 +4626,122 @@ def check_fault_toggle() -> None:
           ".reading.predicted" in css)
 
 
+def check_live_fault_injection() -> None:
+    """A REAL failure, not a button: GreenhouseField can genuinely fail a
+    read, run_mission's own exception handler catches it as it already did
+    for any other error, and the Cloud notices from the failed ack alone --
+    no operator action anywhere in the chain."""
+    print("\nlive fault injection: a real failure, not just a demo button")
+    from agri.measurement import MeasurementError            # noqa: PLC0415
+    from agri.sensors import GreenhouseField                 # noqa: PLC0415
+
+    off = GreenhouseField()
+    check("fail_rate defaults to 0.0", off.fail_rate == 0.0)
+    baseline = GreenhouseField(fail_rate=0.0)
+    for m in range(0, 200, 10):
+        baseline.read("P1,1R", float(m))   # must never raise
+    check("fail_rate 0.0 never raises across many reads", True)
+
+    on = GreenhouseField(fail_rate=1.0)
+    raised = False
+    try:
+        on.read("P1,1R", 0.0)
+    except MeasurementError:
+        raised = True
+    check("fail_rate 1.0 always fails the read",
+          raised, "a certain failure did not raise")
+
+    partial = GreenhouseField(fail_rate=0.5)
+    outcomes = []
+    for m in range(0, 600, 10):
+        try:
+            partial.read("P1,1R", float(m))
+            outcomes.append("ok")
+        except MeasurementError:
+            outcomes.append("fail")
+    check("a mid-range rate produces BOTH outcomes, not just one",
+          "ok" in outcomes and "fail" in outcomes, str(outcomes))
+    again = []
+    for m in range(0, 600, 10):
+        try:
+            GreenhouseField(fail_rate=0.5).read("P1,1R", float(m))
+            again.append("ok")
+        except MeasurementError:
+            again.append("fail")
+    check("the same seed reproduces the same failure pattern",
+          outcomes == again)
+
+    # A disabled field's noise sequence must be BYTE IDENTICAL to before
+    # this existed -- the `if self.fail_rate` guard must truly draw
+    # nothing from rng when it is falsy, or every existing check that
+    # assumed a particular noise value would be quietly wrong.
+    plain = GreenhouseField().read("P1,1R", 30.0).values
+    guarded = GreenhouseField(fail_rate=0.0).read("P1,1R", 30.0).values
+    check("a 0.0 rate changes NOTHING about the noise already relied on",
+          plain == guarded, f"{plain} != {guarded}")
+
+    # The Cloud side: a failed ack is enough, no /api/fault call involved.
+    from agri import keys                                    # noqa: PLC0415
+    from agri.cloud.server import Cloud                       # noqa: PLC0415
+    from agri.cloud.store import Store                        # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        keys.bootstrap(d / "keys")
+        cloud = Cloud(Store(d / "store"), d / "keys")
+        rid, _signed = cloud.build_request(["P1,3R"])
+
+        check("no station starts as a detected (real) fault",
+              cloud.detected_faults == set())
+        cloud.on_ack(json.dumps({
+            "request_id": rid, "state": "failed", "label": "P1,3R",
+            "detail": "P1,3R: sensor read failed (live fault, rate 50%)",
+        }).encode())
+        check("a failed ack, on its own, marks the station faulted",
+              "P1,3R" in cloud.detected_faults)
+        st = cloud.state()
+        row = next(s for s in st["stations"] if s["label"] == "P1,3R")
+        check("the station record says it is a REAL fault, not a demo one",
+              row["faulted"] is True and row["fault_detected"] is True)
+        check("the top-level state carries the detected list too",
+              st["detected_faults"] == ["P1,3R"])
+        check("the operator's dialogue names the station and why",
+              any("P1,3R failed to report" in e["text"]
+                  for e in cloud.dialogue),
+              str([e["text"] for e in cloud.dialogue][-3:]))
+
+        # Recovery: a GENUINE report for the same station clears it, with
+        # nobody pressing anything -- the evidence that fixed it IS the fix.
+        from agri.envelope import build_report, seal_report    # noqa: PLC0415
+        from agri.measurement import (Measurement, QUANTITIES,  # noqa: PLC0415
+                                      utc_now)
+
+        m = Measurement(label="P1,3R", timestamp=utc_now(),
+                        values={q.name: (q.lo + q.hi) / 2 for q in QUANTITIES})
+        report = build_report(m, b"\xff\xd8\xff\xd9", (10, 10),
+                              "youbot-01", rid)
+        envelope = seal_report(report, cloud.cloud_keys.public_pem,
+                               keys.ensure("robot", d / "keys",
+                                          generate=False).private_pem)
+        verdict = cloud.on_report(json.dumps(envelope).encode())
+        check("the report is accepted", "filed" in verdict, verdict)
+        check("filing a fresh report clears the REAL fault automatically",
+              "P1,3R" not in cloud.detected_faults, str(cloud.detected_faults))
+
+    # The launch surface: the rate has to actually reach the node.
+    launch = (ROOT / "ros2" / "src" / "agri_robot" / "launch"
+             / "agri.launch.py").read_text()
+    check("the launch file exposes fail_rate as an argument",
+          '"fail_rate"' in launch and 'default_value="0.0"' in launch)
+    check("and passes it to the robot node as a parameter",
+          "fail_rate" in launch and "ParameterValue" in launch)
+    node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+           / "robot_node.py").read_text()
+    check("the robot node declares the parameter and wires it through",
+          'declare_parameter("fail_rate"' in node
+          and "GreenhouseField(fail_rate=" in node)
+
+
 def check_demo() -> None:
     """The offline demo is the thing that gets run in front of people, so it
     is the thing most worth having a check on. Running it as a SUBPROCESS is
@@ -4726,8 +4842,8 @@ def main() -> int:
                check_dashboard_auth, check_mode_buttons,
                check_active_station, check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
-               check_prediction, check_fault_toggle, check_coloured_logs,
-               check_demo, check_hygiene):
+               check_prediction, check_fault_toggle, check_live_fault_injection,
+               check_coloured_logs, check_demo, check_hygiene):
         fn()
     print()
     if FAILURES:
