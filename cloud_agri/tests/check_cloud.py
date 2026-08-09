@@ -447,6 +447,161 @@ def _chain_links(path: Path) -> bool:
     return prev is not None
 
 
+def check_trust() -> None:
+    print("\ntrust: naming a key, and retiring one")
+    import subprocess                                     # noqa: PLC0415
+
+    from agri import keys as K                            # noqa: PLC0415
+    from agri.crypto_ecc import generate_keypair          # noqa: PLC0415
+    from agri.trust import (MAX_AGE_DAYS, RevocationError,  # noqa: PLC0415
+                            TrustStore, age_days, age_warning,
+                            expiry_hint, fingerprint, meta_path,
+                            record_birth, summarise)
+
+    a, b = generate_keypair(), generate_keypair()
+    fa = fingerprint(a.public_pem)
+    check("a key gets a short readable name", len(fa) == 19 and fa.count(":") == 3,
+          fa)
+    check("the same key always gets the same name",
+          fingerprint(a.public_pem) == fa)
+    check("and two keys do not share one", fingerprint(b.public_pem) != fa)
+    check("a trailing newline does not rename a key",
+          fingerprint(a.public_pem + b"\n") == fa,
+          "hashing the PEM TEXT would give one key two names and send "
+          "somebody hunting a substitution that never happened")
+    check("and neither does re-wrapping it",
+          fingerprint(a.public_pem.decode()) == fa)
+
+    # --- the list --------------------------------------------------------
+    d = Path(tempfile.mkdtemp()) / "k"
+    st = TrustStore(d)
+    check("an empty trust store refuses nothing", st.entries() == {})
+    st.check(a.public_pem, "robot")
+    check("and lets a good key through", True)
+
+    st.revoke(a.public_pem, "laptop stolen")
+    check("a revoked key is remembered by fingerprint",
+          st.entries().get(fa, "").startswith("laptop stolen"),
+          str(st.entries()))
+    try:
+        st.check(a.public_pem, "robot")
+        check("and is refused", False, "it was accepted")
+    except RevocationError as exc:
+        check("and is refused", True)
+        check("with the reason, so the operator knows what happened",
+              "laptop stolen" in str(exc) and fa in str(exc),
+              str(exc).splitlines()[0])
+    st.check(b.public_pem, "robot")
+    check("a different key is still fine", True)
+    st.revoke(a.public_pem, "again")
+    check("revoking twice does not duplicate the line",
+          list(st.entries()).count(fa) == 1)
+    check("the file says out loud that nothing distributes it",
+          "does not tell the other machine" in st.path.read_text(),
+          "a revocation list mistaken for a PKI is worse than none")
+
+    # --- age -------------------------------------------------------------
+    d2 = Path(tempfile.mkdtemp()) / "k2"
+    d2.mkdir(parents=True)
+    record_birth("robot", a.public_pem, d2)
+    check("a generated key records when it was born",
+          meta_path("robot", d2).exists() and age_days("robot", d2) < 1)
+    check("and the file says it is NOT a certificate",
+          "not a certificate" in meta_path("robot", d2).read_text(),
+          "an unsigned date the key holder can edit is a reminder, and "
+          "calling it more than that would be a lie")
+    check("a fresh key produces no nagging", age_warning("robot", d2) == "")
+    meta = json.loads(meta_path("robot", d2).read_text())
+    meta["created"] = "2020-01-01T00:00:00Z"
+    meta_path("robot", d2).write_text(json.dumps(meta))
+    w = age_warning("robot", d2)
+    check("an old one does, with the command that fixes it",
+          "--rotate robot" in w and "days" in w, w)
+    check("and the summary line carries the fingerprint and the age",
+          fingerprint(a.public_pem) in summarise("robot", a.public_pem, d2)
+          and "days old" in summarise("robot", a.public_pem, d2))
+    check("a key with no recorded birthday is not an error",
+          age_days("cloud", d2) is None
+          and "unknown" in expiry_hint(None),
+          "a working deployment must not stop for a bookkeeping file")
+    check("the rotation horizon is a year, stated not guessed",
+          MAX_AGE_DAYS == 365)
+
+    # --- rotation --------------------------------------------------------
+    d3 = Path(tempfile.mkdtemp()) / "k3"
+    K.bootstrap(d3)
+    before = K.public_of("robot", d3, generate=False)
+    old_fp, new_fp = K.rotate("robot", d3, "decommissioned")
+    after = K.public_of("robot", d3, generate=False)
+    check("rotation replaces the key", after != before and new_fp != old_fp)
+    check("and revokes the old one in the same breath",
+          old_fp in TrustStore(d3).entries(),
+          "a rotation that leaves the old key valid has retired nothing")
+    check("and the new one is NOT revoked", new_fp not in TrustStore(d3).entries())
+    archived = sorted((d3 / "retired").glob("*/robot_private.pem"))
+    check("the old PRIVATE key is archived, never destroyed",
+          len(archived) == 1 and archived[0].read_bytes(),
+          "reports already sealed to it can be opened with nothing else; "
+          "deleting it makes them unreadable forever")
+    check("and the archived private key is not world-readable",
+          oct(archived[0].stat().st_mode)[-3:] == "600",
+          oct(archived[0].stat().st_mode))
+    check("the cloud key was left alone",
+          K.public_of("cloud", d3, generate=False)
+          not in (b"",) and len(TrustStore(d3).entries()) == 1,
+          "rotating one role must not retire the other")
+    refuses("rotating a role that has no key is refused, not invented",
+            lambda: K.rotate("robot", Path(tempfile.mkdtemp()) / "empty"),
+            FileNotFoundError)
+
+    # --- the programs actually refuse ------------------------------------
+    from agri.cloud.server import Cloud                   # noqa: PLC0415
+    from agri.cloud.store import Store                    # noqa: PLC0415
+    d4 = Path(tempfile.mkdtemp())
+    K.bootstrap(d4 / "k")
+    Cloud(Store(d4 / "s"), d4 / "k")
+    check("a Cloud starts with good keys", True)
+    TrustStore(d4 / "k").revoke(
+        K.public_of("robot", d4 / "k", generate=False), "test")
+    try:
+        Cloud(Store(d4 / "s"), d4 / "k")
+        check("and REFUSES TO START once the robot key is revoked", False,
+              "it started anyway")
+    except RevocationError:
+        check("and REFUSES TO START once the robot key is revoked", True,
+              "a warning about a retired key is a warning nobody acts on")
+    node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+            / "robot_node.py").read_text()
+    check("and so does the robot node",
+          "store.check(self.cloud_public" in node,
+          "otherwise a retired Cloud key still drives the robot")
+
+    # --- the command line ------------------------------------------------
+    d5 = Path(tempfile.mkdtemp()) / "k5"
+    r = subprocess.run([sys.executable, "-m", "agri.keys", "--dir", str(d5)],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    check("generating prints the fingerprints to compare",
+          r.returncode == 0
+          and fingerprint(K.public_of("cloud", d5, generate=False)) in r.stdout,
+          r.stdout[-200:])
+    check("and says why comparing them matters",
+          "different keys" in r.stdout,
+          "every message refused with nothing saying which key is the "
+          "failure this line prevents")
+    r = subprocess.run([sys.executable, "-m", "agri.keys", "--dir", str(d5),
+                        "--revoke", "robot", "--reason", "sold"],
+                       capture_output=True, text=True, cwd=str(ROOT))
+    check("--revoke works from the command line and says to restart",
+          r.returncode == 0 and "RESTART" in r.stdout, r.stdout[-200:])
+    check("and says the file has to be copied across",
+          "other machine" in r.stdout)
+    r = subprocess.run([sys.executable, "-m", "agri.keys", "--dir", str(d5),
+                        "--list"], capture_output=True, text=True,
+                       cwd=str(ROOT))
+    check("--list shows what is trusted and what is not",
+          "1 revoked key" in r.stdout and "sold" in r.stdout, r.stdout[-200:])
+
+
 def check_broker_auth() -> None:
     print("\nbroker: TLS, credentials, and no silent downgrade")
     import argparse                                       # noqa: PLC0415
@@ -3488,7 +3643,7 @@ def check_hygiene() -> None:
 def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_replay,
-               check_broker_auth, check_chain,
+               check_trust, check_broker_auth, check_chain,
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,

@@ -45,7 +45,7 @@ from pathlib import Path
 import rclpy
 from rclpy.node import Node
 
-from agri import keys
+from agri import keys, trust
 from agri.protocol import (DEFAULT_BROKER, QOS, TOPIC_REQUEST,
                            BrokerAuth, ProtocolError, mqtt_client,
                            topic_query, topic_status)
@@ -103,6 +103,19 @@ class AgriRobot(Node):
         keys.bootstrap(key_dir)
         self.robot_keys = keys.ensure("robot", key_dir, generate=False)
         self.cloud_public = keys.public_of("cloud", key_dir, generate=False)
+        # A revoked key still verifies -- that is why it has to be listed
+        # rather than deleted. Refusing to start is deliberate: a robot
+        # that logged a warning and then took orders from a retired Cloud
+        # key would make the revocation list decorative.
+        store = trust.TrustStore(key_dir)
+        store.check(self.cloud_public, "cloud")
+        store.check(self.robot_keys.public_pem, "robot (our own)")
+        for role, pem in (("robot", self.robot_keys.public_pem),
+                          ("cloud", self.cloud_public)):
+            self.get_logger().info(trust.summarise(role, pem, key_dir))
+            warn = trust.age_warning(role, key_dir)
+            if warn:
+                self.get_logger().warning(warn)
 
         field = GreenhouseField()
         self.driver = GazeboDriver(self, sensors=field.read,

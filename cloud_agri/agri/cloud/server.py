@@ -40,7 +40,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from agri import keys, session
+from agri import keys, session, trust
 from agri.catalogue import all_stations
 from agri.cloud.store import Store, seconds_between, summarise
 from agri.crypto_ecc import CryptoError, sign_json
@@ -76,6 +76,15 @@ class Cloud:
         keys.bootstrap(key_dir)
         self.cloud_keys = keys.ensure("cloud", key_dir, generate=False)
         self.robot_public = keys.public_of("robot", key_dir, generate=False)
+        # A revoked key verifies perfectly -- that is the whole point of
+        # revoking one rather than deleting it. Checked here, at
+        # construction, so a Cloud that should not be talking to this robot
+        # never starts; and raised rather than logged, because a warning
+        # about a retired key is a warning nobody acts on.
+        self.key_dir = Path(key_dir)
+        self.trust = trust.TrustStore(self.key_dir)
+        self.trust.check(self.robot_public, "robot")
+        self.trust.check(self.cloud_keys.public_pem, "cloud (our own)")
         self.nodes: dict[str, dict[str, Any]] = {}
         self.progress: dict[str, Any] = {}
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
@@ -113,6 +122,27 @@ class Cloud:
             self.say("cloud", f"{node} did not answer", "timeout")
             return None
         return self.node_idle.get(node)
+
+    def trust_lines(self) -> list[str]:
+        """What to print at startup about the keys in use.
+
+        Printed rather than merely checked. The failure this catches is two
+        machines holding two different keys with neither saying which, and
+        a fingerprint on both screens settles that in ten seconds instead
+        of an afternoon reading signature errors.
+        """
+        out = [f"cloud: {trust.summarise(r, pem, self.key_dir)}"
+               for r, pem in (("cloud", self.cloud_keys.public_pem),
+                              ("robot", self.robot_public))]
+        for role in ("cloud", "robot"):
+            warn = trust.age_warning(role, self.key_dir)
+            if warn:
+                out.append("cloud: " + warn)
+        revoked = self.trust.entries()
+        if revoked:
+            out.append(f"cloud: {len(revoked)} revoked key(s) refused "
+                       f"({self.trust.path})")
+        return out
 
     def say(self, who: str, text: str, step: str = "") -> None:
         self.dialogue.append({"who": who, "text": text, "step": step,
@@ -1121,6 +1151,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cloud: dashboard on {base_url}")
         print("       no token — allowed only because this is bound to "
               "loopback")
+    for line in cloud.trust_lines():
+        print(line)
     print(f"cloud: {len(all_labels())} stations known, "
           f"{cloud.store.coverage()[0]} already measured")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
