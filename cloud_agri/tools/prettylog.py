@@ -43,13 +43,15 @@ import time
 # ---------------------------------------------------------------- colours
 # Disabled when stdout is not a terminal, so a redirected log stays greppable.
 class C:
-    dim = grey = ok = warn = bad = head = off = ""
+    dim = grey = ok = warn = bad = head = cloud = node = rule = off = ""
 
     @classmethod
     def enable(cls) -> None:
         cls.grey, cls.dim = "\033[90m", "\033[2m"
         cls.ok, cls.warn, cls.bad = "\033[32m", "\033[33m", "\033[31m"
         cls.head, cls.off = "\033[36m", "\033[0m"
+        cls.cloud, cls.node = "\033[35m", "\033[96m"
+        cls.rule = "\033[38;5;240m"
 
 
 #: Lines matching any of these are dropped. Every one was read, understood,
@@ -129,6 +131,25 @@ RULES: list[tuple[str, str, str | None]] = [
     (r"Creating (?:GZ->ROS|ROS->GZ) Bridge: \[(/\S+)", "bridge", None),
     (r"rviz2\]: Stereo", "drop", None),
 
+    # --- the handshake, read as a conversation ---------------------------
+    # These are the lines that show HOW the two sides cooperate, which is
+    # the thing a connected-node demonstration is actually about. Without a
+    # row here they are dropped exactly like everything else this filter
+    # hides, and the exchange becomes invisible at the very moment it
+    # matters most.
+    (r"robot: Cloud asks if I am stopped -> (.*)$", "node",
+     r"robot: I am \1"),
+    (r"robot: parked and still at (\S+), reading ready.*$", "node",
+     r"robot: parked and still at \1, reading ready -- may I send?"),
+    (r"robot: the Cloud (said hold|did not answer) -- keeping (\S+), "
+     r"(\d+) reading", "warn",
+     r"the Cloud \1: robot KEEPS \2 on board (\3 held)"),
+    (r"robot: Cloud filed (\S+)$", "cloud", r"cloud: filed \1"),
+    (r"robot: accepted (\w{12}), (\d+) station\(s\) in (\w+) mode", "node",
+     r"robot: accepted \1 -- \2 station(s), \3 mode"),
+    (r"robot: REFUSED an unsigned or forged request", "bad",
+     "robot REFUSED a request that was not signed by the Cloud"),
+
     # --- the mission, from robot_node ------------------------------------
     (r"(\w{12}): (\d+) station\(s\)$", "ok",
      r"mission \1 accepted: \2 station(s)"),
@@ -146,10 +167,19 @@ PREFIX = re.compile(r"^\[([a-zA-Z_0-9]+)-\d+\] ")
 STAMP = re.compile(r"\[\d{9,}\.\d+\] ")
 LEVEL = re.compile(r"^\[(INFO|WARN|ERROR|FATAL|DEBUG)\] ")
 
+#: Two more levels than the filter started with, and both earn their place
+#: by making the MQTT exchange readable as a conversation:
+#:
+#:   cloud   something the Cloud said        (magenta, arrow pointing right)
+#:   node    something the robot answered    (cyan, arrow pointing left)
+#:
+#: The arrows matter more than the colours: a log read over a projector, or
+#: printed in a report, loses colour and keeps direction.
 MARK = {"ok": "ok  ", "info": "·   ", "warn": "warn", "bad": "FAIL",
-        "head": "▶   "}
+        "head": "▶   ", "cloud": "──► ", "node": "◄── "}
 COLOUR = {"ok": lambda: C.ok, "info": lambda: C.grey, "warn": lambda: C.warn,
-          "bad": lambda: C.bad, "head": lambda: C.head}
+          "bad": lambda: C.bad, "head": lambda: C.head,
+          "cloud": lambda: C.cloud, "node": lambda: C.node}
 
 
 class Filter:
@@ -160,11 +190,28 @@ class Filter:
         self.bridged: list[str] = []
         self.started: list[str] = []
         self.dropped = 0
+        self.current: str | None = None
+
+    #: A new mission draws a rule across the log. Forty-eight stations
+    #: produce a wall of similar lines, and without a boundary the eye
+    #: cannot find where one campaign ended and the next began -- which is
+    #: exactly the question being asked when something goes wrong on the
+    #: third one. The mission id is written into the rule so a line can be
+    #: traced back to its order without counting upwards.
+    def rule(self, title: str) -> None:
+        width = 66
+        bar = "─" * max(4, width - len(title) - 3)
+        print(f"\n{C.rule}── {title} {bar}{C.off}", flush=True)
 
     def say(self, level: str, text: str) -> None:
         col = COLOUR[level]()
         print(f"{C.grey}{time.strftime('%H:%M:%S')}{C.off} "
               f"{col}{MARK[level]}{C.off}  {text}", flush=True)
+
+    #: Lines that open a new request. Matched on the RENDERED text rather
+    #: than the raw line, so one rule covers both wordings and neither the
+    #: robot nor the Cloud has to know a log filter exists.
+    OPENS = re.compile(r"^(mission (\w{12}) accepted|robot: accepted (\w{12}))")
 
     def emit(self, level: str, text: str) -> None:
         """Say one line, after any collected group that must precede it.
@@ -180,6 +227,12 @@ class Filter:
             names = ", ".join(t.lstrip("/") for t in self.bridged)
             self.say("ok", f"gz bridge: {len(self.bridged)} topics ({names})")
             self.bridged = []
+        m = self.OPENS.match(text)
+        if m:
+            rid = m.group(2) or m.group(3)
+            if rid != self.current:
+                self.current = rid
+                self.rule(f"request {rid}")
         self.say(level, text)
 
     def feed(self, line: str) -> None:

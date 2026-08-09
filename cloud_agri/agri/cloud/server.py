@@ -46,10 +46,13 @@ from agri.crypto_ecc import CryptoError, sign_json
 from agri.envelope import EnvelopeError, new_request_id, open_envelope
 from agri.labels import all_labels, normalise
 from agri.measurement import QUANTITIES, utc_now
-from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, QOS,
-                           TOPIC_ACK_ALL, TOPIC_REPORT_ALL, TOPIC_REQUEST,
-                           TOPIC_STATUS_ALL, ProtocolError, expand_targets,
-                           make_request, mqtt_client, node_id_from_topic)
+from agri.protocol import (ALL, DEFAULT_BROKER, DEFAULT_PORT, MODE_COLLECTOR,
+                           MODE_COMMAND, MODES, QOS, STEP_FILED, STEP_HOLD,
+                           STEP_IDLE, STEP_IDLE_ASK, STEP_OFFER, STEP_SEND,
+                           TOPIC_ACK_ALL, TOPIC_REPLY_ALL, TOPIC_REPORT_ALL,
+                           TOPIC_REQUEST, TOPIC_STATUS_ALL, ProtocolError,
+                           expand_targets, make_query, make_request,
+                           mqtt_client, node_id_from_topic, topic_query)
 from agri.sensors import ANOMALIES
 from agri.survey import energy_wh
 
@@ -75,6 +78,42 @@ class Cloud:
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
         self.accepted = 0
         self.started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        #: command or collector. Held here rather than on the command line
+        #: so it can be switched mid-session, which is the only way to show
+        #: both in one demonstration.
+        self.mode = MODE_COMMAND
+        #: Set false to make the Cloud answer 'hold' to an offer. Exists so
+        #: the buffering can be DEMONSTRATED rather than described: the
+        #: robot keeps measuring, the readings pile up on board, and they
+        #: all arrive the moment this goes true again.
+        self.receiving = True
+        #: What the last handshake said, newest last, for the dashboard.
+        self.dialogue: deque[dict[str, Any]] = deque(maxlen=40)
+        #: Last answer to "are you stopped?", per node.
+        self.node_idle: dict[str, bool] = {}
+        self.node_busy: dict[str, bool] = {}
+        self._idle_seen = threading.Event()
+
+    def ask_idle(self, node: str, publish, timeout: float = 3.0) -> bool | None:
+        """Ask a node whether it is stopped, and wait for the answer.
+
+        True / False as answered, None if it did not answer at all -- three
+        outcomes, because "the robot says it is moving" and "the robot is
+        not there" call for different things to be printed and only one of
+        them is worth retrying.
+        """
+        self._idle_seen.clear()
+        self.node_idle.pop(node, None)
+        self.say("cloud", f"asking {node}: are you stopped?", STEP_IDLE_ASK)
+        publish(topic_query(node), json.dumps(make_query(STEP_IDLE_ASK, node)))
+        if not self._idle_seen.wait(timeout):
+            self.say("cloud", f"{node} did not answer", "timeout")
+            return None
+        return self.node_idle.get(node)
+
+    def say(self, who: str, text: str, step: str = "") -> None:
+        self.dialogue.append({"who": who, "text": text, "step": step,
+                              "at": utc_now()})
 
     # ------------------------------------------------------------ outbound
     def build_request(self, targets: str | list[str]) -> tuple[str, dict]:
@@ -88,10 +127,11 @@ class Cloud:
         """
         labels = expand_targets(targets)
         rid = new_request_id()
-        msg = make_request(rid, labels)
+        msg = make_request(rid, labels, mode=self.mode)
         self.progress[rid] = {"request_id": rid, "targets": labels,
                               "total": len(labels), "done": 0,
                               "state": "issued", "label": None, "detail": "",
+                              "mode": self.mode,
                               "issued_at": msg["issued_at"],
                               "updated_at": msg["issued_at"],
                               "completed_at": None, "elapsed_s": None,
@@ -133,6 +173,8 @@ class Cloud:
                     p["completed_at"] = p["updated_at"]
                     p["elapsed_s"] = seconds_between(p["issued_at"],
                                                       p["completed_at"])
+        self.say("cloud", f"received {visit.label}, opened, verified, "
+                 "filed", STEP_FILED)
         flag = f"  FLAGGED {','.join(visit.flags)}" if visit.flags else ""
         took = f"  [+{visit.latency_s:.0f}s]" if visit.latency_s is not None else ""
         return (f"{visit.label:7s} filed  "
@@ -174,6 +216,42 @@ class Cloud:
         if d.get("state") in ("finished", "failed") and p["completed_at"] is None:
             p["completed_at"] = p["updated_at"]
             p["elapsed_s"] = seconds_between(p["issued_at"], p["completed_at"])
+
+    # ------------------------------------------------------- handshake
+    def on_reply(self, payload: bytes, node_id: str = "") -> list[dict]:
+        """A node answering, or asking to send. Returns queries to publish.
+
+        Returns them rather than publishing them, so the whole negotiation
+        can be exercised by the test suite with no broker: the transport is
+        the caller's business and the decision is this method's.
+        """
+        try:
+            d = json.loads(payload)
+        except Exception:                            # noqa: BLE001
+            return []
+        nid = node_id or d.get("node", "?")
+        step = d.get("step")
+
+        if step == STEP_IDLE:
+            self.node_idle[nid] = bool(d.get("idle"))
+            self.node_busy[nid] = bool(d.get("busy"))
+            self._idle_seen.set()
+            self.say(nid, "stopped, ready for an order" if d.get("idle")
+                     else "still moving", STEP_IDLE)
+            return []
+
+        if step == STEP_OFFER:
+            label = d.get("label", "?")
+            held = d.get("holding", 1)
+            self.say(nid, f"parked at {label}, reading ready"
+                     + (f" ({held} held)" if held > 1 else ""), STEP_OFFER)
+            if self.receiving:
+                self.say("cloud", f"ready -- send {label}", STEP_SEND)
+                return [make_query(STEP_SEND, nid, label=label)]
+            # Not a failure. The robot keeps the reading and carries on.
+            self.say("cloud", f"not ready -- hold {label}", STEP_HOLD)
+            return [make_query(STEP_HOLD, nid, label=label)]
+        return []
 
     def on_status(self, payload: bytes, node_id: str = "") -> None:
         try:
@@ -442,6 +520,11 @@ CONSOLE_HELP = """  ALL                 measure every station in the greenhouse 
   status              where the robot is, how fast, and what it is doing
   show P2,4R          the last reading filed for a station
   coverage            which stations have been measured, and which not
+  mode collector      the Cloud runs the campaign: it polls the robot, waits
+                      until it is stopped, then negotiates every handover
+  mode command        the operator asks, the Cloud relays (the default)
+  pause / resume      refuse or accept handovers, to show the robot holding
+                      readings on board while the Cloud is busy
   csv                 export store/measurements.csv and store/requests.csv
   help                this list
   quit                stop the Cloud AND the simulation with it"""
@@ -489,6 +572,15 @@ class Console:
                     self.coverage()
                 elif verb == "show":
                     self.show(rest.strip())
+                elif verb == "mode":
+                    self.set_mode(rest.strip())
+                elif verb in ("pause", "resume"):
+                    self.cloud.receiving = verb == "resume"
+                    print(f"  the Cloud is {'' if self.cloud.receiving else 'NOT '}"
+                          "receiving; the robot "
+                          + ("will hand over anything it held"
+                             if self.cloud.receiving
+                             else "will hold its readings on board"))
                 elif verb == "csv":
                     print(f"  exported {self.cloud.store.export_csv()}")
                     print(f"  exported {self.cloud.store.export_plants_csv()}")
@@ -503,12 +595,58 @@ class Console:
     def request(self, text: str) -> None:
         targets = ([t.strip() for t in text.split(";") if t.strip()]
                    if ";" in text else text)
+
+        # COLLECTOR MODE ASKS FIRST. The order is identical either way; the
+        # difference is that here the Cloud will not issue one to a robot
+        # that is still rolling. A mission begun mid-move starts its first
+        # leg from a pose that is already stale, and the whole point of the
+        # mode is that the Cloud runs the campaign rather than the operator.
+        if self.cloud.mode == MODE_COLLECTOR:
+            node = next(iter(self.cloud.nodes), None)
+            if node is None:
+                print("  no node has reported yet -- nothing to ask")
+                return
+            answer = self.cloud.ask_idle(node, self.publish)
+            if answer is None:
+                print(f"  {node} did not answer; not issuing an order")
+                return
+            if not answer:
+                print(f"  {node} says it is still moving; try again when "
+                      "it has stopped")
+                return
+            print(f"  {node} confirms it is stopped")
+
         rid, signed = self.cloud.build_request(targets)
         labels = self.cloud.progress[rid]["targets"]
         self.publish(TOPIC_REQUEST, json.dumps(signed))
         print(f"  request {rid} signed and published -> {len(labels)} "
               f"station(s): {', '.join(labels[:8])}"
               + (" ..." if len(labels) > 8 else ""))
+
+    def set_mode(self, name: str) -> None:
+        """Switch between command and collector, mid-session.
+
+        Mid-session rather than at startup, because showing both in one
+        demonstration is the point: a jury that has to watch the Cloud be
+        restarted to see the second mode has been shown two programs, not
+        one system with two modes.
+        """
+        want = {"commande": MODE_COMMAND, "command": MODE_COMMAND,
+                "collecteur": MODE_COLLECTOR,
+                "collector": MODE_COLLECTOR}.get(name.lower())
+        if want is None:
+            print(f"  mode is {self.cloud.mode}. Say: mode command | "
+                  "mode collector")
+            return
+        self.cloud.mode = want
+        print(f"  mode -> {want}")
+        if want == MODE_COLLECTOR:
+            print("    the Cloud asks the robot if it is stopped before "
+                  "ordering,")
+            print("    and the robot asks permission before sending each "
+                  "reading.")
+            print("    'pause' makes the Cloud refuse; the robot holds them "
+                  "on board.")
 
     def status(self) -> None:
         if not self.cloud.nodes:
@@ -637,7 +775,8 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             print(f"cloud: broker refused the connection (rc={rc})")
             return
-        for topic in (TOPIC_REPORT_ALL, TOPIC_ACK_ALL, TOPIC_STATUS_ALL):
+        for topic in (TOPIC_REPORT_ALL, TOPIC_ACK_ALL, TOPIC_STATUS_ALL,
+                      TOPIC_REPLY_ALL):
             cl.subscribe(topic, qos=QOS)
         print(f"cloud: connected to {args.broker}:{args.broker_port}, "
               f"listening on {TOPIC_REPORT_ALL}")
@@ -652,11 +791,24 @@ def main(argv: list[str] | None = None) -> int:
     def on_message(_cl, _u, msg):
         nid = node_id_from_topic(msg.topic) or "?"
         if msg.topic.startswith("agri/v1/report/"):
-            print("cloud:", cloud.on_report(msg.payload))
+            verdict = cloud.on_report(msg.payload)
+            print("cloud:", verdict)
+            # Always acknowledge, in both modes. "Il faut toujours des
+            # acquittements": a node that never hears that its reading
+            # landed cannot tell a filed report from a lost one.
+            if not verdict.startswith("REJECTED"):
+                publish(topic_query(nid),
+                        json.dumps(make_query(STEP_FILED, nid,
+                                              label=verdict.split()[0])))
         elif msg.topic.startswith("agri/v1/ack/"):
             cloud.on_ack(msg.payload)
         elif msg.topic.startswith("agri/v1/status/"):
             cloud.on_status(msg.payload, nid)
+        elif msg.topic.startswith("agri/v1/reply/"):
+            # on_reply DECIDES and returns; publishing is done here, so the
+            # whole negotiation is testable with no broker in the room.
+            for q in cloud.on_reply(msg.payload, nid):
+                publish(topic_query(nid), json.dumps(q))
 
     client.on_connect, client.on_message = on_connect, on_message
     try:

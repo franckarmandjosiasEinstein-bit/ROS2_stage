@@ -47,6 +47,7 @@ from rclpy.node import Node
 
 from agri import keys
 from agri.protocol import (DEFAULT_BROKER, DEFAULT_PORT, QOS, TOPIC_REQUEST,
+                           topic_query,
                            mqtt_client, topic_status)
 from agri.robot import Mission, RobotLink, Visitor
 from agri.sensors import GreenhouseField
@@ -167,6 +168,9 @@ class AgriRobot(Node):
             # table, and a robot that is connected and subscribed to nothing
             # is indistinguishable from one that is working.
             cl.subscribe(TOPIC_REQUEST, qos=QOS)
+            # The node's OWN query topic, not a wildcard: a query names
+            # one node, and a second robot must not answer this one's.
+            cl.subscribe(topic_query(self.robot_id), qos=QOS)
             first, self._connected = not self._connected, True
             self.get_logger().info(
                 f"{'connected' if first else 'RECONNECTED'} to {host}:{port}, "
@@ -184,6 +188,8 @@ class AgriRobot(Node):
         def on_message(_cl, _u, msg):
             if msg.topic == TOPIC_REQUEST:
                 self._take(msg.payload)
+            elif msg.topic == topic_query(self.robot_id):
+                self.link.on_query(msg.payload)
 
         self.client.on_connect, self.client.on_message = on_connect, on_message
         self.client.on_disconnect = on_disconnect

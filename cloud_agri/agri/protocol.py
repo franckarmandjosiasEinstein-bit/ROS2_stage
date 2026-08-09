@@ -72,6 +72,76 @@ TOPIC_REPORT_ALL = "agri/v1/report/+"
 KIND_MOBILE = "mobile"
 KIND_FIXED = "fixed"
 
+# ---------------------------------------------------------------- modes
+#: HOW THE CLOUD DRIVES THE FLEET. Two modes, and the difference is who
+#: starts the conversation.
+#:
+#:   command    the operator asks for stations and the Cloud relays the
+#:              order. What Phase C did from the beginning: the robot is
+#:              driven, and the human decides when.
+#:   collector  the Cloud runs the campaign itself. It polls the node,
+#:              waits until it is genuinely stopped, issues the order, and
+#:              negotiates the handover of each reading. Nobody types
+#:              anything after the first command.
+#:
+#: The modes share every message below. Collector mode uses more of them,
+#: and that is the whole difference -- there is no second protocol, and no
+#: message means something different depending on the mode.
+MODE_COMMAND = "command"
+MODE_COLLECTOR = "collector"
+MODES = (MODE_COMMAND, MODE_COLLECTOR)
+
+# ------------------------------------------------------------- handshake
+#: THE TWO TOPICS THAT MAKE THE EXCHANGE A CONVERSATION.
+#:
+#: Everything before these was one-directional: the Cloud published orders
+#: and the node published results, and neither ever waited for the other.
+#: That is enough to collect data and not enough to show HOW the two
+#: cooperate, which is what a demonstration of a connected node is for.
+#:
+#: query  Cloud -> one node.  A question, or a permission.
+#: reply  node  -> Cloud.     An answer, or a request for permission.
+#:
+#: Namespaced per node like every other node-directed topic, so a second
+#: robot needs no protocol change.
+TOPIC_QUERY_ALL = "agri/v1/query/+"
+TOPIC_REPLY_ALL = "agri/v1/reply/+"
+
+#: The steps of the exchange, spelled out so a log can be read as dialogue
+#: rather than decoded. Each is one side saying one thing.
+STEP_IDLE_ASK = "idle?"      # Cloud: are you stopped?
+STEP_IDLE = "idle"           # node:  yes / no, and here is my speed
+STEP_OFFER = "offer"         # node:  parked, reading ready, may I send?
+STEP_SEND = "send"           # Cloud: yes, send it
+STEP_HOLD = "hold"           # Cloud: not now, keep it
+STEP_FILED = "filed"         # Cloud: received, opened, verified, stored
+
+
+def topic_query(node_id: str) -> str:
+    return f"agri/v1/query/{node_id}"
+
+
+def topic_reply(node_id: str) -> str:
+    return f"agri/v1/reply/{node_id}"
+
+
+def make_query(step: str, node: str, **extra) -> dict:
+    """Cloud -> node. Plain: a question is not a secret and needs no seal.
+
+    NOT signed either, unlike a request, and the distinction is the point:
+    a query cannot make the robot go anywhere. The worst a forged 'send'
+    can do is make the robot offer a reading it was going to offer anyway,
+    to a Cloud that will refuse to open it without the right key.
+    """
+    return {"schema": SCHEMA, "kind": "query", "step": step,
+            "node": node, "at": utc_now(), **extra}
+
+
+def make_reply(step: str, node: str, **extra) -> dict:
+    """node -> Cloud. Also plain, and for the same reason."""
+    return {"schema": SCHEMA, "kind": "reply", "step": step,
+            "node": node, "at": utc_now(), **extra}
+
 
 def topic_status(node_id: str) -> str:
     return f"agri/v1/status/{node_id}"
@@ -136,10 +206,19 @@ def mqtt_client(client_id: str):
 
 
 # ---------------------------------------------------------------- request
-def make_request(request_id: str, targets: str | list[str]) -> dict[str, Any]:
-    """A work order. `targets` is ALL, one label, or a list of labels."""
+def make_request(request_id: str, targets: str | list[str],
+                 mode: str = MODE_COMMAND) -> dict[str, Any]:
+    """A work order. `targets` is ALL, one label, or a list of labels.
+
+    `mode` travels INSIDE the signed payload, deliberately. It decides
+    whether the robot hands each reading over on request or negotiates the
+    handover first, and that is a behavioural instruction like the target
+    list -- so it gets the same protection. A mode carried outside the
+    signature could be flipped by anyone who can reach the broker.
+    """
     return {"schema": SCHEMA, "kind": "request", "request_id": request_id,
-            "issued_at": utc_now(), "targets": expand_targets(targets)}
+            "issued_at": utc_now(), "mode": mode,
+            "targets": expand_targets(targets)}
 
 
 def expand_targets(targets: str | list[str]) -> list[str]:
@@ -173,6 +252,18 @@ def expand_targets(targets: str | list[str]) -> list[str]:
                 seen.add(lab)
                 out.append(lab)
     return out
+
+
+def request_mode(payload: dict[str, Any]) -> str:
+    """The mode a VERIFIED request asks for, defaulting to command.
+
+    Unknown modes fall back to command rather than raising: a robot that
+    refused an order because a newer Cloud named a mode it had not heard of
+    would stop working on an upgrade, and command is the mode that needs
+    the least from the other side.
+    """
+    mode = payload.get("mode", MODE_COMMAND)
+    return mode if mode in MODES else MODE_COMMAND
 
 
 def check_request(payload: dict[str, Any]) -> tuple[str, list[str]]:

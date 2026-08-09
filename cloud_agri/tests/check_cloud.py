@@ -1900,6 +1900,230 @@ def check_route() -> None:
           "a robot that does not count must not read as one that drove 0.0 m")
 
 
+def check_modes() -> None:
+    """Two modes, one protocol, and an exchange you can read.
+
+    Collector mode is the one worth checking hard, because everything it
+    adds is a NEGOTIATION: the Cloud asks before ordering, the robot asks
+    before sending, and either side may say no. Each of those refusals is a
+    path that only runs when something is wrong, which is exactly the kind
+    of path that rots unnoticed.
+    """
+    print("\nthe two modes: command and collector")
+    import subprocess
+    import threading as _th
+    import time
+
+    from agri import keys as _keys
+    from agri.cloud.server import Cloud
+    from agri.cloud.store import Store
+    from agri.crypto_ecc import verify_json
+    from agri.protocol import (MODE_COLLECTOR, MODE_COMMAND, MODES,
+                               STEP_FILED, STEP_HOLD, STEP_IDLE,
+                               STEP_IDLE_ASK, STEP_OFFER, STEP_SEND,
+                               TOPIC_REPLY_ALL, make_query, make_reply,
+                               make_request, request_mode, topic_query,
+                               topic_reply)
+
+    check("there are exactly two modes and command is the default",
+          MODES == (MODE_COMMAND, MODE_COLLECTOR)
+          and request_mode(make_request("r", "P2,4R"))[0] == "c")
+
+    # THE MODE IS SIGNED. It changes how the robot behaves, so it is an
+    # instruction like the target list and gets the same protection: a mode
+    # carried outside the signature could be flipped by anyone on the broker.
+    d = Path(tempfile.mkdtemp())
+    cloud = Cloud(Store(d / "s"), d / "k")
+    cloud.mode = MODE_COLLECTOR
+    rid, signed = cloud.build_request("P2,4R")
+    body = verify_json(signed, _keys.public_of("cloud", d / "k"))
+    check("the mode travels INSIDE the signed request",
+          request_mode(body) == MODE_COLLECTOR)
+    check("and rewriting it breaks the signature",
+          _refuses_mode(signed, d / "k"),
+          "a mode outside the signature could be flipped on the wire")
+    check("an unknown mode falls back to command, rather than raising",
+          request_mode({"mode": "nonsense"}) == MODE_COMMAND,
+          "a robot that refused an order naming a mode it had not heard of "
+          "would stop working on a Cloud upgrade")
+
+    # --- the Cloud side of the negotiation, with no broker ---------------
+    cloud.on_reply(json.dumps(make_reply(STEP_IDLE, "n1", idle=True)).encode(),
+                   "n1")
+    check("the Cloud records that the node said it was stopped",
+          cloud.node_idle.get("n1") is True)
+    cloud.on_reply(json.dumps(make_reply(STEP_IDLE, "n1", idle=False)).encode(),
+                   "n1")
+    check("and that it said it was moving", cloud.node_idle.get("n1") is False)
+
+    qs = cloud.on_reply(json.dumps(
+        make_reply(STEP_OFFER, "n1", label="P2,4R", holding=1)).encode(), "n1")
+    check("an offer is answered with send when the Cloud is receiving",
+          [q["step"] for q in qs] == [STEP_SEND])
+    cloud.receiving = False
+    qs = cloud.on_reply(json.dumps(
+        make_reply(STEP_OFFER, "n1", label="P2,4L", holding=2)).encode(), "n1")
+    check("and with hold when it is not",
+          [q["step"] for q in qs] == [STEP_HOLD],
+          "the robot must be told to keep it, not left to time out")
+    check("the decision is returned, not published",
+          all(isinstance(q, dict) for q in qs),
+          "on_reply decides and the caller transmits, so the whole "
+          "negotiation is exercisable with no broker in the room")
+    check("and the exchange is recorded as dialogue for the dashboard",
+          [e["step"] for e in cloud.dialogue][-2:] == [STEP_OFFER, STEP_HOLD])
+
+    # --- the robot side --------------------------------------------------
+    import agri.robot as R
+    saved, R.GRANT_TIMEOUT_S = R.GRANT_TIMEOUT_S, 0.25
+    try:
+        sent = []
+
+        class _C:
+            def publish(self, t, p, **k):
+                sent.append((t, json.loads(p) if p else None))
+
+        class _V:
+            robot_id = "n1"
+
+            class driver:
+                moving = [0.0, 0.0]
+
+                @classmethod
+                def velocity(cls):
+                    return (cls.moving[0], cls.moving[1], 0.0)
+
+        link = R.RobotLink(_V(), b"", _C(), log=lambda m: None)
+        check("a stopped robot says so", link.is_still())
+        _V.driver.moving = [0.5, 0.0]
+        check("and a moving one does not", not link.is_still())
+        _V.driver.moving = [0.0, 0.0]
+
+        link.on_query(json.dumps(make_query(STEP_IDLE_ASK, "n1")).encode())
+        check("the robot answers the idleness question on its reply topic",
+              sent and sent[-1][0] == topic_reply("n1")
+              and sent[-1][1]["step"] == STEP_IDLE)
+
+        n = len(sent)
+        out = link._deliver("P1,1R", {"e": 1}, MODE_COMMAND)
+        check("command mode sends straight out, with no negotiation",
+              out.endswith("sent")
+              and [t for t, _ in sent[n:]] == [f"agri/v1/report/n1"])
+
+        out = link._deliver("P1,2R", {"e": 2}, MODE_COLLECTOR)
+        check("collector mode HOLDS the reading when nobody answers",
+              out.endswith("held") and len(link.outbox) == 1,
+              "a robot that dumped readings at a Cloud that never replied "
+              "would make the negotiation decorative")
+
+        def _grant():
+            time.sleep(0.05)
+            link.on_query(json.dumps(make_query(STEP_SEND, "n1")).encode())
+
+        _th.Thread(target=_grant).start()
+        n = len(sent)
+        out = link._deliver("P1,3R", {"e": 3}, MODE_COLLECTOR)
+        got = [p["e"] for t, p in sent[n:] if t.startswith("agri/v1/report/")]
+        check("and hands everything over when granted", not link.outbox)
+        check("oldest first, so a campaign arrives in the order it happened",
+              got == [2, 3], str(got))
+
+        _th.Thread(target=lambda: (
+            time.sleep(0.05),
+            link.on_query(json.dumps(
+                make_query(STEP_HOLD, "n1")).encode()))).start()
+        out = link._deliver("P1,4R", {"e": 4}, MODE_COLLECTOR)
+        check("an explicit hold keeps it too, without waiting for a timeout",
+              out.endswith("held") and len(link.outbox) == 1)
+
+        check("the outbox is bounded",
+              link.outbox.maxlen == R.OUTBOX_MAX and R.OUTBOX_MAX >= 48,
+              "an unbounded queue turns a Cloud outage into a robot that "
+              "runs out of memory mid-aisle; 48 is one whole campaign")
+
+        link.on_query(b"{not json")
+        check("a malformed query cannot kill the MQTT thread", True)
+    finally:
+        R.GRANT_TIMEOUT_S = saved
+
+    # --- wiring ----------------------------------------------------------
+    srv = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    rn = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+          / "robot_node.py").read_text()
+    check("the Cloud subscribes to the reply topic",
+          "TOPIC_REPLY_ALL" in srv)
+    check("the robot subscribes to its OWN query topic, not a wildcard",
+          "topic_query(self.robot_id)" in rn,
+          "a query names one node; a second robot must not answer this "
+          "one's")
+    check("the Cloud acknowledges every filed report, in both modes",
+          "STEP_FILED" in srv and "make_query(STEP_FILED" in srv,
+          "a node that never hears its reading landed cannot tell a filed "
+          "report from a lost one")
+    check("collector mode asks whether the robot is stopped BEFORE ordering",
+          srv.index("ask_idle") < srv.index("build_request(targets)"),
+          "a mission begun mid-move starts its first leg from a stale pose")
+    check("a node that does not answer is not sent an order anyway",
+          "did not answer; not issuing an order" in srv)
+    check("the mode can be switched from the console, mid-session",
+          "def set_mode" in srv and 'verb == "mode"' in srv,
+          "restarting the Cloud to show the other mode shows a jury two "
+          "programs, not one system with two modes")
+    check("and the Cloud can be told to stop receiving, to show the buffer",
+          'verb in ("pause", "resume")' in srv)
+
+    # --- the log reads as a conversation ---------------------------------
+    pretty = ROOT / "tools" / "prettylog.py"
+    sample = "\n".join(
+        f"[robot_node-7] [INFO] [1.0] [agri_robot]: {m}" for m in (
+            "robot: Cloud asks if I am stopped -> stopped",
+            "robot: accepted 788081147cfd, 48 station(s) in collector mode",
+            "robot: parked and still at P1,1R, reading ready -- asking the "
+            "Cloud to receive",
+            "robot: the Cloud said hold -- keeping P1,2R, 1 reading(s) held",
+            "robot: Cloud filed P1,1R",
+            "robot: accepted 49b8268b46e8, 1 station(s) in command mode"))
+    out = subprocess.run([sys.executable, str(pretty), "--no-colour"],
+                         input=sample, capture_output=True, text=True,
+                         timeout=60).stdout
+    check("the log shows the robot answering the idleness question",
+          "I am stopped" in out, out)
+    check("and the robot asking permission to send", "may I send?" in out, out)
+    check("and the Cloud refusing, with the reading kept on board",
+          "KEEPS P1,2R on board" in out, out)
+    check("and the mode each mission is running in",
+          "collector mode" in out and "command mode" in out, out)
+    check("each request opens with a separating rule",
+          out.count("── request ") == 2, out)
+    check("and the rule names the request, so a line can be traced back",
+          "── request 788081147cfd" in out, out)
+    src = pretty.read_text()
+    check("the two directions are distinguishable without colour",
+          '"cloud": "──► "' in src and '"node": "◄── "' in src,
+          "a log read over a projector or printed in a report loses the "
+          "colour and keeps the arrows")
+    check("and they are coloured differently when there is a terminal",
+          "cls.cloud, cls.node" in src)
+
+
+def _refuses_mode(signed: dict, key_dir: Path) -> bool:
+    """Rewrite the mode inside a signed request; the signature must fail.
+
+    sign_json puts the payload in as a plain dict, so tampering is one
+    assignment -- which is exactly why the mode had to go inside it.
+    """
+    from agri import keys as _keys
+    from agri.crypto_ecc import CryptoError, verify_json
+
+    tampered = json.loads(json.dumps(signed))
+    tampered["payload"]["mode"] = "command"
+    try:
+        verify_json(tampered, _keys.public_of("cloud", key_dir))
+    except CryptoError:
+        return True
+    return False
+
+
 def check_timing() -> None:
     """When was it asked for, and when was it answered.
 
@@ -2467,7 +2691,7 @@ def main() -> int:
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
                check_session_buttons, check_multinode,
-               check_end_to_end, check_timing, check_route, check_launch_scripts,
+               check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
                check_demo, check_hygiene):
         fn()
     print()

@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
@@ -40,10 +42,33 @@ from agri.catalogue import Station, nearest_station, station
 from agri.crypto_ecc import CryptoError, verify_json
 from agri.envelope import PARK_TOLERANCE, build_report, seal_report, synthetic_photo
 from agri.measurement import Measurement
-from agri.protocol import (QOS, TOPIC_REQUEST, ProtocolError, check_request,
-                           make_ack, make_status, topic_ack, topic_report,
+from agri.protocol import (MODE_COLLECTOR, MODE_COMMAND, QOS, STEP_FILED,
+                           STEP_HOLD, STEP_IDLE, STEP_IDLE_ASK, STEP_OFFER,
+                           STEP_SEND, TOPIC_REQUEST, ProtocolError,
+                           check_request, make_ack, make_reply, make_status,
+                           request_mode, topic_ack, topic_reply, topic_report,
                            topic_status)
+
 from agri.survey import crossings, path_length, survey_order
+
+#: How many sealed reports the robot will hold while the Cloud is not
+#: taking them. Forty-eight is one full campaign: the robot can measure the
+#: whole greenhouse with the Cloud down and hand it all over afterwards.
+#: Bounded rather than unbounded because a queue with no limit turns a
+#: Cloud outage into a robot that runs out of memory mid-aisle, and the
+#: oldest reading is the one worth dropping first.
+OUTBOX_MAX = 48
+
+#: How long the robot waits for permission to send before deciding the
+#: Cloud is not listening and keeping the reading. Short: the Cloud answers
+#: in milliseconds when it is there at all, and a robot standing at a mark
+#: waiting on a dead Cloud is worse than one that carries on measuring.
+GRANT_TIMEOUT_S = 5.0
+
+#: Speed below which the robot calls itself stopped. Odometry noise on this
+#: platform sits around a millimetre per second; 0.01 m/s is clear of it and
+#: far below anything that would smear a reading.
+STILL_MPS = 0.01
 
 Pose = tuple[float, float, float]          # x, y, yaw(rad)
 
@@ -143,6 +168,9 @@ class Mission:
 
     request_id: str
     targets: list[str]
+    #: command or collector. Comes out of the SIGNED request, so it is an
+    #: instruction from the Cloud rather than a local setting.
+    mode: str = MODE_COMMAND
     #: The order as received, kept so the two can be compared and so an
     #: operator can always be shown what they actually asked for.
     issued: list[str] = field(default_factory=list)
@@ -181,6 +209,15 @@ class RobotLink:
         self.log = log
         self.mission: Mission | None = None
         self.started = time.time()
+        #: Sealed reports the Cloud has not yet agreed to receive. The whole
+        #: point of collector mode: the robot keeps working while the far
+        #: side is busy, and hands everything over when it is asked to.
+        #: Bounded, because a queue that grows without limit turns a Cloud
+        #: outage into a robot that runs out of memory in the greenhouse.
+        self.outbox: deque[tuple[str, dict]] = deque(maxlen=OUTBOX_MAX)
+        self.dropped = 0
+        self._grant = threading.Event()
+        self._granted = False
 
     # ------------------------------------------------------------ inbound
     def on_request(self, payload: bytes) -> Mission | None:
@@ -209,8 +246,10 @@ class RobotLink:
             self.ack(rid, "failed", detail="robot busy")
             return None
 
-        self.mission = Mission(request_id=rid, targets=targets)
-        self.log(f"robot: accepted {rid}, {len(targets)} station(s)")
+        mode = request_mode(body)
+        self.mission = Mission(request_id=rid, targets=targets, mode=mode)
+        self.log(f"robot: accepted {rid}, {len(targets)} station(s) "
+                 f"in {mode} mode")
         self.ack(rid, "accepted", total=len(targets))
         return self.mission
 
@@ -259,6 +298,96 @@ class RobotLink:
             json.dumps(make_status(self.visitor.robot_id, online, pose, note,
                                    velocity=velocity)),
             qos=QOS, retain=True)
+
+    # -------------------------------------------------------- handshake
+    def is_still(self) -> bool:
+        """Is the base actually stopped, from its own odometry?
+
+        Asked by the Cloud before it issues a collector order, so a mission
+        never starts while the robot is still rolling from the last one.
+        Never raises: no odometry at all answers as 'not stopped', which is
+        the safe reading -- a robot that cannot say where it is should not
+        be given somewhere to go.
+        """
+        try:
+            vx, vy, _ = self.visitor.driver.velocity()
+            return math.hypot(vx, vy) < STILL_MPS
+        except Exception:                            # noqa: BLE001
+            return False
+
+    def reply(self, step: str, **extra) -> None:
+        nid = self.visitor.robot_id
+        self.client.publish(topic_reply(nid),
+                            json.dumps(make_reply(step, nid, **extra)),
+                            qos=QOS)
+
+    def on_query(self, payload: bytes) -> None:
+        """The Cloud asking, or granting.
+
+        NEVER RAISES. This runs on paho's own callback thread, which paho
+        does not guard: an exception here kills the network thread and
+        leaves a robot that looks healthy and answers nothing. That exact
+        failure cost forty minutes once already -- see status().
+        """
+        try:
+            d = json.loads(payload)
+            step = d.get("step")
+            if step == STEP_IDLE_ASK:
+                still = self.is_still()
+                self.reply(STEP_IDLE, idle=still,
+                           busy=bool(self.mission
+                                     and not self.mission.finished),
+                           holding=len(self.outbox))
+                self.log("robot: Cloud asks if I am stopped -> "
+                         + ("stopped" if still else "still moving"))
+            elif step in (STEP_SEND, STEP_HOLD):
+                self._granted = step == STEP_SEND
+                self._grant.set()
+            elif step == STEP_FILED:
+                self.log(f"robot: Cloud filed {d.get('label', '?')}")
+        except Exception as exc:                     # noqa: BLE001
+            self.log(f"robot: bad query ({exc})")
+
+    def _deliver(self, label: str, envelope: dict, mode: str) -> str:
+        """Hand one sealed report over, or keep it until the Cloud asks.
+
+        In COMMAND mode it goes straight out: the Cloud asked for it and is
+        waiting. In COLLECTOR mode the robot offers it first and waits for
+        permission, because the Cloud is driving the campaign and is
+        entitled to say 'not now' -- and a robot that dumped readings at a
+        Cloud that said hold would make the negotiation decorative.
+        """
+        nid = self.visitor.robot_id
+        if mode != MODE_COLLECTOR:
+            self.client.publish(topic_report(nid), json.dumps(envelope),
+                                qos=QOS)
+            return f"{label} sent"
+
+        self._grant.clear()
+        self._granted = False
+        self.reply(STEP_OFFER, label=label, holding=len(self.outbox) + 1,
+                   request_id=self.mission.request_id if self.mission else None)
+        self.log(f"robot: parked and still at {label}, reading ready -- "
+                 "asking the Cloud to receive")
+        if not self._grant.wait(GRANT_TIMEOUT_S) or not self._granted:
+            if len(self.outbox) == self.outbox.maxlen:
+                self.dropped += 1
+            self.outbox.append((label, envelope))
+            why = "said hold" if self._grant.is_set() else "did not answer"
+            self.log(f"robot: the Cloud {why} -- keeping {label}, "
+                     f"{len(self.outbox)} reading(s) held")
+            return f"{label} held"
+
+        # Granted. Flush the held ones first, oldest first, so a Cloud that
+        # comes back after an outage receives the campaign in the order it
+        # actually happened rather than newest-first.
+        held = len(self.outbox)
+        while self.outbox:
+            _, env = self.outbox.popleft()
+            self.client.publish(topic_report(nid), json.dumps(env), qos=QOS)
+        self.client.publish(topic_report(nid), json.dumps(envelope), qos=QOS)
+        return (f"{label} sent" if not held
+                else f"{label} sent, with {held} held reading(s)")
 
     def _odometer(self) -> float | None:
         """Metres the base has driven since it started, if it counts them.
@@ -324,11 +453,12 @@ class RobotLink:
                 self.log(f"robot: {label} FAILED ({exc})")
                 self.ack(m.request_id, "failed", label, detail=str(exc))
                 continue
-            self.client.publish(topic_report(self.visitor.robot_id),
-                                json.dumps(envelope), qos=QOS)
+            outcome = self._deliver(label, envelope, m.mode)
             m.done += 1
             self.log(f"robot: {note}")
-            self.ack(m.request_id, "sent", label)
+            self.ack(m.request_id,
+                     "held" if outcome.endswith("held") else "sent", label,
+                     detail=outcome)
         state = "finished" if not m.failures else "finished_with_failures"
         # The distance is MEASURED where the driver counts it, and only
         # planned where it does not. Reported on the closing ack so the
