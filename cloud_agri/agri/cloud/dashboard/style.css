@@ -310,3 +310,46 @@ table.grid tbody tr:hover td { background: var(--bg-raise); }
   stroke-width: 0.014;
   opacity: 0.75;
 }
+
+/* ------------------------------------------------- the two modes */
+/* A segmented pair, not a dropdown: there are exactly two modes, both
+   worth naming on screen, and the one in force has to be readable from
+   the back of a room. */
+.seg { gap: 0; }
+.seg button {
+  flex: 1;
+  border-radius: 0;
+  opacity: 0.55;
+}
+.seg button:first-child { border-radius: 4px 0 0 4px; }
+.seg button:last-child  { border-radius: 0 4px 4px 0; }
+.seg button.on {
+  opacity: 1;
+  background: var(--accent, #00c896);
+  color: #06110f;
+  font-weight: 600;
+}
+#btn-receiving.paused {
+  background: #ffb020;
+  color: #1a1206;
+}
+#btn-receiving:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* The handshake, as a conversation. Cloud lines lean left, node lines
+   right, so the direction of each message is readable without parsing
+   the words -- the same thing the arrows in the terminal log do. */
+.dialogue {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.dialogue .say { display: flex; gap: 6px; padding: 1px 0; }
+.dialogue .who { flex: 0 0 auto; font-family: var(--mono, monospace); }
+.dialogue .cloud .who { color: #d67ad6; }
+.dialogue .node  .who { color: #57c7d4; }
+.dialogue .what { color: var(--ink-dim); }
+.dialogue .quiet { color: var(--ink-dim); opacity: 0.6; }

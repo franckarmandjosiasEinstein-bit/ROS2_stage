@@ -2997,6 +2997,117 @@ def check_dashboard_auth() -> None:
           msg)
 
 
+def check_mode_buttons() -> None:
+    """The mode selector, over a real socket, because a console verb is
+    invisible to somebody watching a screen."""
+    print("\nthe dashboard's mode selector")
+    import urllib.error                                   # noqa: PLC0415
+    import urllib.request                                 # noqa: PLC0415
+    from functools import partial                         # noqa: PLC0415
+    from http.server import ThreadingHTTPServer           # noqa: PLC0415
+
+    from agri import keys                                 # noqa: PLC0415
+    from agri.cloud.server import Cloud, Handler          # noqa: PLC0415
+    from agri.cloud.store import Store                    # noqa: PLC0415
+    from agri.protocol import MODE_COLLECTOR, MODE_COMMAND  # noqa: PLC0415
+
+    def post(url, payload):
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode(), method="POST",
+            headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        keys.bootstrap(d / "keys")
+        cloud = Cloud(Store(d / "store"), d / "keys")
+        token = "s3cret-token"
+        httpd = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            partial(Handler, cloud, lambda *a: None, token, None))
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            check("the Cloud starts in command mode",
+                  cloud.mode == MODE_COMMAND and cloud.receiving)
+
+            code, body = post(f"{base}/api/mode?token={token}",
+                              {"mode": "collector"})
+            check("the dashboard can switch to collector",
+                  code == 200 and cloud.mode == MODE_COLLECTOR,
+                  f"{code} {body}")
+            check("and the answer says what it now is, so the page never "
+                  "has to guess", body.get("mode") == MODE_COLLECTOR
+                  and body.get("receiving") is True, str(body))
+            check("and the switch is recorded in the dialogue the operator "
+                  "is reading",
+                  any("collector mode" in e["text"] for e in cloud.dialogue),
+                  str([e["text"] for e in cloud.dialogue][-3:]))
+
+            code, body = post(f"{base}/api/mode?token={token}",
+                              {"receiving": False})
+            check("the Cloud can be told to stop receiving",
+                  code == 200 and cloud.receiving is False, f"{code} {body}")
+            code, body = post(f"{base}/api/mode?token={token}",
+                              {"receiving": True})
+            check("and to start again", cloud.receiving is True)
+
+            code, body = post(f"{base}/api/mode?token={token}",
+                              {"mode": "nonsense"})
+            check("a mode that does not exist is REFUSED, not ignored",
+                  code == 400 and cloud.mode == MODE_COLLECTOR,
+                  f"{code} {body} -- a button that silently does nothing is "
+                  "worse than one that errors")
+            check("and the refusal names the two that do exist",
+                  "command" in str(body) and "collector" in str(body),
+                  str(body))
+
+            code, _ = post(f"{base}/api/mode", {"mode": "command"})
+            check("and the endpoint is behind the token like every other",
+                  code == 401 and cloud.mode == MODE_COLLECTOR)
+
+            # The mode has to reach the page, or the buttons cannot show
+            # which one is in force.
+            st = cloud.state()
+            check("the state carries the mode, the pause and the dialogue",
+                  st["mode"] == MODE_COLLECTOR and "receiving" in st
+                  and isinstance(st.get("dialogue"), list))
+        finally:
+            httpd.shutdown()
+
+    # And the page has to actually use it.
+    js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    html = (ROOT / "agri" / "cloud" / "dashboard" / "index.html").read_text()
+    css = (ROOT / "agri" / "cloud" / "dashboard" / "style.css").read_text()
+    check("there are two mode buttons, named in the operator's language",
+          'data-mode="command"' in html and 'data-mode="collector"' in html
+          and "COLLECTEUR" in html)
+    check("and they are wired to the endpoint",
+          'setMode({ mode: b.dataset.mode })' in js
+          and '"/api/mode"' in js)
+    check("the one in force is visibly the one in force",
+          'classList.toggle("on"' in js and ".seg button.on" in css,
+          "a selector that does not show its state is a selector nobody "
+          "trusts")
+    check("the pause button is DISABLED in command mode, not silently inert",
+          'btn.disabled = mode !== "collector"' in js,
+          "in command mode the robot was asked for the reading and sends "
+          "it; a pause there would do nothing and explain nothing")
+    check("and each mode says what it does, on screen",
+          "MODE_WHY" in js and "negotiates" in js,
+          "the two modes are the demonstration; naming them is not enough")
+    check("the handshake is shown beside the buttons that cause it",
+          'id="dialogue"' in html and ".dialogue .cloud .who" in css,
+          "the whole point of collector mode is the conversation")
+    check("and the two directions are told apart without reading the words",
+          "CLOUD ──►" in js and "◄── NODE" in js,
+          "the same arrows the terminal log uses")
+
+
 def check_session_buttons() -> None:
     """ENREGISTRER and QUITTER, exercised over a real socket.
 
@@ -3558,6 +3669,10 @@ def check_modes() -> None:
           "def set_mode" in srv and 'verb == "mode"' in srv,
           "restarting the Cloud to show the other mode shows a jury two "
           "programs, not one system with two modes")
+    check("and from the dashboard, which is what a jury is looking at",
+          '"/api/mode"' in srv,
+          "a console verb behind the operator's shoulder is not a "
+          "demonstration of two modes")
     check("and the Cloud can be told to stop receiving, to show the buffer",
           'verb in ("pause", "resume")' in srv)
 
@@ -4203,7 +4318,8 @@ def main() -> int:
                check_vision,
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
-               check_dashboard_auth, check_session_buttons, check_multinode,
+               check_dashboard_auth, check_mode_buttons,
+               check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
                check_demo, check_hygiene):
         fn()

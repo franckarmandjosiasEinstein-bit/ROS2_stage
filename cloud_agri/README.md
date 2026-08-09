@@ -38,7 +38,7 @@ robot from a stationary ESP.
 | `worlds/`, `urdf/` | **generated, and not in git.** `run_sim.sh` builds them; see `agri/world/ensure.py` |
 | `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
 | `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
-| `tests/check_cloud.py` | 732 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 750 pre-flight checks, none of which need a broker, ROS or a network |
 | `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
@@ -830,6 +830,23 @@ on a second machine the file lands on *that* machine's disk, nobody reads it,
 and the robot keeps running. A Cloud on another computer has no business
 killing a robot. See `agri/session.py`.
 
+
+**The two modes are buttons, not a console verb.** `COMMANDE` and
+`COLLECTEUR` switch mid-session — the point of showing both in one run is
+that a jury which has to watch the Cloud restart has been shown two
+programs, not one system with two modes. `EN RÉCEPTION` toggles whether the
+Cloud accepts a handover; paused, every offer is answered `hold`, the
+readings pile up in the robot's 48-slot outbox, and they all arrive when you
+resume. That button is **disabled in command mode** rather than silently
+inert, because in command mode the Cloud asked for the reading and is
+waiting for it. The handshake each mode produces is printed underneath, in
+the same two directions the terminal log uses.
+
+**The robot is on the map**, drawn as its own footprint with the boom and
+lens, positioned from the transmitted pose minus one boom length. When it is
+within 12 cm of a mark, that mark turns amber and the footer gives the
+offset in millimetres — the same number the report files as
+`parking_error_m`.
 ---
 
 ## 6. Four honest limitations
@@ -865,7 +882,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the other 731 checks to pass first.
+prioritised over getting the other 749 checks to pass first.
 
 ---
 

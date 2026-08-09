@@ -48,7 +48,7 @@ from agri.envelope import EnvelopeError, new_request_id, open_envelope
 from agri.labels import all_labels, normalise
 from agri.measurement import QUANTITIES, utc_now
 from agri.protocol import (ALL, DEFAULT_BROKER, MODE_COLLECTOR,
-                           MODE_COMMAND, QOS, STEP_FILED, STEP_HOLD,
+                           MODE_COMMAND, MODES, QOS, STEP_FILED, STEP_HOLD,
                            STEP_IDLE, STEP_IDLE_ASK, STEP_OFFER, STEP_SEND,
                            TOPIC_ACK_ALL, TOPIC_REPLY_ALL, TOPIC_REPORT_ALL,
                            TOPIC_REQUEST, TOPIC_STATUS_ALL, ProtocolError,
@@ -408,6 +408,14 @@ class Cloud:
                         "accepted": self.accepted,
                         "rejected": len(self.rejected)},
             "nodes": dict(self.nodes),
+            # How the Cloud is driving the fleet, and whether it is taking
+            # readings. Both are switchable from the dashboard, because a
+            # jury that has to watch the Cloud be RESTARTED to see the
+            # second mode has been shown two programs, not one system with
+            # two modes.
+            "mode": self.mode,
+            "receiving": self.receiving,
+            "dialogue": list(self.dialogue)[-14:],
             "requests": [self._with_energy(p)
                          for p in list(self.progress.values())[-8:]],
             "rejected": list(self.rejected)[-8:],
@@ -644,7 +652,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:                       # noqa: N802
         path = self.path.split("?")[0]
-        if path not in ("/api/request", "/api/export", "/api/quit"):
+        if path not in ("/api/request", "/api/export", "/api/quit",
+                        "/api/mode"):
             return self._json({"error": "not found"}, 404)
         if not self._check_auth():
             return
@@ -652,6 +661,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._export()
         if path == "/api/quit":
             return self._quit()
+        if path == "/api/mode":
+            return self._mode()
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -663,6 +674,43 @@ class Handler(BaseHTTPRequestHandler):
               f"{len(self.cloud.progress[rid]['targets'])} station(s)")
         return self._json({"request_id": rid,
                            "targets": self.cloud.progress[rid]["targets"]})
+
+    def _mode(self) -> None:
+        """Switch mode, or start/stop receiving, from the dashboard.
+
+        The same two settings the console has had all along -- `mode` and
+        `pause`/`resume` -- because they are the two the demonstration is
+        about and a console verb is not visible to somebody watching a
+        screen. One endpoint rather than two: they are one question,
+        "how is the Cloud behaving right now", and the answer comes back
+        so the page never has to guess what it just did.
+        """
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, 400)
+
+        if "mode" in body:
+            want = str(body["mode"]).lower()
+            if want not in MODES:
+                return self._json(
+                    {"error": f"mode must be one of {list(MODES)}, "
+                              f"not {body['mode']!r}"}, 400)
+            self.cloud.mode = want
+            self.cloud.say("cloud", f"operator switched to {want} mode",
+                           "mode")
+            print(f"cloud: mode -> {want} (from the dashboard)")
+
+        if "receiving" in body:
+            self.cloud.receiving = bool(body["receiving"])
+            state = "receiving" if self.cloud.receiving else "NOT receiving"
+            self.cloud.say("cloud", f"operator set the Cloud {state}",
+                           "receiving")
+            print(f"cloud: {state} (from the dashboard)")
+
+        return self._json({"mode": self.cloud.mode,
+                           "receiving": self.cloud.receiving})
 
     def _export(self) -> None:
         """Write both CSVs and say where they landed, on disk and over HTTP.

@@ -122,6 +122,7 @@ function render() {
   renderRequests();
   renderRejects();
   renderLink();
+  renderMode();
   if (S.selected) renderDetail(S.selected);
 }
 
@@ -315,6 +316,73 @@ function renderMap() {
      <span class="ramp" style="background:linear-gradient(90deg,${
        [0, .25, .5, .75, 1].map(t => ramp(S.quantity, t)).join(",")})"></span>
      <span>${Ql.hi} ${Ql.unit}</span>`;
+}
+
+/* ------------------------------------------------------- the two modes */
+/* The console has had `mode` and `pause`/`resume` all along. A console verb
+   is invisible to somebody watching a screen, and the two modes are what
+   the demonstration is about -- so they are buttons, and the handshake they
+   produce is printed beside them. Switching mid-session is the point: a
+   jury that has to watch the Cloud be restarted to see the second mode has
+   been shown two programs, not one system with two modes. */
+async function setMode(body) {
+  const hint = document.getElementById("modehint");
+  hint.className = "hint";
+  hint.textContent = "asking the Cloud…";
+  try {
+    const r = await fetch(apiUrl("/api/mode"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), ...CRED,
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    if (S.state) { S.state.mode = d.mode; S.state.receiving = d.receiving; }
+    renderMode();
+    poll();
+  } catch (e) {
+    hint.className = "hint bad";
+    hint.textContent = String(e);
+  }
+}
+
+const MODE_WHY = {
+  command: "the operator asks and the Cloud relays. Each reading comes "
+         + "straight back, because the Cloud asked for it and is waiting.",
+  collector: "the Cloud runs the campaign: it polls the node until it is "
+           + "genuinely stopped, issues the order itself, and negotiates "
+           + "every handover. Nobody types anything after the first order.",
+};
+
+function renderMode() {
+  if (!S.state) return;
+  const mode = S.state.mode || "command";
+  document.querySelectorAll("#seg-mode button").forEach(b => {
+    b.classList.toggle("on", b.dataset.mode === mode);
+  });
+  const rx = S.state.receiving !== false;
+  const btn = document.getElementById("btn-receiving");
+  btn.textContent = rx ? "EN RÉCEPTION" : "EN PAUSE — le robot garde";
+  btn.classList.toggle("paused", !rx);
+  /* The pause only MEANS anything in collector mode: in command mode the
+     robot was asked for the reading and sends it. Saying so beats a button
+     that silently does nothing. */
+  btn.disabled = mode !== "collector";
+  const hint = document.getElementById("modehint");
+  hint.className = "hint";
+  hint.textContent = MODE_WHY[mode]
+    + (mode === "collector"
+        ? (rx ? "" : " Paused: every offer is answered HOLD and the readings "
+                   + "pile up in the robot's outbox until you resume.")
+        : " (the pause button belongs to collector mode)");
+
+  const ol = document.getElementById("dialogue");
+  const d = S.state.dialogue || [];
+  ol.innerHTML = d.map(e =>
+    `<li class="say ${e.who === "cloud" ? "cloud" : "node"}">
+       <span class="who">${e.who === "cloud" ? "CLOUD ──►" : "◄── NODE"}</span>
+       <span class="what">${e.text}</span></li>`).join("")
+    || `<li class="say quiet">nothing yet — the handshake appears here as it happens</li>`;
+  ol.scrollTop = ol.scrollHeight;
 }
 
 /* The live robot, and the station it is standing on. Returns SVG. */
@@ -588,6 +656,11 @@ document.getElementById("btn-one").onclick = () =>
 document.getElementById("target").addEventListener("keydown", e => {
   if (e.key === "Enter") document.getElementById("btn-one").click();
 });
+document.querySelectorAll("#seg-mode button").forEach(b => {
+  b.onclick = () => setMode({ mode: b.dataset.mode });
+});
+document.getElementById("btn-receiving").onclick = () =>
+  setMode({ receiving: !(S.state && S.state.receiving !== false) });
 document.getElementById("btn-save").onclick = save;
 document.getElementById("btn-quit").onclick = quit;
 document.getElementById("detail-close").onclick = () => {
