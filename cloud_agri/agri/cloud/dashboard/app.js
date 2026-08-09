@@ -241,10 +241,15 @@ function renderMap() {
   });
 
   st.filter(visible).forEach(s => {
-    const v = s.values ? s.values[S.quantity] : null;
+    /* A simulated failure hides the reading here too -- the chip below is
+       what says "this value is trustworthy", and a station standing in
+       for a dead sensor must not draw one, or the map contradicts the
+       banner the detail panel shows for the same station. */
+    const v = (s.measured && !s.faulted) ? s.values[S.quantity] : null;
     const t = norm(v);
-    const colour = s.measured ? ramp(S.quantity, t) : "none";
-    const stroke = s.measured ? colour : "var(--ink-dim)";
+    const colour = s.measured && !s.faulted ? ramp(S.quantity, t) : "none";
+    const stroke = s.faulted ? "var(--alert)"
+      : s.measured ? colour : "var(--ink-dim)";
     /* Half the arm of the drawn cross, in metres. Bounded above by the
        0.10 m between the two stations of an inner aisle: at 0.055 the two
        crosses run into each other and read as one X, which is the same
@@ -278,7 +283,8 @@ function renderMap() {
       <text class="val" x="${s.x}" y="${cy - 0.06}" fill="${ink}"
             ${upright(cy - 0.06)}>${label}</text>`;
     svg += `<g class="station${sel}" data-label="${s.label}">
-      <title>${s.label}${v == null ? " — not measured" :
+      <title>${s.label}${s.faulted ? " — simulated failure" :
+        v == null ? " — not measured" :
         ` — ${S.quantity} ${v} ${Q ? Q.unit : ""}`}</title>
       ${s.flags && s.flags.length ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.13"/>` : ""}
       ${S.selected === s.label ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.16"/>` : ""}
@@ -303,6 +309,7 @@ function renderMap() {
   const BOOM = 0.50;
   svg += robotLayer(st);
   svg += activeStationLayer(st);
+  svg += faultLayer(st);
 
   const map = document.getElementById("map");
   /* SVG y grows downward; the greenhouse's +y is north. Flip so the map
@@ -454,6 +461,27 @@ function activeStationLayer(stations) {
   return g;
 }
 
+/* A station the operator has marked as a simulated sensor failure. Its
+   measured chip is not drawn here -- the per-station loop in renderMap
+   skips it -- so this ring and glyph are the ONLY thing that says the
+   station exists and is being watched, rather than the cross just going
+   quiet with no explanation. */
+function faultLayer(stations) {
+  const faults = S.state.simulated_faults || [];
+  if (!faults.length) return "";
+  let g = "";
+  faults.forEach(label => {
+    const s = stations.find(st => st.label === label);
+    if (!s) return;
+    const ty = s.y + 0.30;
+    g += `<g class="faulted">
+      <circle class="fault-ring" cx="${s.x}" cy="${s.y}" r="0.18"/>
+      <text class="fault-mark" x="${s.x}" y="${ty}" ${upright(ty)}>⚠ PANNE</text>
+    </g>`;
+  });
+  return g;
+}
+
 /* ISO 8601 UTC -> the operator's own wall clock, to the second.
    The stamps travel as UTC because the greenhouse and the Cloud need not be
    in the same time zone (see measurement.utc_now). Showing that raw would
@@ -538,21 +566,99 @@ async function select(label) {
                                                      block: "nearest" });
 }
 
+/* One cached prediction per label, plus a guard against firing a second
+   /api/predict while the first is still training -- renderDetail is
+   called every 2 s by poll() as long as a station is selected, and an
+   LSTM that trains for 40 epochs takes far longer than that. */
+S.predictionCache = S.predictionCache || {};
+S._predicting = S._predicting || new Set();
+
+async function fetchFaultPrediction(label) {
+  S._predicting.add(label);
+  try {
+    const r = await fetch(apiUrl("/api/predict"), {
+      method: "POST", ...CRED,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label })
+    });
+    const d = await r.json();
+    S.predictionCache[label] = r.ok ? d.predicted : null;
+  } catch (e) {
+    S.predictionCache[label] = null;
+  }
+  S._predicting.delete(label);
+  if (S.selected === label) renderDetail(label);
+}
+
+async function toggleFault() {
+  if (!S.selected) return;
+  const label = S.selected;
+  const active = !(S.state.simulated_faults || []).includes(label);
+  const btn = document.getElementById("detail-fault");
+  btn.disabled = true;
+  try {
+    const r = await fetch(apiUrl("/api/fault"), {
+      method: "POST", ...CRED,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, active })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    S.state.simulated_faults = d.faults;
+    delete S.predictionCache[label];
+    renderDetail(label);
+    renderMap();
+  } catch (e) {
+    const hint = document.getElementById("predict-status");
+    hint.textContent = e.message;
+    hint.className = "hint err";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function renderDetail(label) {
   const s = (S.state.stations || []).find(x => x.label === label);
   if (!s) return;
   document.getElementById("detail-label").textContent =
     `${label}  //  row ${s.row} plant ${s.plant} ${s.side === "R" ? "right" : "left"}`;
 
+  const faulted = (S.state.simulated_faults || []).includes(label);
+  const faultBtn = document.getElementById("detail-fault");
+  faultBtn.textContent = faulted ? "✓ lever la panne" : "⚠ simuler une panne";
+  faultBtn.classList.toggle("active", faulted);
+
+  const banner = document.getElementById("fault-banner");
+  let predicted = null;
+  if (!faulted) {
+    banner.hidden = true;
+  } else if (!(label in S.predictionCache)) {
+    banner.hidden = false;
+    banner.className = "fault-banner working";
+    banner.textContent = "⚠ panne simulée — entraînement du modèle LSTM et calcul de la prédiction…";
+    if (!S._predicting.has(label)) fetchFaultPrediction(label);
+  } else if (S.predictionCache[label] == null) {
+    banner.hidden = false;
+    banner.className = "fault-banner err";
+    banner.textContent = "⚠ panne simulée — historique insuffisant pour prédire cette station";
+  } else {
+    predicted = S.predictionCache[label];
+    banner.hidden = false;
+    banner.className = "fault-banner";
+    banner.textContent = "⚠ panne simulée — capteur indisponible ; valeurs prédites par le LSTM ci-dessous";
+  }
+
   const rows = (S.state.quantities || []).map(Q => {
-    const v = s.values ? s.values[Q.name] : null;
+    const measured = s.values ? s.values[Q.name] : null;
+    const v = faulted ? (predicted ? predicted[Q.name] : null) : measured;
     const t = v == null ? 0 : Math.max(0, Math.min(1, (v - Q.lo) / (Q.hi - Q.lo)));
     const flagged = (s.flags || []).some(f => f.endsWith(":" + Q.name));
-    return `<div class="reading${flagged ? " flagged" : ""}">
+    const tag = faulted && v != null ? ` <small class="tag">prédit</small>` : "";
+    return `<div class="reading${flagged ? " flagged" : ""}${faulted ? " predicted" : ""}">
       <span class="n">${Q.name}</span>
       <span class="bar-t"><i style="width:${(t * 100).toFixed(1)}%;
         background:${ramp(Q.name, t)}"></i></span>
-      <span class="val">${v == null ? "—" : v} <small>${Q.unit}</small></span>
+      <span class="val">${v == null ? "—" : v} <small>${Q.unit}</small>${tag}</span>
     </div>`;
   }).join("");
   const park = s.parking_error_m == null ? "—" : `${s.parking_error_m} m`;

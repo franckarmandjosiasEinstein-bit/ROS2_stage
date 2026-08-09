@@ -91,6 +91,12 @@ class Cloud:
         self.progress: dict[str, Any] = {}
         self._train_result: TrainResult | None = None
         self._train_n: int = 0
+        #: Stations the operator has marked as a simulated sensor failure.
+        #: The dashboard hides their measured values and shows the LSTM's
+        #: prediction instead -- this is the live counterpart of the
+        #: FailureSimulator that drops readings during training, so the
+        #: same gap that TRAINS the model can be demonstrated live.
+        self.simulated_faults: set[str] = set()
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
         self.accepted = 0
         self.started = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -409,6 +415,7 @@ class Cloud:
                 "photo": v.photo_path if v else None,
                 "qr": v.qr_path if v else None,
                 "parking_error_m": v.parking_error_m if v else None,
+                "faulted": s.label in self.simulated_faults,
             })
         measured, total = self.store.coverage()
         active = self._active_station()
@@ -422,6 +429,7 @@ class Cloud:
                         "accepted": self.accepted,
                         "rejected": len(self.rejected)},
             "active_station": active,
+            "simulated_faults": sorted(self.simulated_faults),
             "nodes": dict(self.nodes),
             # How the Cloud is driving the fleet, and whether it is taking
             # readings. Both are switchable from the dashboard, because a
@@ -668,7 +676,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:                       # noqa: N802
         path = self.path.split("?")[0]
         if path not in ("/api/request", "/api/export", "/api/quit",
-                        "/api/mode", "/api/predict"):
+                        "/api/mode", "/api/predict", "/api/fault"):
             return self._json({"error": "not found"}, 404)
         if not self._check_auth():
             return
@@ -680,6 +688,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._mode()
         if path == "/api/predict":
             return self._predict()
+        if path == "/api/fault":
+            return self._fault()
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -729,6 +739,49 @@ class Handler(BaseHTTPRequestHandler):
 
         return self._json({"mode": self.cloud.mode,
                            "receiving": self.cloud.receiving})
+
+    def _fault(self) -> None:
+        """Toggle a simulated sensor failure at one station.
+
+        This is the LIVE counterpart of the FailureSimulator that drops
+        readings during LSTM training: the operator marks a station's
+        sensor as down, the dashboard stops trusting its measured value
+        and shows the LSTM's prediction instead, clearly labelled as such.
+        Reversible for the same reason pause/resume is a toggle and not a
+        one-way switch -- the demonstration is showing a gap and a fix,
+        not breaking the station for good.
+        """
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, 400)
+
+        label = body.get("label")
+        if not label:
+            return self._json({"error": "label is required"}, 400)
+        try:
+            label = normalise(label)
+        except ValueError as exc:
+            return self._json({"error": str(exc)}, 400)
+        if label not in all_labels():
+            return self._json({"error": f"no such station: {label}"}, 400)
+
+        active = bool(body.get("active", True))
+        if active:
+            self.cloud.simulated_faults.add(label)
+            self.cloud.say("cloud", f"operator simulated a failure at {label}",
+                           "fault")
+            log.cloud(log.warn("simulated failure") + f" at {log.data(label)}")
+        else:
+            self.cloud.simulated_faults.discard(label)
+            self.cloud.say("cloud", f"operator cleared the simulated "
+                           f"failure at {label}", "fault")
+            log.cloud(log.ok("cleared") + f" the simulated failure at "
+                      f"{log.data(label)}")
+
+        return self._json({"label": label, "active": active,
+                           "faults": sorted(self.cloud.simulated_faults)})
 
     def _predict(self) -> None:
         """Train (or reuse) the LSTM and return predictions for a station."""

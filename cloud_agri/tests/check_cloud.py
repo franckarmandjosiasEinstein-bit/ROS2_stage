@@ -4526,6 +4526,106 @@ def check_prediction() -> None:
           "/floor_cam/image" in rviz and "floor camera" in rviz)
 
 
+def check_fault_toggle() -> None:
+    """The live 'simulate a failure' button: the operator's counterpart to
+    the FailureSimulator that only ran offline, during LSTM training."""
+    print("\nsimulated sensor failure (the live LSTM demo)")
+    import urllib.error                                   # noqa: PLC0415
+    import urllib.request                                 # noqa: PLC0415
+    from functools import partial                         # noqa: PLC0415
+    from http.server import ThreadingHTTPServer           # noqa: PLC0415
+
+    from agri import keys                                 # noqa: PLC0415
+    from agri.cloud.server import Cloud, Handler          # noqa: PLC0415
+    from agri.cloud.store import Store                    # noqa: PLC0415
+
+    def post(url, payload):
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode(), method="POST",
+            headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        keys.bootstrap(d / "keys")
+        cloud = Cloud(Store(d / "store"), d / "keys")
+        token = "s3cret-token"
+        httpd = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            partial(Handler, cloud, lambda *a: None, token, None))
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            check("no station starts faulted",
+                  cloud.state()["simulated_faults"] == [])
+
+            code, body = post(f"{base}/api/fault?token={token}",
+                              {"label": "P1,3R", "active": True})
+            check("marking a station faulted succeeds",
+                  code == 200 and body.get("active") is True, f"{code} {body}")
+            check("the Cloud now lists it as faulted",
+                  "P1,3R" in cloud.simulated_faults)
+            st = cloud.state()
+            row = next(s for s in st["stations"] if s["label"] == "P1,3R")
+            check("the station's own record says so, for the map to draw",
+                  row["faulted"] is True)
+            check("the state's top-level list agrees",
+                  st["simulated_faults"] == ["P1,3R"])
+            check("the operator's dialogue records the toggle",
+                  any("simulated a failure" in e["text"]
+                      for e in cloud.dialogue),
+                  str([e["text"] for e in cloud.dialogue][-3:]))
+
+            code, body = post(f"{base}/api/fault?token={token}",
+                              {"label": "P1,3R", "active": False})
+            check("clearing it succeeds",
+                  code == 200 and body.get("active") is False, f"{code} {body}")
+            check("and it is gone from both places",
+                  "P1,3R" not in cloud.simulated_faults
+                  and cloud.state()["stations"][0].get("faulted") in (False, None))
+
+            code, body = post(f"{base}/api/fault?token={token}",
+                              {"label": "P9,9R", "active": True})
+            check("a station that does not exist is refused, not accepted",
+                  code == 400, f"{code} {body}")
+            check("no station was faulted by the invalid request",
+                  cloud.simulated_faults == set())
+
+            code, body = post(f"{base}/api/fault?token={token}", {})
+            check("a missing label is refused",
+                  code == 400, f"{code} {body}")
+
+            code, _ = post(f"{base}/api/fault", {"label": "P1,3R"})
+            check("the endpoint is behind the token like every other",
+                  code == 401 and cloud.simulated_faults == set())
+        finally:
+            httpd.shutdown()
+
+    # And the dashboard actually offers the button and reacts to the state.
+    js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    html = (ROOT / "agri" / "cloud" / "dashboard" / "index.html").read_text()
+    css = (ROOT / "agri" / "cloud" / "dashboard" / "style.css").read_text()
+    check("the detail panel has a fault button",
+          'id="detail-fault"' in html and "onclick=\"toggleFault()\"" in html)
+    check("app.js implements the toggle and reads it back from the state",
+          "function toggleFault(" in js and "simulated_faults" in js
+          and "/api/fault" in js)
+    check("a faulted station's measured value is hidden on the map, not "
+          "just annotated -- the whole point is that the sensor is down",
+          "s.measured && !s.faulted" in js)
+    check("the detail panel shows the LSTM prediction in place of the "
+          "hidden measurement", "fetchFaultPrediction(" in js
+          and "predicted" in js)
+    check("the map marks a faulted station so it does not just go quiet",
+          "function faultLayer(" in js and "fault-ring" in css)
+    check("a predicted value is visually distinguished from a measured one",
+          ".reading.predicted" in css)
+
+
 def check_demo() -> None:
     """The offline demo is the thing that gets run in front of people, so it
     is the thing most worth having a check on. Running it as a SUBPROCESS is
@@ -4626,8 +4726,8 @@ def main() -> int:
                check_dashboard_auth, check_mode_buttons,
                check_active_station, check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
-               check_prediction, check_coloured_logs, check_demo,
-               check_hygiene):
+               check_prediction, check_fault_toggle, check_coloured_logs,
+               check_demo, check_hygiene):
         fn()
     print()
     if FAILURES:

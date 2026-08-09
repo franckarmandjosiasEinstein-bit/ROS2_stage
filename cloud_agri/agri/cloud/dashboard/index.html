@@ -103,6 +103,7 @@
     <h2 id="detail-label">—</h2>
     <button class="close" id="detail-close">✕</button>
   </div>
+  <div id="fault-banner" class="fault-banner" hidden></div>
   <div class="detail-grid">
     <div class="readings" id="detail-readings"></div>
     <figure class="media">
@@ -115,6 +116,7 @@
     </figure>
   </div>
   <div class="predict-row">
+    <button id="detail-fault" class="fault-btn" onclick="toggleFault()">⚠ simuler une panne</button>
     <button id="detail-predict" onclick="predictStation()">LSTM predict</button>
     <span id="predict-status"></span>
   </div>
