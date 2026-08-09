@@ -97,15 +97,20 @@ RULES: list[tuple[str, str, str | None]] = [
      r"run_sim.sh should have started one -- check that window"),
     (r"process has died \[pid \d+, exit code (-?\d+), cmd '\S*?/?(\w+) ",
      "bad", r"\2 DIED (exit \1) -- look above for its last line"),
-    (r"no /odom after", "bad",
-     "agri_viz has had no odometry, so RViz has no fixed frame and will stay "
-     "empty. The robot is unaffected. Check the gz bridge"),
+    (r"still no /odom after (\d+) s", "warn",
+     r"no odometry yet after \1 s -- Gazebo is probably still loading the "
+     r"world. RViz stays empty until it arrives"),
+    (r"no /odom after (\d+) s", "bad",
+     r"agri_viz has had no odometry in \1 s, so RViz has no fixed frame and "
+     r"will stay empty. The robot is unaffected. Check the gz bridge"),
+    (r"the warning above was a slow load", "ok",
+     "...and it arrived: the warning above was a slow load, not a fault"),
     (r"lost the broker", "warn",
      "the broker went away; the robot is retrying"),
 
     # --- our own nodes: already written for a human, keep verbatim -------
-    (r"agri_viz: first /odom at (x=\S+ y=\S+);", "ok",
-     r"RViz has its fixed frame -- first /odom at \1"),
+    (r"agri_viz: first /odom at (x=\S+ y=\S+) after (\d+) s;", "ok",
+     r"RViz has its fixed frame -- first /odom at \1, after \2 s"),
     (r"agri_viz: publishing", "info",
      "agri_viz up: publishing map -> base_link and the catalogue markers"),
     (r"(agri_robot \S+: keys in .*)$", "ok", r"\1"),

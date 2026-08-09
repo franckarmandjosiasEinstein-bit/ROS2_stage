@@ -642,6 +642,26 @@ def build_meshes(world: Path, meshes: list[Path], base_z: float,
                 "    in any log to say why. Re-export with textures embedded\n"
                 "    (Blender: glTF Binary, Images = Automatic), or use the\n"
                 "    .stl and accept a flat colour.")
+        # A 2 MB file that costs half a gigabyte to open. Refused rather
+        # than warned about, because the failure it causes is the kernel
+        # killing Gazebo mid-load -- which says nothing about textures.
+        if m.suffix.lower() == ".glb":
+            from agri.world.textures import (MAX_TEXTURE_PX,  # noqa: PLC0415
+                                             gpu_megabytes, oversized)
+            big = oversized(m)
+            if big:
+                raise ValueError(
+                    f"{m.name} carries {len(big)} texture(s) larger than "
+                    f"{MAX_TEXTURE_PX} px "
+                    f"({', '.join(f'{w}x{h}' for w, h in big)}).\n"
+                    f"    That is ~{gpu_megabytes(m):.0f} MB of GPU memory "
+                    f"for ONE plant. The plant is 27 cm across and lands on\n"
+                    f"    about 320 pixels; a 4096 texture is 150 times the "
+                    f"data, all of it averaged away by the mip chain.\n"
+                    f"    On integrated graphics this is an out-of-memory "
+                    f"kill during load, which looks like nothing at all.\n"
+                    f"    Fix it:  python3 -m agri.world.textures "
+                    f"{m}")
         fitted.append((m, scale, lift, tris))
 
     sdf = world.read_text()
@@ -694,6 +714,15 @@ def build_meshes(world: Path, meshes: list[Path], base_z: float,
     lines.append(f"  {width_m * 100:.0f} cm across, standing on z = "
                  f"{base_z:.2f} m; {replaced * total // max(1, len(fitted)):,}"
                  " triangles in the scene")
+    try:
+        from agri.world.textures import gpu_megabytes         # noqa: PLC0415
+        vram = sum(gpu_megabytes(m) for m, _, _, _ in fitted
+                   if m.suffix.lower() == ".glb")
+        if vram:
+            lines.append(f"  ~{vram:.0f} MB of texture memory, all of it "
+                         "uploaded once and shared by every instance")
+    except Exception:                                        # noqa: BLE001, S110
+        pass
     lines.append("  collision stays a primitive cylinder whatever the mesh")
     if flat:
         lines.append(f"  {flat} mesh(es) carry no colour and render one flat "

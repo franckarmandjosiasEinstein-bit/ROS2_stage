@@ -29,6 +29,24 @@ writes is an ABSOLUTE path, so a world generated on one machine cannot be
 committed and used on another. `worlds/` is generated, never edited, and
 never carries a mesh path from somebody else's disk.
 
+**Textures are capped at 512 px.** The three meshes arrived carrying two
+4096×4096 JPEGs each: 2 MB on disk, and **536 MB of GPU memory** once
+uploaded — on a laptop whose integrated graphics take that out of system
+RAM. Gazebo loaded so slowly that the launch declared the bridge broken,
+and then the kernel killed it. The plant is 27 cm across and lands on about
+320 pixels of the photograph; a 4096 texture is 150 times more data than
+that, all of it averaged away by the mip chain before it reaches a screen.
+Re-encoded at 512 they cost 8 MB in total and look identical.
+
+`build_meshes` now refuses a mesh over the budget rather than warning about
+it, because the failure it causes is an out-of-memory kill during load,
+which says nothing about textures. To fix one:
+
+```bash
+python3 -m agri.world.textures meshes/whatever.glb          # rewrite it
+python3 -m agri.world.textures --check meshes/*.glb         # just report
+```
+
 That is ~150 k triangles across the 24 plants. They are instanced — each
 distinct file is uploaded to the GPU once — so the cost is four meshes, not
 twenty-four. If the frame rate suffers on a laptop, drop to one variant

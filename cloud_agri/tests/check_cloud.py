@@ -893,6 +893,134 @@ def check_plant_camera() -> None:
           "it looks at a 4 cm cross 45 cm below it and needs the width")
 
 
+def check_textures() -> None:
+    print("\ntextures: a 2 MB file that costs half a gigabyte")
+    import shutil                                          # noqa: PLC0415
+
+    from agri.world.plants import build_meshes             # noqa: PLC0415
+    from agri.world.textures import (MAX_TEXTURE_PX,  # noqa: PLC0415
+                                     gpu_megabytes, oversized, shrink,
+                                     texture_sizes)
+
+    glbs = sorted((ROOT / "meshes").glob("strawberry_[0-9].glb"))
+    if not glbs:
+        check("the strawberry meshes are present", False)
+        return
+
+    # THE ONE THAT KILLED A DEMONSTRATION. Three meshes, two 4096x4096
+    # textures each: 536 MB of GPU memory before a single triangle, on a
+    # laptop whose integrated graphics take that out of system RAM. Gazebo
+    # loaded so slowly the launch declared the bridge broken, and then the
+    # kernel killed it.
+    for m in glbs:
+        check(f"{m.name} is within the texture budget",
+              not oversized(m),
+              f"{texture_sizes(m)} -- {gpu_megabytes(m):.0f} MB of GPU "
+              f"memory for one plant")
+    total = sum(gpu_megabytes(m) for m in glbs)
+    check("the whole greenhouse's textures fit in a laptop",
+          total < 32, f"{total:.0f} MB across {len(glbs)} meshes")
+    check("the budget is stated, not implied", MAX_TEXTURE_PX == 512,
+          f"{MAX_TEXTURE_PX} px against the ~320 the plant ever occupies")
+
+    # Shrinking must not damage the mesh: same triangles, same bounds,
+    # still self-contained. Rebuilding the binary chunk moves every
+    # bufferView, and one wrong offset is a mesh that loads as garbage.
+    from agri.world.plants import (glb_bounds,  # noqa: PLC0415
+                                   glb_is_self_contained, triangle_count)
+    d = Path(tempfile.mkdtemp())
+    src = glbs[0]
+    copy = d / src.name
+    shutil.copy(src, copy)
+    before = (triangle_count(copy), glb_bounds(copy))
+    check("shrinking an already-small mesh is a no-op",
+          "already within" in shrink(copy),
+          "re-encoding on every run would churn the file and the git diff")
+    check("and leaves the geometry untouched",
+          (triangle_count(copy), glb_bounds(copy)) == before)
+    check("and it still carries its images",
+          glb_is_self_contained(copy),
+          "rebuilding the buffer with one wrong offset loses them silently")
+
+    # A mesh that is over budget must be REFUSED, not warned about: the
+    # failure it causes is an OOM kill during load, which says nothing
+    # about textures.
+    big = _fat_texture_glb(d)
+    check("a 4K texture is detected", bool(oversized(big)),
+          str(texture_sizes(big)))
+    world = d / "w.sdf"
+    from agri.world.make_world import (build as build_world,  # noqa: PLC0415
+                                       default_source as _src)
+    build_world(_src(), world)
+    try:
+        build_meshes(world, [big], 0.80, 1)
+        check("and building a world with it is REFUSED", False,
+              "it was accepted")
+    except ValueError as exc:
+        check("and building a world with it is REFUSED", True)
+        check("with the memory figure, not just a complaint",
+              "MB of GPU memory" in str(exc), str(exc)[:120])
+        check("and the command that fixes it",
+              "agri.world.textures" in str(exc), str(exc)[-120:])
+
+    # And it has to shrink for real.
+    n_before = gpu_megabytes(big)
+    shrink(big)
+    check("shrinking actually shrinks it",
+          gpu_megabytes(big) < n_before / 10,
+          f"{n_before:.0f} -> {gpu_megabytes(big):.0f} MB")
+    check("and the result is within budget", not oversized(big))
+
+
+def _fat_texture_glb(d: Path) -> Path:
+    """A minimal GLB carrying one 4096x4096 texture, for the refusal test."""
+    import io                                              # noqa: PLC0415
+    import json as _j                                      # noqa: PLC0415
+    import struct                                          # noqa: PLC0415
+
+    from PIL import Image                                  # noqa: PLC0415
+
+    buf = io.BytesIO()
+    Image.new("RGB", (4096, 4096), (30, 90, 30)).save(buf, "JPEG", quality=20)
+    jpeg = buf.getvalue()
+    pos = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
+    idx = struct.pack("<3H", 0, 1, 2) + b"\0\0"
+    blob = pos + idx + jpeg
+    js = {
+        "asset": {"version": "2.0"},
+        "buffers": [{"byteLength": len(blob)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(pos)},
+            {"buffer": 0, "byteOffset": len(pos), "byteLength": len(idx)},
+            {"buffer": 0, "byteOffset": len(pos) + len(idx),
+             "byteLength": len(jpeg)},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": 3,
+             "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]},
+            {"bufferView": 1, "componentType": 5123, "count": 3,
+             "type": "SCALAR"},
+        ],
+        "images": [{"bufferView": 2, "mimeType": "image/jpeg"}],
+        "textures": [{"source": 0}],
+        "materials": [{"pbrMetallicRoughness": {
+            "baseColorTexture": {"index": 0}}}],
+        "meshes": [{"primitives": [
+            {"attributes": {"POSITION": 0}, "indices": 1, "material": 0}]}],
+        "nodes": [{"mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+    }
+    jb = _j.dumps(js, separators=(",", ":")).encode()
+    jb += b" " * (-len(jb) % 4)
+    bb = blob + b"\0" * (-len(blob) % 4)
+    out = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(jb) + 8 + len(bb))
+    out += struct.pack("<II", len(jb), 0x4E4F534A) + jb
+    out += struct.pack("<II", len(bb), 0x004E4942) + bb
+    p = d / "fat.glb"
+    p.write_bytes(out)
+    return p
+
+
 def check_ensure() -> None:
     print("\nthe generated world: you cannot forget to build it")
     import shutil                                         # noqa: PLC0415
@@ -2205,10 +2333,28 @@ def check_ros_package() -> None:
     # exists to report. A watchdog driven by the thing it watches is silent
     # in precisely the case that matters.
     check("the no-odometry watchdog runs on the wall clock",
-          "threading.Timer(ODOM_GRACE_S" in viz,
+          "threading.Timer(delay, fn)" in viz
+          and "ODOM_GRACE_S" in viz and "ODOM_ALARM_S" in viz,
           "a ROS timer here would never fire when the bridge is the fault")
-    check("and cannot hold the process open",
-          "_grace.daemon = True" in viz)
+    check("and cannot hold the process open", "t.daemon = True" in viz)
+    # A watchdog that cannot be wrong OUT LOUD teaches the operator to
+    # ignore it. This one fired at 12 s while Gazebo was still opening a
+    # world with three textured meshes, said "check the gz bridge" about a
+    # healthy bridge, and stayed the last word on the subject.
+    check("it warns before it accuses",
+          "_still_waiting" in viz and "still no /odom" in viz
+          and viz.index("ODOM_GRACE_S = ") < viz.index("ODOM_ALARM_S = "))
+    check("and the accusation waits a minute, not twelve seconds",
+          "ODOM_ALARM_S = 60.0" in viz,
+          "a laptop loading textured meshes takes longer than that, and "
+          "the message was wrong every time it did")
+    check("and it RETRACTS when the odometry finally arrives",
+          "the warning above was a slow load" in viz and "_warned" in viz,
+          "a warning nobody takes back is the log's last word on a fault "
+          "that no longer exists")
+    check("and it says how long the wait actually was",
+          "took = time.monotonic() - self._started" in viz,
+          "'it was slow' is a guess; 38 s is a number")
 
     live = ROOT / "tests" / "check_live.sh"
     check("there is a live diagnostic for the running system", live.exists())
@@ -3704,8 +3850,12 @@ def check_launch_scripts() -> None:
         "element[sensor], not defined in SDF.",
         "[parameter_bridge-4] [INFO] [1.0] [gz_bridge]: Creating GZ->ROS "
         "Bridge: [/odom (gz.msgs.Odometry) -> /odom (nav_msgs/msg/Odometry)]",
+        "[viz_node-5] [WARN] [1.0] [agri_viz]: agri_viz: still no /odom "
+        "after 20 s. Usually this means Gazebo is still loading",
         "[viz_node-5] [INFO] [1.0] [agri_viz]: agri_viz: first /odom at "
-        "x=-4.58 y=-1.85; map -> base_link is live",
+        "x=-4.58 y=-1.85 after 38 s; map -> base_link is live",
+        "[viz_node-5] [INFO] [1.0] [agri_viz]: agri_viz: the warning above "
+        "was a slow load, not a fault -- Gazebo took 38 s to come up.",
         "[robot_node-7] [ERROR] [1.0] [agri_robot]: ModuleNotFoundError: "
         "No module named 'qrcode'",
         "[ERROR] [robot_node-7]: process has died [pid 2, exit code 1, "
@@ -3725,6 +3875,14 @@ def check_launch_scripts() -> None:
     check("it hides the gz_frame_id SDF warning", "gz_frame_id" not in out, out)
     check("it keeps the first-odometry line, which decides whether RViz works",
           "first /odom at x=-4.58" in out, out)
+    check("and says how long the wait was, not just that it ended",
+          "after 38 s" in out, out)
+    check("a slow load is a WARNING, not a failure",
+          "still loading" in out or "still loading the world" in out, out)
+    check("and the retraction survives the filter",
+          "slow load, not a fault" in out,
+          "the operator has to see the warning taken back, or the log's "
+          "last word is a fault that no longer exists")
     check("it keeps a process dying, and names which one",
           "robot_node DIED" in out, out)
     check("it turns a missing virtualenv into the instruction that fixes it",
@@ -3902,7 +4060,7 @@ def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_replay,
                check_trust, check_broker_auth, check_chain,
-               check_ensure, check_plant_camera,
+               check_ensure, check_plant_camera, check_textures,
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,

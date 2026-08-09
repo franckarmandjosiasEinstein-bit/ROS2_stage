@@ -32,6 +32,7 @@ mesh; they should not share a build graph.
 from __future__ import annotations
 
 import threading
+import time
 
 import rclpy
 from geometry_msgs.msg import TransformStamped
@@ -68,11 +69,21 @@ def _marker(mid: int, kind: int, scale, rgba, ns: str = "agri") -> Marker:
     return m
 
 
-#: How long to wait for the first /odom before saying so. Long enough that
-#: Gazebo has finished loading a 48-cross world on a slow laptop, short
-#: enough that the complaint arrives while the operator is still looking at
-#: the window they are wondering about.
-ODOM_GRACE_S = 12.0
+#: TWO deadlines, not one, and a retraction.
+#:
+#: There was one, at 12 s, phrased as a failure and never taken back. On a
+#: laptop loading three textured meshes it fired while Gazebo was still
+#: opening the world, printed "check the gz bridge" about a bridge that was
+#: perfectly healthy, and stayed the last word on the subject even after
+#: /odom arrived. A watchdog that cannot be wrong out loud is a watchdog
+#: that teaches the operator to ignore it.
+#:
+#: So: at GRACE it says the simulation is still coming up, which is what is
+#: usually true. At ALARM it says something is wrong, which by then it is.
+#: And when /odom does arrive, _on_odom says so and names the delay --
+#: whichever of the two has already been printed.
+ODOM_GRACE_S = 20.0
+ODOM_ALARM_S = 60.0
 
 
 class Viz(Node):
@@ -106,16 +117,32 @@ class Viz(Node):
         # what a dead bridge stops. The watchdog for "the simulation is not
         # feeding me" cannot itself be driven by the simulation, or it stays
         # silent in exactly the case it exists to report.
-        self._grace = threading.Timer(ODOM_GRACE_S, self._complain)
-        self._grace.daemon = True
-        self._grace.start()
+        self._started = time.monotonic()
+        self._warned = False
+        for delay, fn in ((ODOM_GRACE_S, self._still_waiting),
+                          (ODOM_ALARM_S, self._complain)):
+            t = threading.Timer(delay, fn)
+            t.daemon = True
+            t.start()
+
+    def _still_waiting(self) -> None:
+        """Not an error yet. Gazebo is probably still opening the world."""
+        if self._heard:
+            return
+        self._warned = True
+        self.get_logger().warning(
+            f"agri_viz: still no /odom after {ODOM_GRACE_S:.0f} s. Usually "
+            "this means Gazebo is still loading -- textured meshes take a "
+            "while on integrated graphics. RViz stays empty until it "
+            f"arrives. If nothing has changed in {ODOM_ALARM_S:.0f} s this "
+            "will say so again, louder.")
 
     def _complain(self) -> None:
-        """Name the cause of an empty RViz, once, instead of staying quiet."""
+        """Name the cause of an empty RViz instead of staying quiet."""
         if self._heard:
             return
         self.get_logger().error(
-            f"agri_viz: no /odom after {ODOM_GRACE_S:.0f} s, so {FRAME} -> "
+            f"agri_viz: no /odom after {ODOM_ALARM_S:.0f} s, so {FRAME} -> "
             "base_link is NOT being published and RViz will stay empty -- "
             "every display greys out for want of the fixed frame. The robot "
             "itself is unaffected. Check the gz bridge is up and that "
@@ -133,9 +160,19 @@ class Viz(Node):
         self._heard += 1
         if self._heard == 1:
             p = msg.pose.pose.position
+            took = time.monotonic() - self._started
             self.get_logger().info(
-                f"agri_viz: first /odom at x={p.x:.2f} y={p.y:.2f}; "
-                f"{FRAME} -> base_link is live and RViz has its fixed frame")
+                f"agri_viz: first /odom at x={p.x:.2f} y={p.y:.2f} after "
+                f"{took:.0f} s; {FRAME} -> base_link is live and RViz has "
+                "its fixed frame")
+            # RETRACT. A warning that is never taken back is the last thing
+            # the log says on the subject, and it is then wrong -- which is
+            # how an operator learns to ignore the next one.
+            if self._warned:
+                self.get_logger().info(
+                    f"agri_viz: the warning above was a slow load, not a "
+                    f"fault -- Gazebo took {took:.0f} s to come up. Nothing "
+                    "to check.")
 
     # ------------------------------------------------------------- markers
     def _publish_world(self) -> None:
