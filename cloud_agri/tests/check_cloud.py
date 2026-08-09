@@ -518,6 +518,66 @@ def check_world() -> None:
               "a missing asset must degrade to the old plants, never to a "
               "world that will not load")
 
+
+        # --- the real strawberry meshes, measured rather than guessed ----
+        from agri.world.plants import (PLANT_WIDTH_M,  # noqa: PLC0415
+                                       build_meshes, fit, stl_bounds)
+        stls = sorted((ROOT / "meshes").glob("strawberry_*.stl"))
+        check("the strawberry meshes are in the repository", len(stls) >= 2,
+              f"found {[m.name for m in stls]}")
+        if len(stls) >= 2:
+            for m in stls:
+                scale, lift, tris = fit(m, PLANT_WIDTH_M)
+                lo, hi = stl_bounds(m)
+                wide = max(hi[0] - lo[0], hi[1] - lo[1]) * scale
+                check(f"{m.name} scales to a plant-sized plant",
+                      abs(wide - PLANT_WIDTH_M) < 1e-6,
+                      f"{wide * 100:.0f} cm across")
+                check(f"{m.name} is lifted so its base rests on the surface",
+                      abs(lo[2] * scale + lift) < 1e-9,
+                      "these meshes are centred on their own origin; "
+                      "without the lift every plant sinks by half its height")
+                check(f"{m.name} fits the render budget",
+                      tris < 20000, f"{tris:,} triangles x 24 plants")
+
+            meshed = Path(d) / "meshed.sdf"
+            build(default_source(), meshed)
+            rep = build_meshes(meshed, stls, 0.80, 1)
+            mtext = meshed.read_text()
+            check("every plant gets a mesh", mtext.count("<mesh>") == 24, rep)
+            check("and the meshes ALTERNATE, so the rows are not 24 copies",
+                  all(mtext.count(m.name) > 0 for m in stls)
+                  and max(mtext.count(m.name) for m in stls) < 24,
+                  {m.name: mtext.count(m.name) for m in stls})
+            check("each plant is rotated, deterministically",
+                  len(set(re.findall(r"<pose>0 0 [\d.]+ 0 0 ([\d.]+)</pose>",
+                                     mtext))) > 4)
+            try:
+                xml.dom.minidom.parseString(mtext)
+                check("the meshed world is well-formed XML", True)
+            except Exception as exc:             # noqa: BLE001
+                check("the meshed world is well-formed XML", False, str(exc))
+            check("the crosses survive the mesh swap",
+                  mtext.count('name="cross_') == 48)
+            check("collision is STILL a primitive, never the mesh",
+                  mtext.count('name="stem"') == 24
+                  and "<mesh>" not in mtext.split("<collision")[1][:400],
+                  "a 7 000-triangle collision shape, 24 times, at 1 ms steps")
+            check("the mesh plants carry a material, so they are not white",
+                  mtext.count("<material>") >= 24,
+                  "STL carries no colour of its own")
+
+            again = Path(d) / "again.sdf"
+            build(default_source(), again)
+            build_meshes(again, stls, 0.80, 1)
+            check("regenerating gives a byte-identical world",
+                  again.read_text() == mtext,
+                  "a rebuild that churns the file makes every diff useless")
+            refuses("swapping meshes twice is refused",
+                    lambda: build_meshes(meshed, stls, 0.80, 1), ValueError)
+            refuses("and an ASCII STL is refused with the fix, not misread",
+                    lambda: stl_bounds(_ascii_stl(Path(d))), ValueError)
+
         # --- the procedural strawberry, for when there is no budget ------
         # It will not be mistaken for a bought asset. What it must get
         # right is the SILHOUETTE, and the silhouette is three facts:
@@ -574,6 +634,17 @@ def check_world() -> None:
               one.count('name="stem"') == 1 and "<collision" in one)
         refuses("and running it twice is refused",
                 lambda: build_procedural(proc, 0.80, 1), ValueError)
+
+
+def _ascii_stl(d: Path) -> Path:
+    """A tiny ASCII STL, to prove the reader refuses one instead of
+    mis-parsing it. Both formats share an extension, and a silent misread
+    would place every plant somewhere plausible and wrong."""
+    p = d / "ascii.stl"
+    p.write_text("solid s\n facet normal 0 0 1\n  outer loop\n"
+                 "   vertex 0 0 0\n   vertex 1 0 0\n   vertex 0 1 0\n"
+                 "  endloop\n endfacet\nendsolid s\n")
+    return p
 
 
 def check_end_to_end() -> None:

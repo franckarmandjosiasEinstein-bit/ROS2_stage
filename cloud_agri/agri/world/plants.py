@@ -168,6 +168,80 @@ def build(world: Path, mesh: Path, scale: float, z: float,
 
 
 # =====================================================================
+#  READING A MESH, SO THE SCALE IS MEASURED RATHER THAN GUESSED
+# =====================================================================
+#  An asset arrives in whatever units its author used, with its origin
+#  wherever their modeller put it. Asking the operator for --scale and --z
+#  means two numbers found by launching Gazebo, squinting, and launching it
+#  again. Both are readable straight out of a binary STL, so they are.
+# ---------------------------------------------------------------------
+#: How wide a strawberry plant is, across the leaves. The one number here
+#: that comes from the crop and not from a file: a mature plant spans about
+#: 25-30 cm, and every mesh is scaled to match it.
+PLANT_WIDTH_M = 0.27
+
+
+def stl_bounds(path: Path) -> tuple[tuple[float, float, float],
+                                    tuple[float, float, float]]:
+    """(min, max) corner of a binary STL, in the file's own units.
+
+    Binary only, deliberately. An ASCII STL is detected and refused with
+    the conversion command rather than mis-parsed: the two formats share an
+    extension, and a silent misread here would place every plant somewhere
+    plausible and wrong.
+    """
+    import struct                                        # noqa: PLC0415
+
+    data = path.read_bytes()
+    if len(data) < 84:
+        raise ValueError(f"{path} is too short to be an STL")
+    if data[:5] == b"solid" and b"facet" in data[:2000]:
+        raise ValueError(
+            f"{path} is an ASCII STL and this reads binary ones.\n"
+            "    Convert it:  python3 -c \"import trimesh;"
+            "trimesh.load('in.stl').export('out.stl')\"\n"
+            "    or re-export as binary from whatever produced it.")
+    n = struct.unpack("<I", data[80:84])[0]
+    if len(data) < 84 + 50 * n:
+        raise ValueError(f"{path} claims {n} triangles and is too short "
+                         "for them; the file is truncated")
+    lo = [float("inf")] * 3
+    hi = [float("-inf")] * 3
+    off = 84
+    for _ in range(n):
+        v = struct.unpack("<12fH", data[off:off + 50])
+        off += 50
+        for k in range(3):
+            for c in range(3):
+                q = v[3 + k * 3 + c]
+                if q < lo[c]:
+                    lo[c] = q
+                if q > hi[c]:
+                    hi[c] = q
+    return tuple(lo), tuple(hi)
+
+
+def fit(path: Path, width_m: float = PLANT_WIDTH_M
+        ) -> tuple[float, float, int]:
+    """(scale, lift, triangles) to stand this mesh on the gutter top.
+
+    scale   makes the plant `width_m` across, whatever units it came in
+    lift    raises it so its LOWEST point rests on the surface, rather
+            than half-buried -- these meshes are centred on their own
+            origin, so without this every plant sinks by half its height
+    """
+    import struct                                        # noqa: PLC0415
+
+    lo, hi = stl_bounds(path)
+    span_xy = max(hi[0] - lo[0], hi[1] - lo[1])
+    if span_xy <= 0:
+        raise ValueError(f"{path} has no width; is it a valid mesh?")
+    scale = width_m / span_xy
+    n = struct.unpack("<I", path.read_bytes()[80:84])[0]
+    return scale, -lo[2] * scale, n
+
+
+# =====================================================================
 #  PROCEDURAL STRAWBERRY PLANT
 # =====================================================================
 #  Built from primitives, because a sculpted asset costs money and this
@@ -345,6 +419,113 @@ def build_procedural(world: Path, z: float, every_nth: int) -> str:
             f"  crown at z = {z:.2f} m, collision left a primitive cylinder")
 
 
+# =====================================================================
+#  VARIETY: SEVERAL MESHES, ALTERNATED
+# =====================================================================
+#: STL carries geometry and NOTHING ELSE -- no colour, no material, no UV.
+#: A strawberry mesh therefore renders in one flat colour, and the berries
+#: disappear into the leaves. Stated here rather than discovered in Gazebo.
+#:
+#: Green is the honest choice: a plant that is mostly leaf, drawn in leaf
+#: colour, is wrong about the fruit. Drawn in red it would be wrong about
+#: everything, and would also give the floor camera's red-dominance
+#: detector 24 large red objects to be confused by -- they are out of its
+#: field of view (Sec. alignment), but building that coincidence into the
+#: scene on purpose would be asking for it.
+MESH_MATERIAL = ("<ambient>0.06 0.20 0.05 1</ambient>"
+                 "<diffuse>0.16 0.44 0.13 1</diffuse>"
+                 "<specular>0.10 0.16 0.08 1</specular>")
+
+
+def mesh_plant_sdf(name: str, pose: str, uri: str, scale: float,
+                   lift: float, base_z: float, yaw: float) -> str:
+    return f"""    <model name="{name}">
+      <static>true</static>
+      <pose>{pose}</pose>
+      <link name="link">
+        <visual name="plant">
+          <pose>0 0 {base_z + lift:.4f} 0 0 {yaw:.4f}</pose>
+          <geometry>
+            <mesh>
+              <uri>{uri}</uri>
+              <scale>{scale:.5f} {scale:.5f} {scale:.5f}</scale>
+            </mesh>
+          </geometry>
+          <material>{MESH_MATERIAL}</material>
+        </visual>
+{COLLISION.format(cz=base_z + 0.11)}
+      </link>
+    </model>
+"""
+
+
+def build_meshes(world: Path, meshes: list[Path], base_z: float,
+                 every_nth: int, width_m: float = PLANT_WIDTH_M) -> str:
+    """Stand one of several meshes on each plant position.
+
+    Several rather than one, because 24 copies of a single asset read as 24
+    copies. With two meshes and a per-plant yaw the row stops being a
+    pattern -- which costs nothing at render time, since each distinct mesh
+    is loaded once and instanced.
+    """
+    if not world.exists():
+        raise FileNotFoundError(
+            f"{world} does not exist. Generate it first:\n"
+            "    python3 -m agri.world.make_world")
+    if not meshes:
+        raise ValueError("no mesh given")
+    fitted = []
+    for m in meshes:
+        if not m.exists():
+            raise FileNotFoundError(f"{m} does not exist")
+        scale, lift, tris = fit(m, width_m)
+        fitted.append((m, scale, lift, tris))
+
+    sdf = world.read_text()
+    if "<mesh>" in sdf:
+        raise ValueError(
+            f"{world} already has mesh plants. Regenerate it first:\n"
+            "    python3 -m agri.world.make_world")
+
+    out, replaced, seen, pos = [], 0, 0, 0
+    pattern = re.compile(r'    <model name="(plant_\d+_\d+)">.*?</model>\n',
+                         re.S)
+    for m in pattern.finditer(sdf):
+        out.append(sdf[pos:m.start()])
+        pos = m.end()
+        name = m.group(1)
+        pose_m = re.search(r"<pose>([^<]+)</pose>", m.group(0))
+        if pose_m is None or seen % max(1, every_nth):
+            out.append(m.group(0))
+            seen += 1
+            continue
+        seen += 1
+        # Deterministic in the plant's NAME, not random: regenerating twice
+        # must give an empty diff, or every rebuild churns the world file.
+        h = sum(ord(c) for c in name)
+        path, scale, lift, _ = fitted[h % len(fitted)]
+        yaw = (h * 37 % 360) * 3.14159265 / 180.0
+        out.append(mesh_plant_sdf(name, pose_m.group(1).strip(),
+                                  "file://" + str(path.resolve()),
+                                  scale, lift, base_z, yaw))
+        replaced += 1
+    out.append(sdf[pos:])
+    world.write_text("".join(out))
+
+    total = sum(t for _, _, _, t in fitted)
+    lines = [f"{replaced} plant(s) from {len(fitted)} mesh(es), "
+             f"alternated and rotated per plant"]
+    for path, scale, lift, tris in fitted:
+        lines.append(f"  {path.name:<20} {tris:>7,} tris  "
+                     f"scale {scale:.4f}  lifted {lift * 100:.1f} cm")
+    lines.append(f"  {width_m * 100:.0f} cm across, standing on z = "
+                 f"{base_z:.2f} m; {replaced * total // max(1, len(fitted)):,}"
+                 " triangles in the scene")
+    lines.append("  collision stays a primitive cylinder; STL carries no "
+                 "colour, so the plants render one flat green")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--world", type=Path,
@@ -366,6 +547,14 @@ def main(argv: list[str] | None = None) -> int:
                          "the rest as blobs. The render budget, not a "
                          "preference: 24 detailed plants plus a GPU lidar "
                          "plus two cameras is where the frame rate goes.")
+    ap.add_argument("--meshes", type=Path, nargs="+", default=None,
+                    metavar="STL",
+                    help="one or more meshes, alternated across the 24 "
+                         "plants so the rows do not read as copies. Scale "
+                         "and height are measured from each file.")
+    ap.add_argument("--width", type=float, default=PLANT_WIDTH_M,
+                    help="how wide a plant should be, in metres "
+                         f"(default {PLANT_WIDTH_M})")
     ap.add_argument("--procedural", action="store_true",
                     help="build the plants from primitives instead of a "
                          "mesh. No asset, no licence, no texture files: a "
@@ -374,7 +563,10 @@ def main(argv: list[str] | None = None) -> int:
                          "the sphere blobs it replaces.")
     args = ap.parse_args(argv)
     try:
-        if args.procedural:
+        if args.meshes:
+            print(build_meshes(args.world, args.meshes, args.z,
+                               args.every_nth, args.width))
+        elif args.procedural:
             print(build_procedural(args.world, args.z, args.every_nth))
         else:
             print(build(args.world, args.mesh, args.scale, args.z,
