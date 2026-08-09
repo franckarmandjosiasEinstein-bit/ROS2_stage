@@ -116,12 +116,24 @@ than aesthetic:
 \end{itemize}
 
 \paragraph{Access control} The dashboard API is protected by a random
-token printed at startup, accepted as \texttt{?token=} or as a bearer
-header. \texttt{/media/} is behind the same token: photographs, QR
-images and the CSV export are measurements, so they sit behind the same
-gate as the API that describes them. Authentication can be disabled
-explicitly with \texttt{-{}-dashboard-token ''}, and the Cloud then
-prints a warning naming what that means.
+token printed at startup. \texttt{/media/} is behind the same token:
+photographs, QR images and the CSV export are measurements, so they sit
+behind the same gate as the API that describes them.
+
+The token is offered once, in the URL, and the server's first act is to
+get rid of it: it sets an \texttt{HttpOnly; SameSite=Strict} cookie and
+redirects to the same page with the query string stripped. A credential
+that authorises driving the robot has no business living in the address
+bar, the browser history, the \texttt{Referer} of every outbound link
+and any proxy log in between. Repeated wrong tokens from one address
+earn a bounded lockout.
+
+Authentication can still be disabled with
+\texttt{-{}-dashboard-token ''}, but only together with
+\texttt{-{}-http-host 127.0.0.1}; anything else refuses to start. It
+used to print a warning and serve anyway, and a warning at startup is
+read once and scrolls away. Sec.~\ref{sec:security_posture} covers this
+and the rest of the posture.
 
 \subsection{Stopping cleanly}
 

@@ -1,0 +1,236 @@
+% =====================================================================
+%  Security posture: the threat model, what the code enforces, and what
+%  a deployment would still have to do.
+%  SCOPE: complements Sec. \ref{sec:phaseC_security}, which describes the
+%         cryptographic construction. This one is about everything the
+%         construction does not by itself achieve.
+% =====================================================================
+\section{Security Posture}
+\label{sec:security_posture}
+
+\subsection{Why this section exists}
+
+Section~\ref{sec:phaseC_security} describes a sealed, signed report and
+a signed request. Read on its own, that reads like a solved problem, and
+it is not one. Encryption answers a narrow question --- can a third
+party read this message, and did the named sender write it --- and a
+deployed system fails in ways that leave both answers ``yes''.
+
+An order captured off the broker and published again a week later
+carries the Cloud's own signature. A stranger answering \emph{hold} to
+every handover fills the robot's outbox and produces a campaign with no
+data and no errors. A filed reading edited on disk was verified on
+arrival and is verified by nothing afterwards. None of those are defeats
+of the cryptography; all three were open in the version of this system
+described by the previous section.
+
+This section states the threat model, lists what the delivered code now
+enforces, and --- at least as importantly --- says what it does not, so
+that the boundary is a decision on record rather than something a reader
+has to infer.
+
+\subsection{Threat model}
+
+The system is assumed to run on a small network the operator does not
+exclusively control: a farm LAN with a shared wireless segment, other
+machines on it, and physical access to the greenhouse by people who are
+not the operator.
+
+\begin{table}[!t]
+\caption{Who is assumed capable of what. The middle row is the one that
+drives most of the design: an attacker who never breaks a key can still
+do a great deal.}
+\label{tab:threats}
+\centering\footnotesize
+\begin{tabular}{@{}p{0.26\columnwidth}p{0.64\columnwidth}@{}}
+\toprule
+actor & assumed capability \\
+\midrule
+network observer & reads every packet on the segment; learns topics,
+  timings and message sizes \\
+network participant & connects to the broker and publishes on any topic;
+  captures and replays messages verbatim \\
+disk access & reads and writes files on the Cloud machine, including the
+  store and the key directory \\
+key holder & has one long-term private key, e.g.\ from a robot that was
+  stolen or decommissioned \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Explicitly \emph{out} of scope: an attacker who can break P-256 or
+AES-256-GCM, and one with root on the Cloud while it is running. Neither
+is defensible at this scale, and pretending otherwise would make
+everything else here less believable.
+
+\subsection{What the delivered code enforces}
+
+\paragraph{A signed order stops being an order}
+\filename{agri/replay.py}. A signature says who wrote a message, not
+that this is the first time it has been read. Requests now carry a
+freshness window (\SI{120}{s}) \emph{and} a seen-set of request
+identifiers. Neither works alone: freshness leaves the window open, and
+a seen-set alone would have to remember every identifier forever and
+across reboots --- which is exactly when a replay would be attempted.
+Together they need no persistence and leave no gap, because an
+identifier older than the window is refused on age before the set is
+consulted. \param{request\_id} serves as the nonce; it is already
+random, already unique and already inside the signature.
+
+The failure mode this introduces is a clock, not an attacker, and the
+code treats it that way: a future-dated order is reported as clock skew
+and never as an attack, an accepted order already consuming half the
+window logs a warning, and every refusal prints the disagreement in
+seconds alongside \texttt{timedatectl}.
+
+\paragraph{The handshake is signed in both directions}
+The negotiation messages were left plain, on the reasoning that a forged
+\emph{send} only makes the robot offer a reading it was about to offer
+anyway. That reasoning missed the other grant. \emph{Hold} means keep
+it, and the robot obeys by putting the reading in a bounded outbox.
+Answered to every offer, it fills 48 slots, starts dropping the oldest
+readings, and leaves a robot reporting itself perfectly healthy while
+the campaign produces nothing --- for the cost of one MQTT publish.
+Queries are now signed by the Cloud and replies by the node, each with a
+key the other already holds.
+
+\paragraph{The transport can be closed}
+\filename{deploy/}. ECIES hides a reading; it does not hide that
+\texttt{agri/v1/report/youbot-01} published \SI{6}{kB} at 14:02, and for
+a commercial greenhouse that traffic pattern is a map of the operation.
+Both programs accept a CA, a client certificate and a key; naming a CA
+turns TLS on and moves the port from 1883 to 8883 without a second
+decision. Neither side ever falls back to plaintext --- a
+misconfiguration is fatal, because a system that silently downgrades is
+worse than one with no TLS, since somebody will believe it. The
+reference \filename{mosquitto.conf} does not listen on 1883 at all, and
+the ACL's \texttt{\%u} patterns stop one node publishing as another and
+stop any node issuing orders.
+
+There is deliberately no password flag: \filename{/proc/<pid>/cmdline}
+is world-readable, so a password in \texttt{argv} is one that
+\texttt{ps} prints to anyone with a shell.
+
+\paragraph{The dashboard credential leaves the URL}
+A token in a query string lives in the address bar, the browser history,
+the \texttt{Referer} of every outbound link, and any proxy log in
+between --- for a credential that authorises driving the robot and
+shutting the simulation down. It now moves into an
+\texttt{HttpOnly; SameSite=Strict} cookie on first contact and the page
+redirects to a clean address. Repeated wrong tokens earn a bounded
+lockout. Disabling authentication is still possible and is now permitted
+only when the server is bound to loopback: a property the program
+checks, rather than a warning that scrolls past.
+
+\paragraph{A filed reading that changes says so}
+\filename{agri/cloud/store.py}. Every report is verified on arrival and
+was then written in plain text, after which the cryptography had nothing
+further to say about it. Each line now carries the SHA-256 of its own
+content chained to the hash before it, so editing one reading breaks
+that line, repairing that line breaks the next, and deleting a line is
+caught by the chain even though every remaining line still hashes
+correctly.
+
+\paragraph{A key can be named and retired}
+\filename{agri/trust.py}. Keys get a 64-bit fingerprint in four readable
+groups, printed at startup by both programs, so ``do we hold the same
+key'' is settled in ten seconds rather than by an afternoon of signature
+errors. A revocation list is consulted at startup and both programs
+\emph{refuse to run} on a listed key. \texttt{--rotate} archives the old
+pair before touching anything --- reports already sealed to a private
+key can be opened with nothing else --- and revokes the old public key
+before writing the new one.
+
+\subsection{What it does not do, and what that would cost}
+
+\begin{table*}[!t]
+\caption{Deliberate boundaries. Each row is a real weakness of the
+delivered system; the third column is what closing it would take, so
+that the boundary is a decision rather than an oversight.}
+\label{tab:notdone}
+\centering\footnotesize
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}p{0.20\textwidth}p{0.42\textwidth}p{0.30\textwidth}@{}}
+\toprule
+gap & why it is open & what would close it \\
+\midrule
+The revocation list is not distributed &
+Revoking a key on the Cloud tells the robot nothing. Each machine holds
+its own list and they are reconciled by \texttt{scp}. &
+X.509 certificates with a CRL or OCSP, i.e.\ a real PKI. At two nodes
+that is more machinery than the problem. \\
+
+Key age is a reminder, not a validity period &
+A raw PEM carries no expiry --- that is precisely what a certificate
+adds. The birthday sits in an unsigned sidecar the key holder could
+edit. &
+The same PKI. Until then the honest claim is that an old key is
+mentioned at every startup. \\
+
+The hash chain lives on the same disk as the data &
+An attacker with write access can recompute the whole chain. What the
+chain buys is that a surgical edit is detectable and a forgery must
+rewrite the file to its end. &
+Pinning the tip somewhere out of reach: an off-box nightly copy, or a
+signature from a key that is not on the machine.
+\texttt{--verify} prints the tip so that this is possible. \\
+
+The dashboard is plain HTTP &
+The cookie is \texttt{HttpOnly} and \texttt{SameSite}, but not
+\texttt{Secure} --- a \texttt{Secure} cookie on an HTTP origin is
+silently discarded, which would look like authentication that does not
+stick. &
+A TLS reverse proxy, and then setting \texttt{Secure} and HSTS. No code
+change. \\
+
+One shared token, no accounts &
+Every operator uses the same credential; there is no record of who
+issued which request. \texttt{requests.csv} attributes orders to the
+Cloud, not to a person. &
+Per-operator credentials and an actor field inside the signed request.
+The protocol has room; the deployment has no identity provider. \\
+
+Dependencies are unpinned &
+\texttt{pip install -e .} resolves \texttt{paho}, \texttt{cryptography},
+\texttt{opencv} and \texttt{Pillow} at install time, so two machines can
+run different code. &
+A lock file, and a hash-checking install. Worth doing before this is
+handed to anyone. \\
+
+Acks and status are unsigned &
+They only report, so forging one lies to a dashboard rather than
+steering a robot --- a deliberate line, stated in
+\filename{agri/protocol.py}. &
+Signing them too. The cost is one verification per telemetry message at
+\SI{0.2}{Hz}, which is nothing; the reason not to is that it would blur
+the rule that makes the protocol legible. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{The rule the protocol now follows}
+
+One line makes the message table readable without consulting the code:
+\emph{everything that can change what the other side does is signed;
+everything that only reports is not}. A request, a query and a reply all
+decide something and all carry signatures. An acknowledgement and a
+status are observations, and do not.
+
+That rule is worth stating because the alternative --- signing
+everything --- is the choice that looks safer and teaches nothing. It
+would leave a reader unable to tell which messages actually matter, and
+it is the same reflex that would have encrypted a request whose contents
+are ``measure \station{P2,5R}''.
+
+\subsection{What was found by writing this down}
+
+Two of the gaps above were closed only because the exercise of
+enumerating them made them impossible to keep deferring, and one defect
+was found by a linter rather than a test: a dictionary literal in
+\filename{agri/envelope.py} named two different values \texttt{plant},
+which Python resolves last-wins in silence. Every report ever filed
+carried a coordinate pair where the plant index belonged, beside a row
+index that was a plain integer. Nothing downstream read the field, so
+nothing ever broke --- it was simply wrong in the file, which is the
+class of defect only found by reading the file or by a tool that reads
+it for you.

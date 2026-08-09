@@ -19,38 +19,47 @@ that requires bringing up Gazebo is a test nobody runs before a small
 change.
 
 \begin{table}[!t]
-\caption{The 384 pre-flight checks by area. One check runs only where
-\texttt{rclpy} is importable, so a machine with no ROS~2 reports 383.}
+\caption{The 654 pre-flight checks by area. One check runs only where
+\texttt{rclpy} is importable, so a machine with no ROS~2 reports 653.
+The suite grew by 270 checks when the security posture of
+Sec.~\ref{sec:security_posture} was addressed, and roughly a quarter of
+those are refusals.}
 \label{tab:checks}
 \centering\footnotesize
 \begin{tabular}{@{}p{0.62\columnwidth}r@{}}
 \toprule
 area & checks \\
 \midrule
-the ROS~2 package (read, never imported)      & 63 \\
-the two launch scripts                        & 49 \\
-route order and the energy budget             & 44 \\
-timing: issued, measured, received            & 34 \\
-free-space geometry and the brake             & 23 \\
-end to end through a loopback broker          & 21 \\
-station labels and their grammar              & 17 \\
-what the robot transmits about itself         & 17 \\
-the floor camera and the painted mark         & 13 \\
-multi-node protocol                           & 13 \\
-Cloud on a second machine (key custody)       & 12 \\
-the dashboard's session controls              & 12 \\
-ECC: confidentiality and origin               & 11 \\
-the dashboard                                 & 11 \\
-catalogue geometry                            & 10 \\
-sensor field structure                        &  9 \\
-generated world                               &  6 \\
-the offline demo, as a subprocess             &  6 \\
-QR round trip                                 &  5 \\
-paho client construction                      &  4 \\
-repository hygiene                            &  3 \\
-numpy ABI against rclpy                       &  1 \\
+generated world and the plant meshes          &  67 \\
+the ROS~2 package (read, never imported)      &  63 \\
+the two launch scripts                        &  49 \\
+route order and the energy budget             &  44 \\
+the two modes: command and collector          &  43 \\
+key fingerprints, revocation, rotation        &  35 \\
+timing: issued, measured, received            &  34 \\
+broker TLS, credentials, no silent downgrade  &  33 \\
+the dashboard                                 &  30 \\
+catalogue geometry                            &  25 \\
+free-space geometry and the brake             &  23 \\
+the dashboard's front door (token, cookie, lockout) &  22 \\
+end to end through a loopback broker          &  22 \\
+the store's hash chain                        &  21 \\
+replay: freshness window and seen-set         &  18 \\
+station labels and their grammar              &  17 \\
+what the robot transmits about itself         &  17 \\
+Cloud on a second machine (key custody)       &  14 \\
+the floor camera and the painted mark         &  13 \\
+multi-node protocol                           &  13 \\
+the dashboard's session controls              &  12 \\
+ECC: confidentiality and origin               &  11 \\
+sensor field structure                        &   9 \\
+the offline demo, as a subprocess             &   6 \\
+QR round trip                                 &   5 \\
+paho client construction                      &   4 \\
+repository hygiene                            &   3 \\
+numpy ABI against rclpy                       &   1 \\
 \midrule
-\textbf{total}                                & \textbf{384} \\
+\textbf{total}                                & \textbf{654} \\
 \bottomrule
 \end{tabular}
 \end{table}

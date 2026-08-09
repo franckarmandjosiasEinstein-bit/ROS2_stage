@@ -38,7 +38,7 @@ robot from a stationary ESP.
 | `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
 | `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
 | `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
-| `tests/check_cloud.py` | 493 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 654 pre-flight checks, none of which need a broker, ROS or a network |
 | `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
@@ -410,13 +410,32 @@ listener 1883 0.0.0.0
 allow_anonymous true
 ```
 
-**There is no TLS and no broker password.** Anyone on the network can watch
-the traffic and publish on the topics. That is survivable here only because
-the payloads are already ECIES-sealed and signed — an eavesdropper reads
-ciphertext, and a forged request is refused for having no valid Cloud
-signature. But the *metadata* is in clear, and an attacker can flood the
-topics. On a real deployment, put mosquitto behind TLS with a password
-file; nothing in this project has to change for that.
+**That broker has no TLS and no password**, which is the right amount of
+ceremony for a demonstration on one laptop and not for anything else.
+Anyone on the network can watch the traffic and publish on the topics. The
+payloads are already ECIES-sealed and signed, so an eavesdropper reads
+ciphertext and a forged request is refused — but the *metadata* is in
+clear, and for a commercial greenhouse the pattern of who published what
+and when is a map of the operation.
+
+Both programs can close that, and the step is configuration rather than a
+rewrite:
+
+```bash
+agri-cloud --broker gh.example \
+           --broker-ca ca.crt --broker-cert cloud.crt --broker-key cloud.key
+```
+
+Naming a CA turns TLS on and moves the port from 1883 to 8883 by itself.
+**Neither side ever falls back to plaintext**: a misconfiguration is fatal,
+because a system that silently downgrades is worse than one with no TLS at
+all. If you use `--broker-user`, the password comes from
+`$AGRI_BROKER_PASSWORD` and there is no flag for it —
+`/proc/<pid>/cmdline` is world-readable. A username with no TLS is refused
+outright, since MQTT sends the password in the CONNECT packet in clear.
+
+`deploy/` carries a broker configuration and an ACL that do this properly,
+with the `openssl` commands to produce the certificates.
 
 The dashboard binds every interface, so `http://192.168.1.20:8088` works
 from the robot's machine or a phone on the same network. `agri-cloud`
@@ -662,6 +681,44 @@ authenticity. The robot refuses an unsigned request and one signed by the
 wrong key. Reports need both and get both. The test suite checks four
 attacks are refused, and `--explain` replays two of them live.
 
+### Security posture — what is enforced, and what is not
+
+Encryption answers a narrow question: can a third party read this, and did
+the named sender write it. A deployed system fails in ways that leave both
+answers *yes*. What the code now enforces beyond the seal:
+
+| control | where | what it stops |
+|---|---|---|
+| freshness window + seen-set on requests | `agri/replay.py` | a captured signed order being published again next week and obeyed |
+| queries and replies signed both ways | `agri/protocol.py` | a forged `hold` answered to every offer: the outbox fills, the oldest readings drop, and the robot reports itself healthy the whole time |
+| MQTT over TLS + client certificates + ACL | `deploy/` | a stranger on the network reading the traffic pattern, or publishing orders |
+| token in an `HttpOnly` cookie, not the URL | `agri/cloud/server.py` | the dashboard credential living in the history, the `Referer` and every proxy log |
+| refusing to run unauthenticated off loopback | `agri/cloud/server.py` | `--dashboard-token ''` quietly leaving the greenhouse open |
+| hash-chained store + `--verify` | `agri/cloud/store.py` | a filed reading edited on disk, undetected |
+| fingerprints, revocation, `--rotate` | `agri/trust.py` | a stolen or decommissioned key staying valid forever |
+
+The rule the protocol follows, so the message table can be read without the
+code: **everything that can change what the other side does is signed;
+everything that only reports is not.** Requests, queries and replies decide
+something. Acks and status are observations.
+
+Deliberately still open, each with what closing it would cost: the
+revocation list is not distributed (needs a real PKI); key age is an
+unsigned reminder, not a validity period (same); the hash chain sits on the
+same disk as the data, so it detects a surgical edit but not a full rewrite
+(needs the tip pinned off-box — `--verify` prints it); the dashboard is
+plain HTTP (needs a TLS proxy, no code change); one shared token with no
+per-operator identity; and dependencies are unpinned. `docs/report`,
+section "Security Posture", states all of these with the threat model they
+are judged against.
+
+Check any of it:
+
+```bash
+python3 -m agri.keys --list                 # fingerprints, ages, revocations
+python3 -m agri.cloud.store --verify        # the chain, and the tip to record
+```
+
 ### The Cloud — `agri/cloud/`
 
 One process with two faces: an MQTT client talking to the robot, an HTTP
@@ -789,7 +846,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the 492 other checks to pass first.
+prioritised over getting the other 653 checks to pass first.
 
 ---
 
