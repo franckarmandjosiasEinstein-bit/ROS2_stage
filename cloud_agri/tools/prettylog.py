@@ -44,6 +44,7 @@ import time
 # Disabled when stdout is not a terminal, so a redirected log stays greppable.
 class C:
     dim = grey = ok = warn = bad = head = cloud = node = rule = off = ""
+    banner = ""
 
     @classmethod
     def enable(cls) -> None:
@@ -52,6 +53,12 @@ class C:
         cls.head, cls.off = "\033[36m", "\033[0m"
         cls.cloud, cls.node = "\033[35m", "\033[96m"
         cls.rule = "\033[38;5;240m"
+        # A filled block for the per-mission banner: a solid background is
+        # what makes it a BANNER rather than one more coloured line, and is
+        # the one piece of styling worth borrowing from a terminal UI that
+        # gets this right -- forty-eight near-identical stations need a
+        # boundary the eye finds without reading, not another shade of text.
+        cls.banner = "\033[1;97;48;5;24m"                 # bold white on navy
 
 
 #: Lines matching any of these are dropped. Every one was read, understood,
@@ -204,9 +211,28 @@ class Filter:
     #: third one. The mission id is written into the rule so a line can be
     #: traced back to its order without counting upwards.
     def rule(self, title: str) -> None:
-        width = 66
-        bar = "─" * max(4, width - len(title) - 3)
-        print(f"\n{C.rule}── {title} {bar}{C.off}", flush=True)
+        """A boxed banner, not one more coloured line.
+
+        A plain rule reads fine in isolation; forty-eight near-identical
+        stations back to back is where it stops working, because the eye
+        has to READ to find the boundary between one mission and the next.
+        A filled block is found without reading.
+
+        The box drawing survives --no-colour (it is still three lines and
+        still says REQUEST); the filled background does not, and is not
+        needed to: colour is the amplifier here, not the signal.
+        """
+        text = f" {title.upper()} "
+        width = max(len(text) + 4, 68)
+        pad = width - len(text)
+        left, right = pad // 2, pad - pad // 2
+        top = "┌" + "─" * (width - 2) + "┐"
+        bot = "└" + "─" * (width - 2) + "┘"
+        mid = "│" + " " * left + text + " " * right + "│"
+        print(f"\n{C.rule}{top}{C.off}", flush=True)
+        print(f"{C.rule}│{C.off}{C.banner}{mid[1:-1]}{C.off}{C.rule}│{C.off}",
+              flush=True)
+        print(f"{C.rule}{bot}{C.off}", flush=True)
 
     def say(self, level: str, text: str) -> None:
         col = COLOUR[level]()

@@ -109,6 +109,35 @@ ros2 pkg prefix agri_robot >/dev/null 2>&1 \
     || die "agri_robot is not in this workspace's install. Build it:
               cd $WS && colcon build --symlink-install --base-paths cloud_agri/ros2/src"
 
+# ---------------------------------------------- 2a. no leftover robot_node
+# THE FIGHT THIS PREVENTS.
+#
+# A robot_node's MQTT client id is "agri-<robot_id>" -- fixed, not per
+# process. If an earlier run's robot_node survived (a closed terminal, a
+# hard kill during a slow Gazebo load -- Ctrl-C never reaches a process
+# that is already dead), it is still sitting on the broker with that id.
+# Launching a second one here does not fail: the broker just disconnects
+# whichever one it kicks LAST, over and over, which is the "connected" /
+# "the broker went away" pair repeating every second or two -- not a
+# flaky network, two clients fighting over one identity.
+#
+# It is worse than noisy. agri/v1/request is BROADCAST, not per-node, so
+# for every window both happen to be connected, BOTH act on the same
+# order and both drive the one simulated robot's /cmd_vel. That is the
+# "it's on the cross, then it moves and ends up between two" symptom:
+# not a docking bug, but two uncoordinated controllers pulling the same
+# wheels toward two different ideas of where to go.
+STALE="$(pgrep -af 'lib/agri_robot/robot_node' 2>/dev/null || true)"
+if [ -n "$STALE" ]; then
+    warn "a robot_node from an earlier run is still running:"
+    printf '%s\n' "$STALE" | sed 's/^/[run_sim]     /'
+    die "starting a second one would fight the first for the broker AND
+          drive the same robot from two uncoordinated processes at once.
+          Stop it first:
+              pkill -f 'lib/agri_robot/robot_node'
+          then run this again."
+fi
+
 # ------------------------------------------------- 2b. the generated world
 # The world and the URDF are GENERATED and are not in git. Building them
 # here means the answer to "did I remember to run make_plants" is "you
@@ -187,6 +216,16 @@ cleanup() {
         warn "kill_sim.sh not found; Gazebo may have left processes behind"
         warn "    check with:  pgrep -af 'gz sim'"
     fi
+
+    # robot_node BY NAME, directly: it is this project's own process and
+    # Phase B's kill_sim.sh has never heard of it, so a clean SIGINT to
+    # $LAUNCH above is the ONLY thing that normally reaps it. That is fine
+    # for a Ctrl-C in this window; it does nothing for a hard-killed
+    # terminal, which is exactly the case that left one running behind
+    # last time and started the fight the next launch guards against
+    # (see "2a. no leftover robot_node" above). Belt and suspenders.
+    pkill -f 'lib/agri_robot/robot_node' 2>/dev/null && \
+        say "stopped a robot_node that outlived the launch"
 
     if [ -n "$MOSQ" ] && kill -0 "$MOSQ" 2>/dev/null; then
         kill -TERM "$MOSQ" 2>/dev/null

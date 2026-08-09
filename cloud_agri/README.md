@@ -38,7 +38,7 @@ robot from a stationary ESP.
 | `worlds/`, `urdf/` | **generated, and not in git.** `run_sim.sh` builds them; see `agri/world/ensure.py` |
 | `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
 | `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
-| `tests/check_cloud.py` | 750 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 755 pre-flight checks, none of which need a broker, ROS or a network |
 | `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
@@ -159,6 +159,21 @@ dashboard, exports both CSVs and then takes the whole simulation down —
 Gazebo's forked server and GUI, the camera watchdog, RViz, the bridge, the
 robot node, and the broker if `run_sim.sh` started it. Nothing is left behind
 to confuse the next run. `./run_cloud.sh --keep-sim` opts out.
+
+**Nor can a stale robot survive to fight the next launch.** A robot_node's
+MQTT identity is `agri-<robot_id>` — fixed, not per process — so an earlier
+run that outlived its terminal (a hard kill during a slow load, a closed
+tab) sits on the broker forever under that name. A fresh launch does not
+fail against it: the broker just disconnects whichever client reconnected
+last, over and over, which is the `connected` / `the broker went away`
+pair repeating every second or two. That is not a flaky network, it is two
+clients fighting over one identity — and worse, because `agri/v1/request`
+is broadcast, both processes act on the same order and **drive the same
+simulated robot at once**, which looks exactly like an erratic docking
+fault: parked on a cross, then drifting to a point between two, because two
+uncoordinated controllers are pulling the same wheels toward two different
+ideas of where to go. `run_sim.sh` now checks for this before it launches
+anything and refuses to start beside one, naming the `pkill` that clears it.
 
 **You cannot forget to build the world**, and that is deliberate. `worlds/`
 and `urdf/` used to be committed while this README told you to regenerate
@@ -882,7 +897,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the other 749 checks to pass first.
+prioritised over getting the other 754 checks to pass first.
 
 ---
 

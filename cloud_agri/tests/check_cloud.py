@@ -3697,10 +3697,14 @@ def check_modes() -> None:
           "KEEPS P1,2R on board" in out, out)
     check("and the mode each mission is running in",
           "collector mode" in out and "command mode" in out, out)
-    check("each request opens with a separating rule",
-          out.count("── request ") == 2, out)
-    check("and the rule names the request, so a line can be traced back",
-          "── request 788081147cfd" in out, out)
+    check("each request opens with a boxed banner",
+          out.count("REQUEST ") == 2, out)
+    check("and the banner names the request, so a line can be traced back",
+          "REQUEST 788081147CFD" in out, out)
+    check("the banner is a real box, readable with --no-colour",
+          "┌" in out and "└" in out,
+          "a boundary found by scrolling through colour codes is not found "
+          "at all in a redirected log or a printed report")
     src = pretty.read_text()
     check("the two directions are distinguishable without colour",
           '"cloud": "──► "' in src and '"node": "◄── "' in src,
@@ -3708,6 +3712,10 @@ def check_modes() -> None:
           "colour and keeps the arrows")
     check("and they are coloured differently when there is a terminal",
           "cls.cloud, cls.node" in src)
+    check("the banner has a filled background, not just border colour",
+          "cls.banner" in src and "48;5;" in src,
+          "forty-eight near-identical stations need a boundary the eye "
+          "finds without reading, and a background is what does that")
 
 
 def _refuses_mode(signed: dict, key_dir: Path) -> bool:
@@ -3968,6 +3976,31 @@ def check_launch_scripts() -> None:
           "an activated venv that was never pip-installed fails identically")
     check("run_cloud.sh activates it too",
           "bin/activate" in c and "no virtualenv found" in c)
+
+    # THE FIGHT: a leftover robot_node (a closed terminal, a hard kill
+    # during a slow Gazebo load) keeps its MQTT client id "agri-<robot_id>"
+    # forever. A fresh launch does not fail against it -- the broker just
+    # kicks whichever client reconnected last, over and over, and because
+    # agri/v1/request is broadcast rather than per-node, for every window
+    # both happen to be connected BOTH act on the same order and drive the
+    # one simulated robot's wheels at once. That reads as an erratic
+    # docking bug ("it's on the cross, then it drifts between two") and is
+    # actually two uncoordinated processes, which is why this is checked
+    # here rather than trusted to be obvious from the symptom.
+    check("run_sim.sh refuses to start beside a leftover robot_node",
+          "pgrep -af 'lib/agri_robot/robot_node'" in s
+          and s.index("pgrep -af 'lib/agri_robot/robot_node'")
+          < s.index("stdbuf -oL -eL ros2 launch"),
+          "checked BEFORE the launch, or the fight has already started by "
+          "the time anything notices")
+    check("and says what to run to clear it",
+          "pkill -f 'lib/agri_robot/robot_node'" in s)
+    check("and its own cleanup also kills robot_node directly",
+          "pkill -f 'lib/agri_robot/robot_node' 2>/dev/null" in s
+          and s.index("stopped a robot_node that outlived") > s.index("cleanup()"),
+          "kill_sim.sh is Phase B's script and has never heard of this "
+          "project's own node; a clean Ctrl-C reaches it via launch's own "
+          "SIGINT cascade, but nothing else does")
 
     # THE BUG THAT STOPPED run_sim.sh DEAD ON ITS FIRST REAL RUN.
     #

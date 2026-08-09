@@ -160,6 +160,20 @@ class AgriRobot(Node):
         as well, so the ordering of two terminals stops being load-bearing.
         """
         host = self.get_parameter("broker").value
+        # DELIBERATELY "agri-{robot_id}", not per-process. Giving every
+        # process its own id (a pid suffix, say) would let a leftover
+        # robot_node from an earlier run sit on the broker forever,
+        # invisibly, alongside a fresh one -- both acting on the SAME
+        # broadcast requests and driving the SAME simulated robot's wheels
+        # at once, with a perfectly quiet log. What actually happened once
+        # was noisy instead: the broker kicked whichever client reconnected
+        # last, over and over ("connected" / "the broker went away" every
+        # second), and that noise is what surfaced two processes fighting
+        # over one identity before it was diagnosed as anything worse than
+        # "the network is flaky". run_sim.sh now refuses to start a second
+        # robot_node in the first place; this identity clash is the reason
+        # that guard exists, and the fixed id is what makes a bypass loud
+        # rather than a silent double-drive.
         self.client = mqtt_client(f"agri-{self.robot_id}")
 
         auth = BrokerAuth.from_env(
