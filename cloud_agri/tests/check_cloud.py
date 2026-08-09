@@ -768,6 +768,131 @@ def check_broker_auth() -> None:
           "between one bad node and the fleet")
 
 
+def check_plant_camera() -> None:
+    print("\nthe plant camera: which way is up, and what is in frame")
+    import math                                           # noqa: PLC0415
+
+    from agri.catalogue import (PLANT_BASE_Z,  # noqa: PLC0415
+                                PLANT_CAM_H, PLANT_CAM_W, PLANT_CAM_Z,
+                                PLANT_FRAME_FILL, PLANT_HEIGHT_M,
+                                PLANT_SPREAD_M, plant_camera_distance,
+                                plant_camera_frame, plant_frame_span)
+    from agri.envelope import PARK_TOLERANCE              # noqa: PLC0415
+    from agri.world.plants import (PLANT_WIDTH_M,  # noqa: PLC0415
+                                   fitted_height, needs_roll, up_axis)
+
+    # --- WHICH WAY IS UP -------------------------------------------------
+    # glTF fixes +Y as up in its specification. fit() assumed Z for every
+    # format because the STLs came first, so every plant lay on its side --
+    # invisible in a render of a rosette, and given away only by the one
+    # mesh with a base plate baked in, which stood up as a dark wall in the
+    # middle of every photograph.
+    check("a glTF is read as Y-up, per its own specification",
+          up_axis(Path("x.glb")) == 1 and up_axis(Path("x.gltf")) == 1)
+    check("and an STL as Z-up, which is what these ones are",
+          up_axis(Path("x.stl")) == 2)
+    check("only the Y-up formats get rolled upright",
+          needs_roll(Path("x.glb")) and not needs_roll(Path("x.stl")),
+          "Gazebo does not rotate a glTF for you")
+
+    glbs = sorted((ROOT / "meshes").glob("strawberry_[0-9].glb"))
+    if glbs:
+        heights = {m.name: fitted_height(m) for m in glbs}
+        check("every fitted plant is WIDER than it is tall, like a rosette",
+              all(h < PLANT_WIDTH_M for h in heights.values()),
+              {k: round(v, 3) for k, v in heights.items()})
+        tallest = max(heights.values())
+        check("PLANT_HEIGHT_M matches the tallest mesh actually installed",
+              abs(PLANT_HEIGHT_M - tallest) < 0.02,
+              f"catalogue says {PLANT_HEIGHT_M}, the meshes say "
+              f"{tallest:.3f} -- the camera is aimed from that number")
+
+    check("the catalogue and the mesh fitter agree on how wide a plant is",
+          abs(PLANT_SPREAD_M - PLANT_WIDTH_M) < 1e-9,
+          f"{PLANT_SPREAD_M} vs {PLANT_WIDTH_M}")
+
+    # The rejected mesh must stay rejected, and stay explained.
+    rej = sorted((ROOT / "meshes" / "rejected").glob("*.glb"))
+    check("the mesh with a baked base plate is out of the rotation",
+          rej and all("plate" in r.name for r in rej),
+          f"{[r.name for r in rej]} -- the plate is welded into the same "
+          "primitive as the plant, so it cannot be dropped as a node")
+    check("and it is not picked up by the greenhouse's glob",
+          not any(r.parent == ROOT / "meshes" for r in rej))
+
+    # --- WHAT IS IN FRAME ------------------------------------------------
+    d = plant_camera_distance()
+    pitch, hfov = plant_camera_frame()
+    vfov = 2 * math.atan(math.tan(hfov / 2) * PLANT_CAM_H / PLANT_CAM_W)
+    fb, pb, pt, ft = plant_frame_span()
+
+    check("the camera looks UP at a plant standing above it",
+          pitch < 0 and PLANT_BASE_Z + PLANT_HEIGHT_M > PLANT_CAM_Z,
+          f"pitch {math.degrees(-pitch):+.1f} deg nose-up")
+    check("the whole plant is inside the frame, top and bottom",
+          fb < pb and pt < ft,
+          f"frame {math.degrees(fb):+.1f}..{math.degrees(ft):+.1f}, "
+          f"plant {math.degrees(pb):+.1f}..{math.degrees(pt):+.1f}")
+
+    # The margin has to survive the worst parking the Cloud will accept.
+    park = math.degrees(math.atan2(PARK_TOLERANCE, d))
+    for name, margin in (("below", math.degrees(pb - fb)),
+                         ("above", math.degrees(ft - pt))):
+        check(f"and survives the worst allowed parking error, {name}",
+              margin > park,
+              f"{margin:.1f} deg of margin against {park:.1f} deg for a "
+              f"{PARK_TOLERANCE * 100:.0f} cm error")
+    half_plant = math.degrees(math.atan2(PLANT_SPREAD_M / 2, d))
+    check("and across, which is the tight direction for a rosette",
+          math.degrees(hfov) / 2 - half_plant > park,
+          f"{math.degrees(hfov) / 2 - half_plant:.1f} deg vs {park:.1f}")
+
+    # The framing must be worth doing at all.
+    fw, fh = 2 * d * math.tan(hfov / 2), 2 * d * math.tan(vfov / 2)
+    check("the plant is a majority of the frame's width",
+          PLANT_SPREAD_M / fw > 0.5,
+          f"{PLANT_SPREAD_M / fw * 100:.0f}% -- Phase B's 68.8 deg lens "
+          f"gave 31%, which is why two thirds of every photograph was wall")
+    check("but not so much that it fills it",
+          PLANT_SPREAD_M / fw < PLANT_FRAME_FILL + 0.02,
+          f"{PLANT_SPREAD_M / fw * 100:.0f}%")
+    check("the lens is narrower than the one it replaces",
+          hfov < 1.2, f"{math.degrees(hfov):.1f} deg against 68.8")
+
+    # Move the plants and the camera must follow, or none of this holds.
+    import agri.catalogue as C                             # noqa: PLC0415
+    saved = C.PLANT_BASE_Z
+    try:
+        C.PLANT_BASE_Z = 0.0                    # plants grown on the floor
+        floor_pitch, _ = C.plant_camera_frame()
+        check("moving the plants to the floor re-aims the camera DOWN",
+              floor_pitch > 0,
+              f"{math.degrees(-floor_pitch):+.1f} deg -- the pitch is "
+              "computed from PLANT_BASE_Z, so the aim follows the plants "
+              "instead of having to be retuned by hand")
+    finally:
+        C.PLANT_BASE_Z = saved
+
+    # And the generator has to write it into the robot.
+    urdf = (ROOT / "urdf" / "youbot_agri.urdf")
+    if not urdf.exists():
+        from agri.world import ensure as _e                # noqa: PLC0415
+        _e.ensure()
+    text = urdf.read_text()
+    check("the generated robot carries the computed pitch, not Phase B's",
+          f"rpy=\"0 {pitch:.6f} 0\"" in text and "-0.28 0" not in text,
+          "Phase B aimed this camera at crates down an aisle")
+    check("and the two copies of that pose agree",
+          text.count(f"{pitch:.6f}") >= 2,
+          "the joint and the <sensor> both carry it; a disagreement means "
+          "the picture and the tf frame point different ways")
+    check("and the narrowed lens",
+          f"<horizontal_fov>{hfov:.6f}</horizontal_fov>" in text)
+    check("while the floor camera keeps its own wide lens",
+          "<horizontal_fov>1.2</horizontal_fov>" in text,
+          "it looks at a 4 cm cross 45 cm below it and needs the width")
+
+
 def check_ensure() -> None:
     print("\nthe generated world: you cannot forget to build it")
     import shutil                                         # noqa: PLC0415
@@ -1256,7 +1381,8 @@ def check_world() -> None:
                   and max(mtext.count(m.name) for m in stls) < 24,
                   {m.name: mtext.count(m.name) for m in stls})
             check("each plant is rotated, deterministically",
-                  len(set(re.findall(r"<pose>0 0 [\d.]+ 0 0 ([\d.]+)</pose>",
+                  len(set(re.findall(
+                      r"<pose>0 0 [\d.]+ [\d.]+ 0 ([\d.]+)</pose>",
                                      mtext))) > 4)
             try:
                 xml.dom.minidom.parseString(mtext)
@@ -1288,10 +1414,13 @@ def check_world() -> None:
         from agri.world.plants import (glb_bounds,  # noqa: PLC0415
                                        glb_is_self_contained, mesh_bounds,
                                        triangle_count)
-        glbs = sorted((ROOT / "meshes").glob("strawberry_*.glb"))
+        # strawberry_[0-9], not strawberry_*: meshes/rejected/ holds one
+        # that carries a base plate baked into the same triangle soup as
+        # the plant, and the glob is what keeps it out of the greenhouse.
+        glbs = sorted((ROOT / "meshes").glob("strawberry_[0-9].glb"))
         check("the textured strawberry variants are in the repository",
-              len(glbs) >= 4, f"found {[m.name for m in glbs]}")
-        if len(glbs) >= 4:
+              len(glbs) >= 3, f"found {[m.name for m in glbs]}")
+        if len(glbs) >= 3:
             for m in glbs:
                 check(f"{m.name} carries its own texture",
                       glb_is_self_contained(m),
@@ -1309,8 +1438,8 @@ def check_world() -> None:
                       mesh_bounds(m) == (lo, hi),
                       "fit() goes through mesh_bounds, so a GLB that only "
                       "worked via glb_bounds would still be wrong")
-            check("the four variants are four DIFFERENT plants",
-                  len({m.read_bytes() for m in glbs}) == 4,
+            check("the variants are all DIFFERENT plants",
+                  len({m.read_bytes() for m in glbs}) == len(glbs),
                   "duplicates were shipped once already, and 24 copies of "
                   "one asset read as 24 copies")
 
@@ -1318,9 +1447,9 @@ def check_world() -> None:
             build(default_source(), gmeshed)
             grep_ = build_meshes(gmeshed, glbs, 0.80, 1)
             gtext = gmeshed.read_text()
-            check("every plant gets one of the four", gtext.count("<mesh>") == 24,
+            check("every plant gets one of them", gtext.count("<mesh>") == 24,
                   grep_)
-            check("and all four are actually used",
+            check("and all of them are actually used",
                   all(gtext.count(m.name) > 0 for m in glbs),
                   {m.name: gtext.count(m.name) for m in glbs})
             # Scoped to the plant models: the greenhouse itself is full of
@@ -1332,7 +1461,7 @@ def check_world() -> None:
                   and not any("<material>" in b for b in plant_blocks),
                   "overriding it repaints a photographed plant flat green, "
                   "which is the entire reason for using a GLB")
-        if len(stls) >= 2 and len(glbs) >= 4:
+        if len(stls) >= 2 and len(glbs) >= 3:
             stl_blocks = re.findall(
                 r'<model name="plant_\d+_\d+">.*?</model>', mtext, re.S)
             check("while an UNTEXTURED one still gets tinted",
@@ -3773,7 +3902,7 @@ def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_replay,
                check_trust, check_broker_auth, check_chain,
-               check_ensure,
+               check_ensure, check_plant_camera,
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,

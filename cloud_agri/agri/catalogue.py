@@ -122,6 +122,109 @@ SENSOR_OFFSET_X = 0.50
 CAMERA_PIVOT_X = 0.18
 CAMERA_LEVER_X = SENSOR_OFFSET_X - CAMERA_PIVOT_X
 
+# ------------------------------------------------ framing the photograph
+#: Where a plant stands, and how tall the tallest of the four meshes is.
+#: PLANT_BASE_Z is the gutter top; set it to 0.0 the day the plants are
+#: grown on the floor and every number below follows without being retuned.
+PLANT_BASE_Z = 0.80
+
+#: How tall the tallest installed mesh stands once fitted to
+#: PLANT_WIDTH_M. Measured, not guessed -- the suite asserts it against
+#: agri.world.plants.fitted_height() so it cannot drift from the assets.
+#: A strawberry is a rosette: wider than it is tall.
+PLANT_HEIGHT_M = 0.15
+
+#: The pan camera's height above the floor. Phase B's, read back from the
+#: URDF by make_robot so it cannot drift away from the robot it describes.
+PLANT_CAM_Z = 0.78
+
+#: How wide a plant is across the leaves. Must match
+#: agri.world.plants.PLANT_WIDTH_M, which is what the meshes are scaled
+#: to; the suite asserts the two agree. Duplicated rather than imported so
+#: that the catalogue -- which everything depends on -- depends on nothing.
+PLANT_SPREAD_M = 0.27
+
+#: How much of the frame the plant should fill, in its LARGER dimension.
+#:
+#: Not 1.0, and not 0.3 either. Too tight and a 4 cm parking error -- the
+#: tolerance -- crops a leaf off; too loose and the picture is mostly
+#: greenhouse. 0.55 leaves about 9 degrees of horizontal margin, against
+#: the 3.6 degrees that the worst allowed parking error is worth.
+PLANT_FRAME_FILL = 0.55
+
+#: The image the Phase B camera produces. Only the RATIO matters here.
+PLANT_CAM_W, PLANT_CAM_H = 640, 480
+
+
+def plant_camera_distance() -> float:
+    """Lens to plant centre, horizontally, at a parked station.
+
+    Two offsets at right angles: the lens sits CAMERA_LEVER_X behind the
+    sensor point along the aisle, and the plant is STATION_REACH across it.
+    """
+    return math.hypot(CAMERA_LEVER_X, STATION_REACH)
+
+
+def plant_camera_frame() -> tuple[float, float]:
+    """(pitch, horizontal_fov) in radians, for the plant camera.
+
+    WHY THIS IS COMPUTED AND NOT TUNED
+
+    Phase B's camera looks 16 degrees UP through a 68.8 degree lens,
+    because it was aimed at crates down an aisle. Pointed at a 27 cm plant
+    0.64 m away, that lens sees 87 x 65 cm: the plant is 31 % of the width
+    and 43 % of the height, and the remaining two thirds of every one of
+    the 48 photographs is wall, floor and sky. The first real photograph
+    made that obvious in a way no amount of geometry checking had.
+
+    Pitch is NEGATIVE for nose-up, following the URDF's own convention
+    (rotation about +y takes +x downward), which is why the sign here looks
+    backwards and is not.
+
+    Both numbers come out of PLANT_BASE_Z, so moving the plants -- onto the
+    floor, or onto a taller gutter -- retargets the camera by itself. That
+    is the whole reason this is a function.
+    """
+    d = plant_camera_distance()
+    bottom = math.atan2(PLANT_BASE_Z - PLANT_CAM_Z, d)
+    top = math.atan2(PLANT_BASE_Z + PLANT_HEIGHT_M - PLANT_CAM_Z, d)
+
+    # Centre on the plant, not on its base: aiming at the pot puts the
+    # canopy -- the part worth photographing -- in the top of the frame.
+    pitch = -(bottom + top) / 2.0
+
+    # SIZED ON THE LARGER DIMENSION, WHICH IS THE WIDTH.
+    #
+    # A strawberry is a rosette: 27 cm across and 15 cm tall. Sizing the
+    # lens on the height alone filled 63 % of the frame vertically and
+    # 85 % horizontally, which leaves less margin than one parking error
+    # is worth -- the first version did exactly that and would have
+    # cropped a leaf off any station parked 4 cm wide.
+    #
+    # So: pick the vertical field that satisfies BOTH, given the image's
+    # aspect ratio, and take whichever is larger.
+    aspect = PLANT_CAM_H / PLANT_CAM_W
+    want = max(PLANT_HEIGHT_M, PLANT_SPREAD_M * aspect)
+    vfov = 2.0 * math.atan(want / (2.0 * d * PLANT_FRAME_FILL))
+    hfov = 2.0 * math.atan(math.tan(vfov / 2.0) / aspect)
+    return pitch, hfov
+
+
+def plant_frame_span() -> tuple[float, float, float, float]:
+    """(frame bottom, plant bottom, plant top, frame top), in radians.
+
+    Returned so the suite can assert the plant is inside the frame with
+    margin, rather than trusting the arithmetic above.
+    """
+    d = plant_camera_distance()
+    pitch, hfov = plant_camera_frame()
+    vfov = 2.0 * math.atan(math.tan(hfov / 2.0) * PLANT_CAM_H / PLANT_CAM_W)
+    return (-pitch - vfov / 2.0,
+            math.atan2(PLANT_BASE_Z - PLANT_CAM_Z, d),
+            math.atan2(PLANT_BASE_Z + PLANT_HEIGHT_M - PLANT_CAM_Z, d),
+            -pitch + vfov / 2.0)
+
+
 #: HOW FAR PAST THE PLANT THE CROSS IS PAINTED, along the aisle.
 #:
 #: The robot cannot see the floor under its own middle -- the chassis is in

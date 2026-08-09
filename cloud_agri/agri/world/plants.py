@@ -45,6 +45,7 @@ asserts that after a swap the plant positions still match the catalogue.
 from __future__ import annotations
 
 import argparse
+import math
 import re
 from pathlib import Path
 
@@ -327,6 +328,34 @@ def triangle_count(path: Path) -> int:
     return n
 
 
+#: WHICH WAY IS UP, PER FORMAT. This is not a detail.
+#:
+#: glTF fixes it in the specification: +Y is up, +Z is forward. STL fixes
+#: nothing, and the two supplied here happen to be Z-up like the rest of
+#: this project.
+#:
+#: fit() assumed Z for both, because the STLs came first and the GLBs were
+#: added without re-asking. The result was every plant lying on its side in
+#: the greenhouse -- which is hard to see in a render of a rosette, and was
+#: finally given away by the one mesh with a base plate baked in: the plate
+#: stood up as a dark vertical wall in the middle of every photograph, and
+#: was reported as "why are the plates arranged like that".
+#:
+#: Gazebo does not rotate a glTF for you. The +90 degree roll that puts a
+#: Y-up mesh upright is written into the pose by mesh_plant_sdf().
+UP_AXIS = {".glb": 1, ".gltf": 1, ".stl": 2, ".dae": 2}
+
+
+def up_axis(path: Path) -> int:
+    """0, 1 or 2 -- the index of this format's vertical axis."""
+    return UP_AXIS.get(path.suffix.lower(), 2)
+
+
+def needs_roll(path: Path) -> bool:
+    """True when the mesh has to be rolled +90 deg to stand up in Gazebo."""
+    return up_axis(path) == 1
+
+
 def fit(path: Path, width_m: float = PLANT_WIDTH_M
         ) -> tuple[float, float, int]:
     """(scale, lift, triangles) to stand this mesh on the gutter top.
@@ -335,13 +364,27 @@ def fit(path: Path, width_m: float = PLANT_WIDTH_M
     lift    raises it so its LOWEST point rests on the surface, rather
             than half-buried -- these meshes are centred on their own
             origin, so without this every plant sinks by half its height
+
+    Both are measured against the format's own up axis (see UP_AXIS), not
+    against Z. Getting that wrong scales the plant by its height instead of
+    its width and lifts it by the wrong number, on top of leaving it lying
+    down.
     """
     lo, hi = mesh_bounds(path)
-    span_xy = max(hi[0] - lo[0], hi[1] - lo[1])
-    if span_xy <= 0:
+    up = up_axis(path)
+    across = [hi[a] - lo[a] for a in range(3) if a != up]
+    span = max(across)
+    if span <= 0:
         raise ValueError(f"{path} has no width; is it a valid mesh?")
-    scale = width_m / span_xy
-    return scale, -lo[2] * scale, triangle_count(path)
+    scale = width_m / span
+    return scale, -lo[up] * scale, triangle_count(path)
+
+
+def fitted_height(path: Path, width_m: float = PLANT_WIDTH_M) -> float:
+    """How tall this mesh stands once fitted, in metres."""
+    lo, hi = mesh_bounds(path)
+    up = up_axis(path)
+    return (hi[up] - lo[up]) * fit(path, width_m)[0]
 
 
 # =====================================================================
@@ -542,18 +585,22 @@ MESH_MATERIAL = ("<ambient>0.06 0.20 0.05 1</ambient>"
 
 def mesh_plant_sdf(name: str, pose: str, uri: str, scale: float,
                    lift: float, base_z: float, yaw: float,
-                   textured: bool = False) -> str:
+                   textured: bool = False, roll: float = 0.0) -> str:
     # A TEXTURED MESH MUST NOT BE GIVEN A MATERIAL. Ours would override the
     # one in the file and turn a photographed strawberry plant into a flat
     # green silhouette -- which is precisely the limitation the textured
     # asset exists to remove. Only an untextured mesh gets tinted.
     material = "" if textured else f"          <material>{MESH_MATERIAL}</material>"
+    # SDF applies Rz(yaw) . Ry(pitch) . Rx(roll), so a +90 deg roll stands a
+    # Y-up glTF upright FIRST and the yaw then spins it about the world's
+    # vertical -- which is the order that gives a plant standing up and
+    # turned, rather than one lying down and rolled.
     return f"""    <model name="{name}">
       <static>true</static>
       <pose>{pose}</pose>
       <link name="link">
         <visual name="plant">
-          <pose>0 0 {base_z + lift:.4f} 0 0 {yaw:.4f}</pose>
+          <pose>0 0 {base_z + lift:.4f} {roll:.4f} 0 {yaw:.4f}</pose>
           <geometry>
             <mesh>
               <uri>{uri}</uri>
@@ -625,7 +672,8 @@ def build_meshes(world: Path, meshes: list[Path], base_z: float,
                                   "file://" + str(path.resolve()),
                                   scale, lift, base_z, yaw,
                                   textured=path.suffix.lower() == ".glb"
-                                  and glb_is_self_contained(path)))
+                                  and glb_is_self_contained(path),
+                                  roll=math.pi / 2 if needs_roll(path) else 0.0))
         replaced += 1
     out.append(sdf[pos:])
     world.write_text("".join(out))
@@ -640,7 +688,9 @@ def build_meshes(world: Path, meshes: list[Path], base_z: float,
         flat += not textured
         lines.append(f"  {path.name:<20} {tris:>7,} tris  "
                      f"scale {scale:.4f}  lifted {lift * 100:.1f} cm  "
-                     f"{'textured' if textured else 'flat colour'}")
+                     f"{fitted_height(path, width_m) * 100:.0f} cm tall  "
+                     f"{'Y-up, rolled upright' if needs_roll(path) else 'Z-up'}"
+                     f"  {'textured' if textured else 'flat colour'}")
     lines.append(f"  {width_m * 100:.0f} cm across, standing on z = "
                  f"{base_z:.2f} m; {replaced * total // max(1, len(fitted)):,}"
                  " triangles in the scene")

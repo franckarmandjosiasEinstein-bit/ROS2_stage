@@ -41,7 +41,9 @@ import math
 import re
 from pathlib import Path
 
-from agri.catalogue import CAMERA_PIVOT_X, SENSOR_OFFSET_X
+from agri.catalogue import (CAMERA_PIVOT_X, PLANT_CAM_Z,
+                            SENSOR_OFFSET_X, plant_camera_frame,
+                            plant_frame_span)
 from agri.vision import CAM_HFOV, CAM_HEIGHT, CAM_WIDTH, CAM_X, CAM_Y, CAM_Z
 
 #: The gz topic the camera publishes on, and therefore the name the bridge
@@ -147,6 +149,69 @@ def _widen_pan(urdf: str) -> str:
     return urdf[:head] + block.replace(_PHASE_B_PAN_LIMIT, wider) + urdf[end:]
 
 
+#: What Phase B's plant camera is aimed and lensed for, and what this
+#: generator replaces it with. Matched exactly rather than blind-replaced,
+#: so a change on the Phase B side is an error here and not a silent
+#: mis-aim of all 48 photographs.
+_PHASE_B_CAM_RPY = 'rpy="0 -0.28 0"'
+_PHASE_B_CAM_POSE = "<pose>0.14 0 0 0 -0.28 0</pose>"
+_PHASE_B_CAM_FOV = "<horizontal_fov>1.2</horizontal_fov>"
+
+
+def _aim_plant_camera(urdf: str) -> tuple[str, str]:
+    """Point the pan camera AT the plant, through a lens that frames it.
+
+    Phase B aimed this camera 16 degrees up through a 68.8 degree lens,
+    for crates down an aisle. On a 27 cm plant 0.64 m away that frames
+    87 x 65 cm -- two thirds wall, floor and sky in every photograph. The
+    replacement comes from catalogue.plant_camera_frame(), which derives
+    both numbers from where the plant actually stands.
+
+    The pose appears TWICE in the source -- once on the j_camera joint,
+    once on the <sensor> that rides on camera_pan -- and they must agree or
+    the picture and the tf frame disagree about where the camera points.
+    Both are replaced here, and a source that does not carry both exactly
+    is an error rather than a partial edit.
+    """
+    pitch, hfov = plant_camera_frame()
+
+    # The mast height is a number the framing is computed FROM, so read it
+    # back rather than trust it -- the same rule as the pivot x below.
+    m = re.search(r'<joint name="j_camera_pan".*?<origin xyz="[-\d.]+ [-\d.]+ '
+                  r'([-\d.]+)"', urdf, re.S)
+    if m is None:
+        raise ValueError("cannot read the j_camera_pan height from the source")
+    if abs(float(m.group(1)) - PLANT_CAM_Z) > 1e-6:
+        raise ValueError(
+            f"the robot carries its pan head at z={m.group(1)} but "
+            f"catalogue.PLANT_CAM_Z says {PLANT_CAM_Z}. The camera's pitch "
+            "is computed from that height; every photograph would be aimed "
+            "at the wrong part of the plant.")
+
+    for wanted in (_PHASE_B_CAM_RPY, _PHASE_B_CAM_POSE, _PHASE_B_CAM_FOV):
+        if wanted not in urdf:
+            raise ValueError(
+                f"the Phase B robot no longer carries {wanted!r}. It was "
+                "aimed and lensed for crates; Phase C re-aims it at a "
+                "plant. Check what changed before updating this matcher.")
+
+    urdf = urdf.replace(_PHASE_B_CAM_RPY, f'rpy="0 {pitch:.6f} 0"')
+    urdf = urdf.replace(_PHASE_B_CAM_POSE,
+                        f"<pose>0.14 0 0 0 {pitch:.6f} 0</pose>")
+    urdf = urdf.replace(_PHASE_B_CAM_FOV,
+                        f"<horizontal_fov>{hfov:.6f}</horizontal_fov>")
+
+    fb, pb, pt, ft = plant_frame_span()
+    note = (f"plant camera re-aimed {math.degrees(-pitch):+.1f} deg "
+            f"(was +16.0), lens {math.degrees(hfov):.1f} deg (was 68.8)\n"
+            f"  the plant spans {math.degrees(pb):+.1f} to "
+            f"{math.degrees(pt):+.1f} deg in a frame of "
+            f"{math.degrees(fb):+.1f} to {math.degrees(ft):+.1f} -- "
+            f"{math.degrees(pb - fb):.1f} deg of margin below, "
+            f"{math.degrees(ft - pt):.1f} above")
+    return urdf, note
+
+
 def build(source: Path, target: Path) -> str:
     urdf = source.read_text()
     if "</robot>" not in urdf:
@@ -169,6 +234,7 @@ def build(source: Path, target: Path) -> str:
             "photograph is aimed from that number; fix the catalogue.")
 
     urdf = _widen_pan(urdf)
+    urdf, aim = _aim_plant_camera(urdf)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(urdf.replace("</robot>", boom_sdf() + "</robot>", 1))
 
