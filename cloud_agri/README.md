@@ -423,15 +423,29 @@ from the robot's machine or a phone on the same network. `agri-cloud`
 prints that address at startup rather than `localhost`.
 
 **Dashboard authentication.** By default `agri-cloud` generates a random
-token and prints the full URL including it — share that URL with anyone who
-needs the dashboard. The token is checked on every API request and on
-`/media/` (query parameter `?token=…` or `Authorization: Bearer …`), because
-a photograph and a CSV row are measurements just as much as the JSON that
+token and prints the full URL including it. **Open that URL once.** The
+server hands the browser an `HttpOnly; SameSite=Strict` cookie and
+redirects to the same page with the token stripped out, so from then on the
+credential is not in the address bar, not in the browser history, not in
+the `Referer` of any outbound link, and not in the logs of any proxy in
+between. Every page also carries `Referrer-Policy: no-referrer`.
+
+The token is checked on every API request and on `/media/`, because a
+photograph and a CSV row are measurements just as much as the JSON that
 describes them, and a token that guards one but not the other guards
-nothing. To choose your own token, pass `--dashboard-token SECRET`; to
-disable authentication entirely (useful for local-only demos), pass
-`--dashboard-token ''`. The offline demo (`agri.demo --serve`) runs without
-a token.
+nothing. It is read from the cookie, from `Authorization: Bearer …`, or
+from `?token=…` — in that order, so `curl` and a cookie-less browser still
+work. Ten wrong tokens from one address inside a minute earn a 60-second
+`429`: the token is 16 random bytes, so this is not about guessing it in
+ten tries, it is about not leaving a machine where a script can try a
+million overnight.
+
+To choose your own, pass `--dashboard-token SECRET`. Authentication can
+still be turned off with `--dashboard-token ''`, but **only together with
+`--http-host 127.0.0.1`** — otherwise the Cloud refuses to start and prints
+why. That flag used to emit a warning and serve anyway, and a warning at
+startup is read once and scrolls away. The offline demo
+(`agri.demo --serve`) runs without a token.
 
 ROS 2's own DDS traffic never crosses the network: Gazebo, RViz and the
 bridge all stay on the robot's machine. So `ROS_DOMAIN_ID` is irrelevant

@@ -15,15 +15,23 @@
 const S = { state: null, quantity: "temperature", selected: null,
             row: "", side: "", token: "" };
 
-/* Auth token: read from the URL's ?token= parameter if present. Stored in
-   memory and sent with every API fetch. The page itself loads without it;
-   only the /api/* endpoints check. */
+/* AUTH. The token normally arrives as an HttpOnly cookie: the operator
+   opens the ?token= URL the Cloud printed exactly once, the server sets the
+   cookie and redirects to a clean address, and from then on the browser
+   sends the credential by itself. That is why S.token is usually empty and
+   nothing here breaks -- the token has simply stopped being this page's
+   business, and stopped living in the history and in every proxy log
+   between here and the operator.
+
+   The ?token= path below survives for the cases the cookie cannot cover: a
+   browser with cookies disabled, and the 401 prompt further down. */
+const CRED = { credentials: "same-origin" };
+
 (function () {
   const p = new URLSearchParams(window.location.search);
   if (p.has("token")) S.token = p.get("token");
-  /* Carry the token across to the table page. Without this the link works,
-     the page renders, and every fetch behind it comes back 401 -- which
-     looks like a broken table rather than a missing credential. */
+  /* Only needed when there is no cookie. With one, /table authorises
+     itself and the plain href in the HTML is right. */
   const nav = document.getElementById("nav-table");
   if (nav && S.token) nav.href = "/table?token=" + encodeURIComponent(S.token);
 })();
@@ -82,7 +90,7 @@ function apiUrl(path) {
 
 async function poll() {
   try {
-    const r = await fetch(apiUrl("/api/state"));
+    const r = await fetch(apiUrl("/api/state"), CRED);
     if (r.status === 401) {
       S.token = prompt("Dashboard token:") || "";
       return poll();
@@ -365,7 +373,7 @@ async function select(label) {
   renderJump();
   renderMap();
   renderDetail(label);
-  const r = await fetch(apiUrl("/api/history/" + encodeURIComponent(label)));
+  const r = await fetch(apiUrl("/api/history/" + encodeURIComponent(label)), CRED);
   renderHistory(await r.json());
   document.getElementById("detail").scrollIntoView({ behavior: "smooth",
                                                      block: "nearest" });
@@ -428,7 +436,7 @@ async function request(targets) {
   try {
     const r = await fetch(apiUrl("/api/request"), {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targets }),
+      body: JSON.stringify({ targets }), ...CRED,
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || r.statusText);
@@ -455,7 +463,7 @@ async function save() {
   hint.className = "hint";
   hint.textContent = "exporting…";
   try {
-    const r = await fetch(apiUrl("/api/export"), { method: "POST" });
+    const r = await fetch(apiUrl("/api/export"), { method: "POST", ...CRED });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || r.statusText);
     hint.textContent = `${d.visits} visit(s), ${d.measured}/${d.total} stations`
@@ -482,7 +490,7 @@ async function quit() {
   hint.className = "hint";
   hint.textContent = "stopping…";
   try {
-    const r = await fetch(apiUrl("/api/quit"), { method: "POST" });
+    const r = await fetch(apiUrl("/api/quit"), { method: "POST", ...CRED });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || r.statusText);
   } catch (e) {

@@ -30,6 +30,7 @@ import argparse
 import json
 import mimetypes
 import os
+import secrets
 import threading
 import time
 from collections import deque
@@ -380,13 +381,75 @@ class Cloud:
 
 
 # ------------------------------------------------------------------- HTTP
+#: The cookie the token moves into on first contact. HttpOnly because no
+#: script needs to read it and a script that cannot read it cannot leak it;
+#: SameSite=Strict because the dashboard is never legitimately reached from
+#: another site, and that alone rules out a page in another tab firing a
+#: /api/request at the greenhouse. NOT Secure -- this is HTTP, and a Secure
+#: cookie on an HTTP origin is silently discarded, which would look like
+#: authentication that mysteriously does not stick. See COOKIE_NOTE.
+COOKIE = "agri_token"
+
+#: How many wrong tokens one address may offer, and over what window,
+#: before it is made to wait. A dashboard token is 16 random bytes; nobody
+#: is guessing it in ten tries. The limit exists so that a script CAN NOT
+#: try a million, which over an evening on an unattended machine is the
+#: only realistic way in.
+AUTH_MAX_FAILURES = 10
+AUTH_WINDOW_S = 60.0
+AUTH_LOCKOUT_S = 60.0
+
+
+class _Throttle:
+    """Failed-auth counter, shared across the server's threads."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._fails: dict[str, list[float]] = {}
+        self._until: dict[str, float] = {}
+
+    def locked_for(self, who: str) -> float:
+        """Seconds this address must still wait, or 0."""
+        with self._lock:
+            return max(0.0, self._until.get(who, 0.0) - time.time())
+
+    def record_failure(self, who: str) -> None:
+        now = time.time()
+        with self._lock:
+            hits = [t for t in self._fails.get(who, [])
+                    if now - t < AUTH_WINDOW_S]
+            hits.append(now)
+            self._fails[who] = hits
+            if len(hits) >= AUTH_MAX_FAILURES:
+                self._until[who] = now + AUTH_LOCKOUT_S
+                self._fails[who] = []
+
+    def record_success(self, who: str) -> None:
+        with self._lock:
+            self._fails.pop(who, None)
+            self._until.pop(who, None)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "AgriCloud/1.0"
 
+    #: The default when nobody supplies one. It has to outlive the request:
+    #: BaseHTTPRequestHandler builds a fresh instance per connection, so
+    #: per-instance state would count to one and reset -- which is no limit
+    #: at all. Passed in explicitly by anything that runs two servers in one
+    #: process, so one server's lockout cannot silence the other's.
+    _shared_throttle = _Throttle()
+
+    # `throttle` is KEYWORD-ONLY on purpose. Everything after this is the
+    # (request, client_address, server) triple that BaseHTTPRequestHandler
+    # passes positionally, so a fifth positional here silently eats the
+    # request object and the failure surfaces as a missing 'server'.
     def __init__(self, cloud: Cloud, publish, auth_token: str,
-                 shutdown=None, *a, **kw) -> None:
+                 shutdown=None, *a, throttle: _Throttle | None = None,
+                 **kw) -> None:
         self.cloud, self.publish = cloud, publish
         self.auth_token = auth_token
+        self.throttle = throttle or Handler._shared_throttle
         # None when nothing owns the process's lifetime -- the offline demo
         # and the tests both serve the dashboard without being allowed to
         # kill the interpreter out from under their caller.
@@ -396,34 +459,128 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args) -> None:      # quiet: the MQTT side talks
         pass
 
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
+    def _send(self, code: int, body: bytes, ctype: str,
+              extra: list[tuple[str, str]] | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        # A dashboard page that ends up in a search engine's index, or that
+        # leaks its own URL -- token and all -- in a Referer header on the
+        # way to any external link, is the leak this whole change exists to
+        # close. Neither costs anything to prevent.
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in (extra or []):
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, obj: Any, code: int = 200) -> None:
-        self._send(code, json.dumps(obj).encode(), "application/json")
+    def _json(self, obj: Any, code: int = 200,
+              extra: list[tuple[str, str]] | None = None) -> None:
+        self._send(code, json.dumps(obj).encode(), "application/json", extra)
+
+    # ------------------------------------------------------------ auth
+    def _who(self) -> str:
+        return self.client_address[0] if self.client_address else "?"
+
+    def _cookie_token(self) -> str:
+        """The token out of the Cookie header, or ''."""
+        from http.cookies import SimpleCookie          # noqa: PLC0415
+
+        raw = self.headers.get("Cookie", "")
+        if not raw:
+            return ""
+        try:
+            jar = SimpleCookie()
+            jar.load(raw)
+        except Exception:                              # noqa: BLE001
+            return ""
+        m = jar.get(COOKIE)
+        return m.value if m else ""
+
+    def _offered_token(self) -> tuple[str, str]:
+        """(token, where it came from). Cookie first, then header, then URL.
+
+        The order is the point. Once the cookie exists the query string
+        stops being consulted in practice, which is what gets the token out
+        of the browser's history and out of every log between here and the
+        operator.
+        """
+        tok = self._cookie_token()
+        if tok:
+            return tok, "cookie"
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[7:], "header"
+        from urllib.parse import parse_qs, urlparse    # noqa: PLC0415
+        return parse_qs(urlparse(self.path).query).get("token", [""])[0], "url"
+
+    def _cookie_header(self) -> tuple[str, str]:
+        return ("Set-Cookie",
+                f"{COOKIE}={self.auth_token}; Path=/; HttpOnly; "
+                f"SameSite=Strict; Max-Age=43200")
 
     def _check_auth(self) -> bool:
-        """Return True if the request is authorised, or send 401."""
+        """Return True if the request is authorised, or answer and return False.
+
+        On success from the URL it ALSO sets the cookie, so the very first
+        request that carries a naked token is the last one that has to.
+        """
         if not self.auth_token:
             return True
-        from urllib.parse import parse_qs, urlparse  # noqa: PLC0415
-        qs = parse_qs(urlparse(self.path).query)
-        token = qs.get("token", [""])[0]
-        if not token:
-            auth = self.headers.get("Authorization", "")
-            if auth.startswith("Bearer "):
-                token = auth[7:]
-        if token == self.auth_token:
+
+        wait = self.throttle.locked_for(self._who())
+        if wait > 0:
+            return self._too_many(wait)
+
+        token, source = self._offered_token()
+        if token and secrets.compare_digest(token, self.auth_token):
+            self.throttle.record_success(self._who())
+            self._authorised_via = source
             return True
-        self._json({"error": "unauthorized"}, 401)
+
+        self.throttle.record_failure(self._who())
+        self._json({"error": "unauthorized",
+                    "detail": "pass ?token=<the token the Cloud printed at "
+                              "startup> once; it moves into a cookie"}, 401)
         return False
+
+    def _too_many(self, wait: float) -> bool:
+        self._json({"error": "too many attempts",
+                    "retry_after_s": round(wait)}, 429,
+                   [("Retry-After", str(int(wait) + 1))])
+        return False
+
+    def _redirect_clean(self, path: str) -> None:
+        """Set the cookie and bounce to the same page with no token in it.
+
+        This is the whole trick, and it is three lines: the operator pastes
+        the URL the Cloud printed exactly once, the browser is handed a
+        cookie, and the address bar -- and with it the history, the Referer
+        on every outbound link, and any proxy log in between -- ends up
+        holding a plain /table.
+        """
+        self.send_response(303)
+        self.send_header("Location", path)
+        self.send_header("Referrer-Policy", "no-referrer")
+        k, v = self._cookie_header()
+        self.send_header(k, v)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self) -> None:                        # noqa: N802
         path = self.path.split("?")[0]
+
+        # A page opened with ?token= gets the cookie and a clean URL. Done
+        # before anything is served, so the token never reaches the history.
+        if path in ("/", "/index.html", "/table", "/table.html"):
+            from urllib.parse import parse_qs, urlparse   # noqa: PLC0415
+            offered = parse_qs(urlparse(self.path).query).get("token", [""])[0]
+            if (self.auth_token and offered
+                    and secrets.compare_digest(offered, self.auth_token)):
+                self.throttle.record_success(self._who())
+                return self._redirect_clean(path)
+
         if path in ("/", "/index.html"):
             return self._file(DASHBOARD / "index.html")
         if path in ("/table", "/table.html"):
@@ -754,9 +911,42 @@ def _my_address() -> str:
         s.close()
 
 
-def main(argv: list[str] | None = None) -> int:
-    import secrets                                       # noqa: PLC0415
+def _is_loopback(host: str) -> bool:
+    """True only for an address that cannot be reached from another machine.
 
+    An empty host means INADDR_ANY -- every interface -- which is the
+    default and is emphatically not loopback. Getting that backwards is how
+    a check like this ends up permitting exactly what it exists to forbid.
+    """
+    import ipaddress                                     # noqa: PLC0415
+
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def no_auth_refusal(host: str, port: int) -> str:
+    """Why the Cloud will not start unauthenticated on a public interface."""
+    where = host or "every interface on this machine"
+    return (
+        f"cloud: REFUSING to start.\n"
+        f"\n"
+        f"  --dashboard-token '' turns off authentication, and the dashboard\n"
+        f"  is set to listen on {where}. Anyone who can reach\n"
+        f"  port {port} could then issue requests, drive the robot around the\n"
+        f"  greenhouse, read every measurement and shut the simulation down.\n"
+        f"\n"
+        f"  Pick one:\n"
+        f"    keep the token   (just drop --dashboard-token; one is generated)\n"
+        f"    or stay local    --dashboard-token '' --http-host 127.0.0.1\n")
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Smart-agriculture Cloud")
     ap.add_argument("--broker", default=DEFAULT_BROKER)
     ap.add_argument("--broker-port", type=int, default=DEFAULT_PORT)
@@ -765,7 +955,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--keys", type=Path, default=Path("keys"))
     ap.add_argument("--dashboard-token", default=None,
                     help="token for dashboard API access. Generated at random "
-                         "if not given. Pass an empty string to disable auth.")
+                         "if not given. Pass an empty string to disable auth, "
+                         "which is only permitted with --http-host 127.0.0.1.")
+    ap.add_argument("--http-host", default="",
+                    help="address to bind the dashboard to. Empty (the "
+                         "default) is every interface; 127.0.0.1 keeps it on "
+                         "this machine.")
     ap.add_argument("--keep-sim", action="store_true",
                     help="do NOT stop the simulation when this Cloud stops. "
                          "By default Ctrl-C here, and QUITTER on the "
@@ -780,6 +975,17 @@ def main(argv: list[str] | None = None) -> int:
     auth_token = args.dashboard_token
     if auth_token is None:
         auth_token = secrets.token_urlsafe(16)
+
+    # THE OPEN DOOR, CLOSED. --dashboard-token '' was a documented flag with
+    # a warning printed under it, and a warning printed at startup is read
+    # once and scrolls away; forty minutes later the greenhouse is being
+    # driven by whoever is on the wifi. Disabling authentication is still
+    # allowed -- it is genuinely convenient on a laptop -- but only when the
+    # dashboard cannot be reached from anywhere else, which is a property
+    # the program can check instead of a promise the operator has to keep.
+    if not auth_token and not _is_loopback(args.http_host):
+        print(no_auth_refusal(args.http_host, args.http_port))
+        return 2
 
     cloud = Cloud(Store(args.store), args.keys)
     client = mqtt_client("agri-cloud")
@@ -887,19 +1093,22 @@ def main(argv: list[str] | None = None) -> int:
 
         threading.Thread(target=bye, daemon=True).start()
 
-    addr = _my_address()
+    addr = "127.0.0.1" if _is_loopback(args.http_host) else _my_address()
     base_url = f"http://{addr}:{args.http_port}"
     httpd = ThreadingHTTPServer(
-        ("", args.http_port),
+        (args.http_host, args.http_port),
         partial(Handler, cloud, publish, auth_token, shutdown_from_web))
     if auth_token:
         print(f"cloud: dashboard on {base_url}?token={auth_token}")
-        print(f"       (the token protects the API; pass --dashboard-token '' "
-              "to disable)")
+        print("       Open it once. The token moves into an HttpOnly cookie "
+              "and the")
+        print("       address bar goes back to a plain URL, so it stops "
+              "living in")
+        print("       the history and in every proxy log on the way here.")
     else:
         print(f"cloud: dashboard on {base_url}")
-        print("       WARNING: no dashboard token — anyone on the network "
-              "can issue requests")
+        print("       no token — allowed only because this is bound to "
+              "loopback")
     print(f"cloud: {len(all_labels())} stations known, "
           f"{cloud.store.coverage()[0]} already measured")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

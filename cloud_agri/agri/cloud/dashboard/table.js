@@ -15,6 +15,11 @@
 
 const T = { token: "", state: null, onlyMeasured: false };
 
+/* The token normally rides in an HttpOnly cookie the server set on
+   first contact; credentials:"same-origin" is what sends it. The
+   ?token= path below is the fallback for a browser without cookies. */
+const CRED = { credentials: "same-origin" };
+
 (function () {
   const p = new URLSearchParams(window.location.search);
   if (p.has("token")) T.token = p.get("token");
@@ -99,7 +104,7 @@ function render() {
 
 async function poll() {
   try {
-    const r = await fetch(apiUrl("/api/state"));
+    const r = await fetch(apiUrl("/api/state"), CRED);
     if (r.status === 401) {
       document.getElementById("tablefoot").textContent =
         "401 — this page needs the ?token= the Cloud printed at startup";
@@ -118,7 +123,7 @@ document.getElementById("only-measured").onchange = e => {
 };
 document.getElementById("dl-csv").onclick = async e => {
   e.preventDefault();
-  const r = await fetch(apiUrl("/api/export"), { method: "POST" });
+  const r = await fetch(apiUrl("/api/export"), { method: "POST", ...CRED });
   const d = await r.json();
   if (d.url) window.location = apiUrl(d.url);
 };

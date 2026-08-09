@@ -428,6 +428,14 @@ def _raises(fn) -> bool:
     return False
 
 
+def _find_all(text: str, needle: str) -> list[int]:
+    out, i = [], text.find(needle)
+    while i != -1:
+        out.append(i)
+        i = text.find(needle, i + 1)
+    return out
+
+
 def _chain_links(path: Path) -> bool:
     """Every line names the hash of the one before it."""
     prev = None
@@ -1787,9 +1795,19 @@ def check_two_machines() -> None:
               f"invented -- found {calls}")
 
     # The address the operator is told to open has to be the one that works.
-    check("the dashboard binds every interface, not just loopback",
-          'ThreadingHTTPServer(' in server and '("", args.http_port)' in server,
+    from agri.cloud.server import _is_loopback  # noqa: PLC0415
+    check("the dashboard binds every interface by DEFAULT, not loopback",
+          'ThreadingHTTPServer(' in server
+          and '(args.http_host, args.http_port)' in server
+          and '"--http-host", default=""' in server,
           "a Cloud nobody can reach from the robot's machine is not a Cloud")
+    check("and an empty bind host is NOT mistaken for loopback",
+          not _is_loopback("") and not _is_loopback("0.0.0.0"),
+          "getting that backwards would make the no-token check permit "
+          "exactly what it exists to forbid")
+    check("while a real loopback address is recognised, by any spelling",
+          all(_is_loopback(h) for h in ("127.0.0.1", "localhost", "::1",
+                                        "127.0.0.5")))
     check("and prints an address that works from another machine",
           "_my_address()" in server and "192.0.2.1" in server,
           "printing localhost was true only while both ran on one computer")
@@ -1957,6 +1975,151 @@ def check_dashboard() -> None:
           srv.count("export_plants_csv") == 3,
           f"{srv.count('export_plants_csv')} of 3 call sites -- the console, "
           "the dashboard button and the shutdown must agree")
+
+
+def check_dashboard_auth() -> None:
+    """The token, over a real socket, because the leak is in the URL."""
+    print("\nthe dashboard's front door")
+    import urllib.error                                   # noqa: PLC0415
+    import urllib.request                                 # noqa: PLC0415
+    from functools import partial                         # noqa: PLC0415
+    from http.server import ThreadingHTTPServer           # noqa: PLC0415
+
+    from agri import keys                                 # noqa: PLC0415
+    from agri.cloud.server import (COOKIE, Cloud, Handler,    # noqa: PLC0415
+                                   _is_loopback, _Throttle,
+                                   no_auth_refusal)
+    from agri.cloud.server import main as server_main     # noqa: PLC0415
+    from agri.cloud.store import Store                    # noqa: PLC0415
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        """Follow nothing: the redirect IS what is being tested."""
+
+        def redirect_request(self, *a, **kw):
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect)
+
+    def fetch(url, cookie=""):
+        req = urllib.request.Request(url)
+        if cookie:
+            req.add_header("Cookie", cookie)
+        try:
+            with opener.open(req, timeout=5) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        keys.bootstrap(d / "keys")
+        cloud = Cloud(Store(d / "store"), d / "keys")
+        token = "s3cret-token"
+        httpd = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            # Its OWN throttle. A lockout is per server, not per process:
+            # this test deliberately triggers one, and the next test serves
+            # from the same 127.0.0.1.
+            partial(Handler, cloud, lambda *a: None, token, None,
+                    throttle=_Throttle()))
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            # 1. The naked token in the URL is accepted ONCE, and the very
+            #    first thing it buys is being got rid of.
+            code, hdr, _ = fetch(f"{base}/?token={token}")
+            check("opening the dashboard with ?token= redirects",
+                  code == 303, f"{code}")
+            check("to the SAME page with no token in the address",
+                  hdr.get("Location") == "/", hdr.get("Location"))
+            cookie = hdr.get("Set-Cookie", "")
+            check("and hands over a cookie instead",
+                  cookie.startswith(f"{COOKIE}={token}"), cookie)
+            check("which no script can read",
+                  "HttpOnly" in cookie,
+                  "a cookie JavaScript cannot read is a cookie an injected "
+                  "script cannot steal")
+            check("and which no other site can send",
+                  "SameSite=Strict" in cookie,
+                  "without it, a page in another tab could POST /api/request "
+                  "and drive the robot")
+            check("and no page ever leaks its own URL onward",
+                  hdr.get("Referrer-Policy") == "no-referrer",
+                  "the token was in that URL a moment ago")
+
+            # 2. From then on the cookie alone works, with nothing in the URL.
+            jar = f"{COOKIE}={token}"
+            code, _, body = fetch(f"{base}/api/state", cookie=jar)
+            check("the cookie alone authorises the API", code == 200, str(code))
+            check("and the answer is the real state, not a stub",
+                  b"summary" in body, body[:80])
+            code, _, _ = fetch(f"{base}/api/state")
+            check("while no credential at all is refused", code == 401)
+            code, _, _ = fetch(f"{base}/api/state", cookie=f"{COOKIE}=wrong")
+            check("and a wrong cookie is refused too", code == 401)
+
+            # 3. The table page carries the same cookie, so the link between
+            #    the two pages no longer has to smuggle the token.
+            code, hdr, _ = fetch(f"{base}/table?token={token}")
+            check("the table page sheds its token the same way",
+                  code == 303 and hdr.get("Location") == "/table",
+                  f"{code} {hdr.get('Location')}")
+
+            # 4. An API call that arrives with a naked token still works --
+            #    curl, a script, a browser with cookies off -- and is handed
+            #    the cookie so the next one need not carry it.
+            code, hdr, _ = fetch(f"{base}/api/state?token={token}")
+            check("a token on an API call is still accepted", code == 200)
+
+            # 5. Guessing. A 16-byte token is not brute-forced in ten tries;
+            #    the point is that a script cannot try a million overnight.
+            codes = [fetch(f"{base}/api/state?token=wrong{i}")[0]
+                     for i in range(14)]
+            check("repeated wrong tokens start being refused outright",
+                  429 in codes,
+                  f"got {codes} -- an unattended dashboard on a laptop is "
+                  "exactly what a slow guessing script is for")
+            check("and the refusal says how long to wait",
+                  fetch(f"{base}/api/state?token=nope")[1].get("Retry-After"),
+                  "a 429 with no Retry-After is a client that hammers on")
+            # The right token must still work once the lockout expires, and
+            # a locked-out attacker must not lock out the operator forever:
+            # this asserts the lockout is bounded, not that it is absent.
+            from agri.cloud.server import AUTH_LOCKOUT_S   # noqa: PLC0415
+            check("the lockout is measured in a minute, not forever",
+                  0 < AUTH_LOCKOUT_S <= 300, f"{AUTH_LOCKOUT_S} s")
+        finally:
+            httpd.shutdown()
+
+    # 6. The browser has to actually SEND the cookie, or every page would
+    #    quietly fall back to the URL token and none of the above would
+    #    have changed anything.
+    dash = ROOT / "agri" / "cloud" / "dashboard"
+    for name in ("app.js", "table.js"):
+        src = (dash / name).read_text()
+        # Up to the end of the call, not the end of the line: the POST
+        # that issues a request spans four lines, and a line-based match
+        # would have declared it fine while it sent no cookie at all.
+        fetches = [src[i:src.index(");", i) + 2]
+                   for i in _find_all(src, "fetch(apiUrl(")]
+        check(f"{name} sends credentials on every API call",
+              bool(fetches) and all("CRED" in f for f in fetches),
+              f"these would not carry the cookie: "
+              f"{[f for f in fetches if 'CRED' not in f]}")
+        check(f"{name} asks for same-origin credentials, not 'include'",
+              'credentials: "same-origin"' in src,
+              "'include' would send the cookie cross-origin as well")
+
+    # 7. The open door. --dashboard-token '' was a flag with a warning
+    #    printed under it, and a startup warning scrolls away.
+    check("an empty bind address is not loopback", not _is_loopback(""))
+    rc = server_main(["--dashboard-token", "", "--http-port", "0"])
+    check("no token on a public interface REFUSES to start", rc == 2,
+          f"exit {rc} -- it used to print a warning and serve anyway")
+    msg = no_auth_refusal("", 8088)
+    check("and the refusal explains both ways out",
+          "--http-host 127.0.0.1" in msg and "drop --dashboard-token" in msg,
+          msg)
 
 
 def check_session_buttons() -> None:
@@ -3143,7 +3306,7 @@ def main() -> int:
                check_vision,
                check_world,
                check_ros_package, check_two_machines, check_dashboard,
-               check_session_buttons, check_multinode,
+               check_dashboard_auth, check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
                check_demo, check_hygiene):
         fn()
