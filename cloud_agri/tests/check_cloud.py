@@ -768,6 +768,121 @@ def check_broker_auth() -> None:
           "between one bad node and the fleet")
 
 
+def check_ensure() -> None:
+    print("\nthe generated world: you cannot forget to build it")
+    import shutil                                         # noqa: PLC0415
+    import time as _t                                     # noqa: PLC0415
+
+    from agri.world import ensure as E                    # noqa: PLC0415
+
+    d = Path(tempfile.mkdtemp()) / "cloud_agri"
+    (d / "worlds").mkdir(parents=True)
+    (d / "urdf").mkdir()
+    (d / "meshes").mkdir()
+    (d / "agri" / "world").mkdir(parents=True)
+    for src in E.WORLD_SOURCES + E.URDF_SOURCES:
+        dst = d / src
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / src, dst)
+
+    world = d / "worlds" / "greenhouse_cloud.sdf"
+    urdf = d / "urdf" / "youbot_agri.urdf"
+
+    why = E.why_stale(d)
+    check("a fresh clone with no world is reported stale",
+          any("does not exist" in r for r in why), str(why))
+    check("and so is the missing robot description",
+          any("youbot_agri.urdf does not exist" in r for r in why), str(why))
+
+    world.write_text("<sdf><world name='x'></world></sdf>")
+    urdf.write_text("<robot/>")
+    _t.sleep(0.01)
+    check("with both present and nothing newer, nothing is stale",
+          E.why_stale(d) == [], str(E.why_stale(d)))
+
+    # The one that moved the crosses. A pull rewrites the .py files with a
+    # fresh mtime; a world built before it still has the old marks, and the
+    # robot parks perfectly on paint that is no longer there.
+    (d / "agri" / "catalogue.py").touch()
+    check("a world older than the catalogue is stale",
+          any("older than the code" in r for r in E.why_stale(d)),
+          str(E.why_stale(d)))
+
+    world.touch()
+    urdf.touch()
+    check("and touching it settles that", E.why_stale(d) == [])
+
+    # No plants. This is the exact state a demonstration was given: a world
+    # built by make_world alone, so every plant renders as a green sphere.
+    (d / "meshes" / "strawberry_1.glb").write_bytes(b"glTF fake")
+    why = E.why_stale(d)
+    check("a world with meshes available but none used is stale",
+          any("green sphere" in r for r in why), str(why))
+    check("and the reason says what it would LOOK like, not just what is "
+          "missing", any("render as a green sphere" in r for r in why),
+          "the operator sees spheres; the message has to connect to that")
+
+    # The invisible one: a mesh path from somebody else's disk.
+    world.write_text(
+        "<sdf><world name='x'><model><visual><geometry><mesh>"
+        "<uri>file:///home/someone-else/strawberry_1.glb</uri>"
+        "</mesh></geometry></visual></model></world></sdf>")
+    dead = E.dead_mesh_uris(world)
+    check("a mesh URI pointing at another machine is detected",
+          dead == ["/home/someone-else/strawberry_1.glb"], str(dead))
+    check("and it is reported as stale, with the path",
+          any("do not exist on this machine" in r and "someone-else" in r
+              for r in E.why_stale(d)), str(E.why_stale(d)))
+    check("and the reason says Gazebo would be SILENT about it",
+          any("say nothing about it" in r for r in E.why_stale(d)),
+          "a missing texture or a dead path renders as nothing, with no "
+          "error anywhere -- that is why this check exists at all")
+
+    real = d / "meshes" / "strawberry_1.glb"
+    world.write_text("<sdf><world name='x'><model><visual><geometry><mesh>"
+                     f"<uri>file://{real}</uri>"
+                     "</mesh></geometry></visual></model></world></sdf>")
+    check("a mesh path that DOES exist here is fine",
+          E.dead_mesh_uris(world) == [] and E.why_stale(d) == [],
+          str(E.why_stale(d)))
+
+    # And the real thing, in the real tree.
+    E.ensure()
+    check("the real world ends up current", E.why_stale() == [],
+          str(E.why_stale()))
+    text = (ROOT / "worlds" / "greenhouse_cloud.sdf").read_text()
+    check("with all 24 plants meshed", text.count("<mesh>") == 24)
+    check("and every mesh path it names is on THIS disk",
+          E.dead_mesh_uris(ROOT / "worlds" / "greenhouse_cloud.sdf") == [])
+    check("running it again is a no-op", E.ensure() == [],
+          "a generator that rebuilds on every launch adds a minute to "
+          "every demonstration")
+
+    # run_sim.sh has to actually call it, or none of this happens.
+    sh = (ROOT / "run_sim.sh").read_text()
+    # Anchored on the real invocation, not on "ros2 launch": a comment
+    # forty lines up mentions the phrase, and matching that made this pass
+    # while measuring nothing. Same trap as the ordering checks below.
+    check("run_sim.sh builds the world before launching",
+          "agri.world.ensure" in sh
+          and sh.index("agri.world.ensure")
+          < sh.index("stdbuf -oL -eL ros2 launch"),
+          "generating it after the launch reads it is the same as not "
+          "generating it")
+    check("and stops if it cannot", "die \"could not generate the world" in sh)
+    ignore = (ROOT / ".gitignore").read_text()
+    check("the generated files are NOT tracked",
+          "worlds/" in ignore and "urdf/" in ignore,
+          "a tracked generated file makes every regeneration block the "
+          "next git pull -- which is how a demonstration ran four commits "
+          "behind without anybody noticing")
+    import subprocess                                     # noqa: PLC0415
+    tracked = subprocess.run(
+        ["git", "ls-files", "worlds", "urdf"], cwd=str(ROOT),
+        capture_output=True, text=True).stdout.strip()
+    check("and git agrees", not tracked, tracked)
+
+
 def check_chain() -> None:
     print("\nstore: a filed reading that changes says so")
     import subprocess
@@ -1786,6 +1901,12 @@ def check_ros_package() -> None:
     from agri.world.make_robot import FLOOR_CAM_TOPIC   # noqa: PLC0415
     check("the floor camera's gz topic matches the URDF generator",
           f'gz_topic_name: "/{FLOOR_CAM_TOPIC}"' in bridge)
+    # The world is generated and no longer tracked, so a fresh clone has
+    # none. Build it rather than skipping: the check below is about the
+    # REAL generated world matching the bridge, and a skip here would pass
+    # silently on exactly the machine most likely to be misconfigured.
+    from agri.world import ensure as _ensure            # noqa: PLC0415
+    _ensure.ensure()
     world = (ROOT / "worlds" / "greenhouse_cloud.sdf").read_text()
     name = re.search(r'<world name="([^"]+)"', world).group(1)
     check("the joint-state bridge names the world the launch file opens",
@@ -3652,6 +3773,7 @@ def main() -> int:
     print("cloud_agri pre-flight checks")
     for fn in (check_labels, check_catalogue, check_crypto, check_replay,
                check_trust, check_broker_auth, check_chain,
+               check_ensure,
                check_qr,
                check_sensors, check_telemetry, check_numpy_abi,
                check_mqtt_compat, check_aisles,

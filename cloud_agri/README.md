@@ -35,10 +35,10 @@ robot from a stationary ESP.
 | `agri/cloud/` | the Cloud: MQTT client, HTTP server, store, dashboard |
 | `agri/world/` | generators: the world with its crosses, the robot with its floor camera |
 | `ros2/src/agri_robot/` | the ROS 2 package: the body. Wheels, cameras, launch file. |
-| `worlds/`, `urdf/` | **generated** — do not edit, regenerate |
+| `worlds/`, `urdf/` | **generated, and not in git.** `run_sim.sh` builds them; see `agri/world/ensure.py` |
 | `run_sim.sh`, `run_cloud.sh` | the two commands that start everything, and stop it |
 | `tools/prettylog.py` | turns the launch's 140-line firehose into the eight lines that matter |
-| `tests/check_cloud.py` | 655 pre-flight checks, none of which need a broker, ROS or a network |
+| `tests/check_cloud.py` | 674 pre-flight checks, none of which need a broker, ROS or a network |
 | `tests/check_live.sh` | the one diagnostic that needs the system **running** |
 
 The split is deliberate. Everything that can be tested without a simulator
@@ -148,9 +148,10 @@ cd cloud_agri && ./run_cloud.sh
 ```
 
 That is the whole procedure. `run_sim.sh` activates the virtualenv, sources
-ROS 2 and the workspace, starts `mosquitto` if nothing is already listening on
-1883, and launches Gazebo, `robot_state_publisher`, the gz bridge, `agri_viz`,
-RViz and the robot node. `run_cloud.sh` waits for the broker and opens the
+ROS 2 and the workspace, **regenerates the world and the robot if they are
+missing or out of date — plant meshes included**, starts `mosquitto` if
+nothing is already listening on 1883, and launches Gazebo,
+`robot_state_publisher`, the gz bridge, `agri_viz`, RViz and the robot node. `run_cloud.sh` waits for the broker and opens the
 Cloud. Both refuse to start with an explanation rather than half-starting.
 
 **Everything stops together.** Ctrl-C in either window, or **QUITTER** on the
@@ -158,6 +159,18 @@ dashboard, exports both CSVs and then takes the whole simulation down —
 Gazebo's forked server and GUI, the camera watchdog, RViz, the bridge, the
 robot node, and the broker if `run_sim.sh` started it. Nothing is left behind
 to confuse the next run. `./run_cloud.sh --keep-sim` opts out.
+
+**You cannot forget to build the world**, and that is deliberate. `worlds/`
+and `urdf/` used to be committed while this README told you to regenerate
+them — two things that cannot both be right. A regenerated world is a
+locally-modified tracked file, so the next `git pull` aborts; and a pasted
+block of commands carries on past an aborted pull, because every line of a
+paste runs independently and `&&` protects nothing past a newline. That
+combination once left a demonstration four commits behind, showing green
+spheres, with nothing on screen saying so. `agri/world/ensure.py` now
+decides what to rebuild, and it catches the case Gazebo is silent about: a
+mesh URI is an ABSOLUTE path, so a world generated on another machine points
+into empty space and renders nothing, with no error in any log.
 
 The two scripts stay two scripts on purpose: the Cloud is meant to be able to
 run on another computer, which is the only reason there is a broker between
@@ -170,9 +183,15 @@ being the other's parent — and why that signal is a file rather than a PID.
 ```bash
 # 0. once: generate the world, the robot, and both key pairs
 cd cloud_agri
-python3 -m agri.world.make_world      # -> worlds/greenhouse_cloud.sdf (48 crosses)
-python3 -m agri.world.make_robot      # -> urdf/youbot_agri.urdf (floor camera)
+python3 -m agri.world.ensure          # -> worlds/, urdf/, WITH the plant meshes
 python3 -m agri.keys                  # -> keys/{cloud,robot}_{private,public}.pem
+
+# ensure is make_world + make_plants + make_robot, and it only rebuilds what
+# is missing or out of date. run_sim.sh runs it for you; this line is here
+# for the long way. The individual generators still exist:
+#     python3 -m agri.world.make_world    # 48 crosses, plants as spheres
+#     python3 -m agri.world.make_plants --meshes meshes/strawberry_[1-4].glb
+#     python3 -m agri.world.make_robot    # the floor camera
 
 # 1. the broker
 mosquitto -p 1883 -v
@@ -846,7 +865,7 @@ commands wheel velocities. Everything around it (the mission logic, the
 measurement, the crypto, the store) is tested offline in `check_cloud.py`;
 the driver is tested by running the simulator. Writing a mock odometry
 source and a mock camera feed for it is a natural next step, but it was not
-prioritised over getting the other 654 checks to pass first.
+prioritised over getting the other 673 checks to pass first.
 
 ---
 

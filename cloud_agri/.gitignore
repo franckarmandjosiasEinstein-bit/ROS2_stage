@@ -12,6 +12,21 @@ demo_run/
 logs/
 *.db
 
+# GENERATED, and deliberately not tracked.
+#
+# These were committed once, while the README told you to regenerate them.
+# Both cannot be right, and the way it failed is why they are here now: a
+# regenerated world is a locally-modified tracked file, so the next
+# `git pull` aborts -- and a pasted block of commands carries on past the
+# abort, because each line of a paste runs independently. That left a
+# demonstration running four commits behind, showing green spheres,
+# with nothing on screen saying so.
+#
+# run_sim.sh now builds them (agri/world/ensure.py), so a fresh clone needs
+# no extra step and a stale world cannot survive a pull.
+worlds/
+urdf/
+
 # Python
 __pycache__/
 *.egg-info/

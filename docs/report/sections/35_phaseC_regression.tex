@@ -19,9 +19,9 @@ that requires bringing up Gazebo is a test nobody runs before a small
 change.
 
 \begin{table}[!t]
-\caption{The 655 pre-flight checks by area. One check runs only where
-\texttt{rclpy} is importable, so a machine with no ROS~2 reports 654.
-The suite grew by 271 checks when the security posture of
+\caption{The 674 pre-flight checks by area. One check runs only where
+\texttt{rclpy} is importable, so a machine with no ROS~2 reports 673.
+The suite grew by 290 checks when the security posture of
 Sec.~\ref{sec:security_posture} was addressed, and roughly a quarter of
 those are refusals.}
 \label{tab:checks}
@@ -31,6 +31,7 @@ those are refusals.}
 area & checks \\
 \midrule
 generated world and the plant meshes          &  67 \\
+generated assets: staleness and mesh paths    &  19 \\
 the ROS~2 package (read, never imported)      &  63 \\
 the two launch scripts                        &  49 \\
 route order and the energy budget             &  44 \\
@@ -59,7 +60,7 @@ paho client construction                      &   4 \\
 repository hygiene                            &   3 \\
 numpy ABI against rclpy                       &   1 \\
 \midrule
-\textbf{total}                                & \textbf{655} \\
+\textbf{total}                                & \textbf{674} \\
 \bottomrule
 \end{tabular}
 \end{table}

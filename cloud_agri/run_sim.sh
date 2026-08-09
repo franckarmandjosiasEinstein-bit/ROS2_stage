@@ -109,6 +109,25 @@ ros2 pkg prefix agri_robot >/dev/null 2>&1 \
     || die "agri_robot is not in this workspace's install. Build it:
               cd $WS && colcon build --symlink-install --base-paths cloud_agri/ros2/src"
 
+# ------------------------------------------------- 2b. the generated world
+# The world and the URDF are GENERATED and are not in git. Building them
+# here means the answer to "did I remember to run make_plants" is "you
+# cannot forget" -- which is not a hypothetical: a pull that aborted on a
+# locally-modified world once left a demonstration showing green spheres,
+# with nothing on screen saying the plant meshes had never been downloaded.
+#
+# agri/world/ensure.py decides. It also catches the mesh URI that points at
+# another machine's disk, which Gazebo renders as nothing at all and does
+# not mention in any log.
+if ! ENSURED="$(python3 -m agri.world.ensure 2>&1)"; then
+    printf '%s\n' "$ENSURED" >&2
+    die "could not generate the world. Run it by hand to see why:
+              python3 -m agri.world.ensure"
+fi
+if [ -n "$ENSURED" ]; then
+    while IFS= read -r line; do say "world: $line"; done <<< "$ENSURED"
+fi
+
 # ----------------------------------------------------------- 3. the broker
 # /dev/tcp is a bash builtin, so this needs no nc, no lsof and no ss.
 broker_up() { (exec 3<>/dev/tcp/localhost/1883) 2>/dev/null; }
