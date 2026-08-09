@@ -71,7 +71,13 @@ URDF = "urdf/youbot_agri.urdf"
 #
 #   The camera cannot lock onto an entity the GUI's render scene has not
 #   loaded yet, and it says so ("Target: 'youbot' not found") a second AFTER
-#   answering "data: true". So this retries instead of firing once.
+#   answering "data: true". So this retries instead of firing once -- and
+#   "a second" is optimistic: on one real laptop, with three textured
+#   plants and a GPU lidar in the scene, the render thread took close to
+#   200 s before 'youbot' became trackable at all, well past the window
+#   this loop first budgeted. The operator saw the fallback message,
+#   assumed the robot was gone, and quit before the SEPARATE 20 s watchdog
+#   below got a chance to self-heal -- which it would have.
 #
 #   The GUI drops the track on its own, minutes in. A 2 000 s sweep across 48
 #   stations is long enough for that to happen twice, so the assertion is
@@ -109,7 +115,15 @@ FOLLOW_ROBOT = (
     'overview() { gz service -s /gui/move_to/pose --reqtype gz.msgs.GUICamera '
     '  --reptype gz.msgs.Boolean --timeout 2000 --req "$ovr" >/dev/null 2>&1; }; '
     'locked=0; '
-    'for i in $(seq 1 40); do '
+    # 40, once. On a laptop with three textured plants and a GPU lidar the
+    # render scene took close to 200 s to populate 'youbot' as a trackable
+    # visual -- each gz service call above times out at up to 2 s rather
+    # than returning instantly, so "40 tries at ~1 s" was never a 40 s
+    # budget in practice, and on that machine it ran out before the robot
+    # ever became trackable. 90 does not fix the underlying slowness; it
+    # buys the same watchdog roughly four more minutes of real wall clock
+    # before it gives up and prints the fallback below.
+    'for i in $(seq 1 90); do '
     '  if gone; then exit 0; fi; '
     '  overview; moveto; track; '
     '  if tracked; then locked=1; break; fi; sleep 1; done; '
@@ -117,10 +131,11 @@ FOLLOW_ROBOT = (
     '  echo "[view] Gazebo camera is following the robot (confirmed)."; '
     'else '
     '  overview; '
-    '  echo "[view] the Gazebo camera would not lock onto the robot, so it is '
-    'parked on an overview of the whole greenhouse instead -- the robot IS '
-    'there, small and yellow. To follow it: Entity Tree > right-click youbot '
-    '> Follow."; fi; '
+    '  echo "[view] the Gazebo camera would not lock onto the robot yet, so '
+    'it is parked on an overview of the whole greenhouse instead -- the '
+    'robot IS there, small and yellow. It keeps trying every 20 s and will '
+    'snap back on its own; to follow it right now instead: Entity Tree > '
+    'right-click youbot > Follow."; fi; '
     'quiet=0; '
     'while sleep 20; do '
     '  if gone; then exit 0; fi; '

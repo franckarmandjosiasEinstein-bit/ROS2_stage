@@ -2582,11 +2582,26 @@ def check_ros_package() -> None:
           "/gui/follow is deprecated in Harmonic: re-issuing it lets a "
           "watchdog detect the loss but never repair it")
     check("it keeps re-asserting rather than firing once",
-          "while sleep" in launch and "seq 1 40" in launch,
+          "while sleep" in launch and "seq 1 90" in launch,
           "the GUI answers 'data: true' before its render scene has the "
           "entity, and drops the track again minutes later")
+    # 40 was measured to be too few: on a loaded laptop (three textured
+    # plants, a GPU lidar) the render scene took close to 200 s to make
+    # 'youbot' trackable, and each gz service call in the loop can itself
+    # take up to 2 s to time out -- so "40 tries" was never a 40 s budget.
+    # An operator who saw the fallback message and quit before the
+    # separate 20 s watchdog had a chance to self-heal is exactly what
+    # happened once; the message now says the retry is already running.
+    check("the initial window was widened after being measured too short",
+          "seq 1 40" not in launch,
+          "close to 200 s was observed on real hardware to lock on")
     check("it has a fallback that cannot fail for want of an entity",
           "/gui/move_to/pose" in launch)
+    check("and the fallback message says the retry is already running",
+          "keeps trying every 20" in launch and "snap back on its own" in launch,
+          "an operator who reads this as broken and quits before the "
+          "20 s watchdog gets a turn undoes exactly the self-heal that "
+          "already exists")
     check("and it follows the name the spawn actually gives the robot",
           re.search(r'"-name", "(\w+)"', launch).group(1) == "youbot"
           and 'name: "youbot"' in launch)
