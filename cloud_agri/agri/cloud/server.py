@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from agri import keys, session, trust
+from agri import keys, log, session, trust
 from agri.catalogue import all_stations
 from agri.cloud.store import Store, seconds_between, summarise
 from agri.crypto_ecc import CryptoError, sign_json
@@ -687,8 +687,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ProtocolError, ValueError) as exc:
             return self._json({"error": str(exc)}, 400)
         self.publish(TOPIC_REQUEST, json.dumps(signed))
-        print(f"cloud: request {rid} -> "
-              f"{len(self.cloud.progress[rid]['targets'])} station(s)")
+        log.cloud(log.bold("request") + f" {log.dim(rid)}"
+                  f" → {log.data(str(len(self.cloud.progress[rid]['targets'])))} station(s)")
         return self._json({"request_id": rid,
                            "targets": self.cloud.progress[rid]["targets"]})
 
@@ -717,14 +717,15 @@ class Handler(BaseHTTPRequestHandler):
             self.cloud.mode = want
             self.cloud.say("cloud", f"operator switched to {want} mode",
                            "mode")
-            print(f"cloud: mode -> {want} (from the dashboard)")
+            log.cloud(log.bold("mode") + f" → {log.data(want)} (from the dashboard)")
 
         if "receiving" in body:
             self.cloud.receiving = bool(body["receiving"])
             state = "receiving" if self.cloud.receiving else "NOT receiving"
             self.cloud.say("cloud", f"operator set the Cloud {state}",
                            "receiving")
-            print(f"cloud: {state} (from the dashboard)")
+            st = log.ok(state) if self.cloud.receiving else log.warn(state)
+            log.cloud(st + " (from the dashboard)")
 
         return self._json({"mode": self.cloud.mode,
                            "receiving": self.cloud.receiving})
@@ -753,7 +754,7 @@ class Handler(BaseHTTPRequestHandler):
         if need_train:
             try:
                 result = train(visits, labels, epochs=40,
-                               log=lambda m: print(f"cloud: {m}"))
+                               log=lambda m: log.cloud(log.dim(m)))
             except ImportError:
                 return self._json({"error": "PyTorch not available"}, 500)
             self.cloud._train_result = result
@@ -791,7 +792,8 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as exc:
             return self._json({"error": str(exc)}, 500)
         measured, total = self.cloud.store.coverage()
-        print(f"cloud: exported {path}, {plants} and {requests}")
+        log.cloud(log.ok("exported") + f" {log.data(str(path))},"
+                  f" {log.data(str(plants))}, {log.data(str(requests))}")
         return self._json({"path": str(path), "url": "/media/" + path.name,
                            "plants_path": str(plants),
                            "plants_url": "/media/" + plants.name,
@@ -835,21 +837,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ---------------------------------------------------------------- console
-CONSOLE_HELP = """  ALL                 measure every station in the greenhouse (48)
-  P2,4                measure a PLANT: its right side, then its left
-  P2,4R               measure one side of one plant
-  P1,3;P3,7           several, separated by semicolons
-  status              where the robot is, how fast, and what it is doing
-  show P2,4R          the last reading filed for a station
-  coverage            which stations have been measured, and which not
-  mode collector      the Cloud runs the campaign: it polls the robot, waits
-                      until it is stopped, then negotiates every handover
-  mode command        the operator asks, the Cloud relays (the default)
-  pause / resume      refuse or accept handovers, to show the robot holding
-                      readings on board while the Cloud is busy
-  csv                 export store/measurements.csv and store/requests.csv
-  help                this list
-  quit                stop the Cloud AND the simulation with it"""
+CONSOLE_HELP = (
+    f"  {log.bold('ALL')}                 measure every station (48)\n"
+    f"  {log.bold('P2,4')}                measure a PLANT (right then left)\n"
+    f"  {log.bold('P2,4R')}               measure one side of one plant\n"
+    f"  {log.bold('P1,3;P3,7')}           several, separated by semicolons\n"
+    f"  {log.bold('status')}              where the robot is and what it is doing\n"
+    f"  {log.bold('show P2,4R')}          the last reading filed for a station\n"
+    f"  {log.bold('coverage')}            which stations have been measured\n"
+    f"  {log.bold('mode collector')}      the Cloud runs the whole campaign\n"
+    f"  {log.bold('mode command')}        the operator sends orders (default)\n"
+    f"  {log.bold('pause / resume')}      refuse or accept handovers\n"
+    f"  {log.bold('csv')}                 export measurements and requests\n"
+    f"  {log.bold('help')}                this list\n"
+    f"  {log.bold('quit')}                stop the Cloud and the simulation"
+)
 
 
 class Console:
@@ -875,7 +877,7 @@ class Console:
         print(CONSOLE_HELP)
         while True:
             try:
-                line = input("\ncloud> ").strip()
+                line = input(f"\n{log.CLOUD} ").strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return
@@ -898,20 +900,21 @@ class Console:
                     self.set_mode(rest.strip())
                 elif verb in ("pause", "resume"):
                     self.cloud.receiving = verb == "resume"
-                    print(f"  the Cloud is {'' if self.cloud.receiving else 'NOT '}"
-                          "receiving; the robot "
-                          + ("will hand over anything it held"
-                             if self.cloud.receiving
-                             else "will hold its readings on board"))
+                    st = (log.ok("receiving") if self.cloud.receiving
+                          else log.warn("NOT receiving"))
+                    act = ("will hand over anything it held"
+                           if self.cloud.receiving
+                           else "will hold its readings on board")
+                    print(f"  the Cloud is {st}; the robot {act}")
                 elif verb == "csv":
-                    print(f"  exported {self.cloud.store.export_csv()}")
-                    print(f"  exported {self.cloud.store.export_plants_csv()}")
-                    print(f"  exported {self.cloud.export_requests_csv()}")
+                    print(f"  {log.ok('exported')} {log.data(str(self.cloud.store.export_csv()))}")
+                    print(f"  {log.ok('exported')} {log.data(str(self.cloud.store.export_plants_csv()))}")
+                    print(f"  {log.ok('exported')} {log.data(str(self.cloud.export_requests_csv()))}")
                 else:
                     self.request(line)
             except Exception as exc:                 # noqa: BLE001
                 # An operator's typo must not take the Cloud down mid-run.
-                print(f"  {type(exc).__name__}: {exc}")
+                print(f"  {log.err(type(exc).__name__)}: {exc}")
 
     # -------------------------------------------------------------- verbs
     def request(self, text: str) -> None:
@@ -926,23 +929,23 @@ class Console:
         if self.cloud.mode == MODE_COLLECTOR:
             node = next(iter(self.cloud.nodes), None)
             if node is None:
-                print("  no node has reported yet -- nothing to ask")
+                print(f"  {log.warn('no node has reported yet')} -- nothing to ask")
                 return
             answer = self.cloud.ask_idle(node, self.publish)
             if answer is None:
-                print(f"  {node} did not answer; not issuing an order")
+                print(f"  {log.warn(node)} did not answer; not issuing an order")
                 return
             if not answer:
-                print(f"  {node} says it is still moving; try again when "
-                      "it has stopped")
+                print(f"  {log.warn(node)} says it is still moving; try again")
                 return
-            print(f"  {node} confirms it is stopped")
+            print(f"  {log.ok(node)} confirms it is stopped")
 
         rid, signed = self.cloud.build_request(targets)
         labels = self.cloud.progress[rid]["targets"]
         self.publish(TOPIC_REQUEST, json.dumps(signed))
-        print(f"  request {rid} signed and published -> {len(labels)} "
-              f"station(s): {', '.join(labels[:8])}"
+        print(f"  {log.bold('request')} {log.dim(rid)} → "
+              f"{log.data(str(len(labels)))} station(s): "
+              f"{log.ok(', '.join(labels[:8]))}"
               + (" ..." if len(labels) > 8 else ""))
 
     def set_mode(self, name: str) -> None:
@@ -961,82 +964,82 @@ class Console:
                   "mode collector")
             return
         self.cloud.mode = want
-        print(f"  mode -> {want}")
+        print(f"  {log.bold('mode')} → {log.data(want)}")
         if want == MODE_COLLECTOR:
-            print("    the Cloud asks the robot if it is stopped before "
-                  "ordering,")
-            print("    and the robot asks permission before sending each "
-                  "reading.")
-            print("    'pause' makes the Cloud refuse; the robot holds them "
-                  "on board.")
+            print(f"    {log.dim('the Cloud polls the robot, waits until stopped,')}")
+            print(f"    {log.dim('and negotiates every handover. pause/resume to')}")
+            print(f"    {log.dim('show the robot holding readings on board.')}")
 
     def status(self) -> None:
         if not self.cloud.nodes:
-            print("  no node has reported yet -- is the robot running?")
+            print(f"  {log.warn('no node has reported yet')} -- is the robot running?")
         for nid, st in self.cloud.nodes.items():
             kind = st.get("node_kind", "?")
             p, v = st.get("pose", {}), st.get("velocity", {})
-            print(f"  node    {nid} ({kind})  "
-                  f"{'online' if st.get('online') else 'OFFLINE'}"
-                  f"  ({st.get('note', '')})")
+            online = log.ok("online") if st.get("online") else log.err("OFFLINE")
+            print(f"  {log.bold('node')}    {log.data(nid)} ({kind})  "
+                  f"{online}  {log.dim(st.get('note', ''))}")
             if p:
-                print(f"  at      x={p.get('x')}  y={p.get('y')}  "
+                print(f"  {log.dim('at')}      x={p.get('x')}  y={p.get('y')}  "
                       f"yaw={p.get('yaw_deg')} deg")
             if v:
-                print(f"  moving  {v.get('speed', '?')} m/s"
+                print(f"  {log.dim('moving')}  {v.get('speed', '?')} m/s"
                       f"   (vx={v.get('vx')} vy={v.get('vy')} "
                       f"wz={v.get('wz')})")
-            print(f"  said    {st.get('at')}")
+            print(f"  {log.dim('said')}    {st.get('at')}")
         for p in list(self.cloud.progress.values())[-3:]:
-            print(f"  request {p['request_id']}  {p['state']:<9} "
-                  f"{p['done']}/{p['total']}  {p.get('label') or ''}")
-            when = f"          issued  {p.get('issued_at', '?')}"
+            state_c = (log.ok(p['state']) if p['state'] in ('finished',)
+                       else log.warn(p['state']) if p['state'] in ('failed',)
+                       else log.data(p['state']))
+            print(f"  {log.bold('request')} {log.dim(p['request_id'])}  {state_c:<9} "
+                  f"{p['done']}/{p['total']}  {log.data(p.get('label') or '')}")
+            when = f"          issued  {log.dim(p.get('issued_at', '?'))}"
             if p.get("completed_at"):
-                when += (f"   completed {p['completed_at']}"
+                when += (f"   {log.ok('completed')} {log.dim(p['completed_at'])}"
                          f"   ({p['elapsed_s']:.0f} s)")
             else:
                 waiting = seconds_between(p.get("issued_at"), utc_now())
-                when += ("   still running"
+                when += (f"   {log.warn('still running')}"
                          + (f" ({waiting:.0f} s so far)"
                             if waiting is not None else ""))
             print(when)
         if self.cloud.rejected:
-            print(f"  REJECTED {len(self.cloud.rejected)} report(s); last: "
-                  f"{self.cloud.rejected[-1]['reason']}")
+            print(f"  {log.err('REJECTED')} {len(self.cloud.rejected)} report(s); "
+                  f"last: {self.cloud.rejected[-1]['reason']}")
 
     def coverage(self) -> None:
         measured, total = self.cloud.store.coverage()
         seen = set(self.cloud.store.latest_by_label())
         missing = [lab for lab in all_labels() if lab not in seen]
-        print(f"  {measured}/{total} stations measured")
+        print(f"  {log.ok(str(measured))}/{total} stations measured")
         if missing:
-            print(f"  not yet: {', '.join(missing[:12])}"
+            print(f"  {log.warn('not yet:')} {log.dim(', '.join(missing[:12]))}"
                   + (f" ... and {len(missing) - 12} more"
                      if len(missing) > 12 else ""))
 
     def show(self, label: str) -> None:
         if not label:
-            print("  show what? for example:  show P2,4R")
+            print(f"  show what? for example:  {log.bold('show P2,4R')}")
             return
         v = self.cloud.store.latest_by_label().get(normalise(label))
         if v is None:
-            print(f"  nothing filed for {label} yet")
+            print(f"  {log.warn('nothing filed for')} {label} yet")
             return
-        print(f"  {v.label}   {v.timestamp}")
+        print(f"  {log.bold(v.label)}   {log.dim(v.timestamp)}")
         for q in QUANTITIES:
-            print(f"    {q.name:<12} {v.values[q.name]:>9} {q.unit}")
-        print(f"    parked       {v.parking_error_m} m from the cross")
+            print(f"    {log.dim(q.name):<24} {log.data(f'{v.values[q.name]:>9}')} {q.unit}")
+        print(f"    {log.dim('parked'):<24} {v.parking_error_m} m from the cross")
         if v.pose:
-            print(f"    position     x={v.pose.get('x')} y={v.pose.get('y')} "
+            print(f"    {log.dim('position'):<24} x={v.pose.get('x')} y={v.pose.get('y')} "
                   f"yaw={v.pose.get('yaw_deg')} deg")
         if v.velocity:
-            print(f"    speed        {v.velocity.get('speed')} m/s   "
+            print(f"    {log.dim('speed'):<24} {v.velocity.get('speed')} m/s   "
                   f"(vx={v.velocity.get('vx')} vy={v.velocity.get('vy')} "
                   f"wz={v.velocity.get('wz')})")
         if v.flags:
-            print(f"    FLAGGED      {', '.join(v.flags)}")
-        print(f"    photo        {v.photo_path}")
-        print(f"    qr           {v.qr_path}")
+            print(f"    {log.err('FLAGGED'):<24} {', '.join(v.flags)}")
+        print(f"    {log.dim('photo'):<24} {v.photo_path}")
+        print(f"    {log.dim('qr'):<24} {v.qr_path}")
 
 
 # ------------------------------------------------------------------- main
@@ -1144,9 +1147,9 @@ def main(argv: list[str] | None = None) -> int:
 
     auth = broker_auth_from(args)
     try:
-        print(auth.apply(client))
+        log.cloud(auth.apply(client))
     except ProtocolError as exc:
-        print(f"cloud: {exc}")
+        log.cloud(log.err(str(exc)))
         return 2
     broker_port = auth.port(args.broker_port)
 
@@ -1155,26 +1158,30 @@ def main(argv: list[str] | None = None) -> int:
 
     def on_connect(cl, _u, _f, rc, *_):
         if rc != 0:
-            print(f"cloud: broker refused the connection (rc={rc})")
+            log.cloud(log.err(f"broker refused the connection (rc={rc})"))
             return
         for topic in (TOPIC_REPORT_ALL, TOPIC_ACK_ALL, TOPIC_STATUS_ALL,
                       TOPIC_REPLY_ALL):
             cl.subscribe(topic, qos=QOS)
-        print(f"cloud: connected to {args.broker}:{broker_port}, "
-              f"listening on {TOPIC_REPORT_ALL}")
+        log.cloud(log.ok("connected to")
+                  + f" {log.data(args.broker)}:{log.data(str(broker_port))},"
+                  f" listening on {log.dim(TOPIC_REPORT_ALL)}")
         if args.request:
             rid, signed = cloud.build_request(
                 args.request if args.request.upper() == ALL
                 else [t for t in args.request.split(",") if t.strip()])
             publish(TOPIC_REQUEST, json.dumps(signed))
-            print(f"cloud: request {rid} -> {len(cloud.progress[rid]['targets'])}"
-                  " station(s)")
+            log.cloud(log.bold("request") + f" {log.dim(rid)}"
+                      f" → {log.data(str(len(cloud.progress[rid]['targets'])))} station(s)")
 
     def on_message(_cl, _u, msg):
         nid = node_id_from_topic(msg.topic) or "?"
         if msg.topic.startswith("agri/v1/report/"):
             verdict = cloud.on_report(msg.payload)
-            print("cloud:", verdict)
+            if verdict.startswith("REJECTED"):
+                log.cloud(log.err(verdict))
+            else:
+                log.cloud(log.ok("filed") + f" {verdict}")
             # Always acknowledge, in both modes. "Il faut toujours des
             # acquittements": a node that never hears that its reading
             # landed cannot tell a filed report from a lost one.
@@ -1196,9 +1203,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         client.connect(args.broker, broker_port, keepalive=30)
     except OSError as exc:
-        print(f"cloud: cannot reach the broker at {args.broker}:"
-              f"{broker_port} ({exc}).\n"
-              "       Start one:  mosquitto -p 1883 -v")
+        log.cloud(log.err("cannot reach the broker") +
+                  f" at {log.data(args.broker)}:{log.data(str(broker_port))}"
+                  f" ({exc})\n       Start one:  mosquitto -p 1883 -v")
         return 1
     client.loop_start()
 
@@ -1211,13 +1218,13 @@ def main(argv: list[str] | None = None) -> int:
     def teardown() -> None:
         if not done.acquire(blocking=False):
             return
-        print("cloud: stopping")
+        log.cloud(log.warn("stopping"))
         try:
-            print(f"cloud: exported {cloud.store.export_csv()}")
-            print(f"cloud: exported {cloud.store.export_plants_csv()}")
-            print(f"cloud: exported {cloud.export_requests_csv()}")
+            log.cloud(log.ok("exported") + f" {log.data(str(cloud.store.export_csv()))}")
+            log.cloud(log.ok("exported") + f" {log.data(str(cloud.store.export_plants_csv()))}")
+            log.cloud(log.ok("exported") + f" {log.data(str(cloud.export_requests_csv()))}")
         except Exception as exc:                     # noqa: BLE001
-            print(f"cloud: could not export ({exc})")
+            log.cloud(log.err(f"could not export ({exc})"))
         client.loop_stop()
         client.disconnect()
         # Take the simulation down with us, unless told not to. Stopping the
@@ -1227,13 +1234,14 @@ def main(argv: list[str] | None = None) -> int:
         # meant "stop", not "stop half of it". See agri.session for why this
         # is a file and not a signal.
         if args.keep_sim:
-            print("cloud: --keep-sim, so the simulation is left running")
+            log.cloud("--keep-sim, so the simulation is left running")
         else:
             where = session.ask_simulation_to_stop()
-            print(f"cloud: asked the simulation to stop ({where})"
-                  if where else
-                  "cloud: could not write the stop file; if a simulation is "
-                  "running, stop it with Ctrl-C in its own window")
+            if where:
+                log.cloud(f"asked the simulation to stop ({where})")
+            else:
+                log.cloud(log.warn("could not write the stop file; "
+                                   "stop the simulation with Ctrl-C"))
 
     def shutdown_from_web() -> None:
         # os._exit rather than sys.exit: the console owns the main thread and
@@ -1258,21 +1266,21 @@ def main(argv: list[str] | None = None) -> int:
     httpd = ThreadingHTTPServer(
         (args.http_host, args.http_port),
         partial(Handler, cloud, publish, auth_token, shutdown_from_web))
+    url = f"{base_url}?token={auth_token}" if auth_token else base_url
+    log.banner("cloud", [
+        f"dashboard  {log.bold(url)}",
+        f"stations   {log.data(str(len(all_labels())))} known, "
+        f"{log.data(str(cloud.store.coverage()[0]))} already measured",
+        f"mode       {log.data(cloud.mode)}",
+    ])
     if auth_token:
-        print(f"cloud: dashboard on {base_url}?token={auth_token}")
-        print("       Open it once. The token moves into an HttpOnly cookie "
-              "and the")
-        print("       address bar goes back to a plain URL, so it stops "
-              "living in")
-        print("       the history and in every proxy log on the way here.")
+        log.cloud(log.dim("Open the URL once. The token moves into a cookie "
+                          "and the address bar goes clean."))
     else:
-        print(f"cloud: dashboard on {base_url}")
-        print("       no token — allowed only because this is bound to "
-              "loopback")
+        log.cloud(log.warn("no token — allowed only because this is "
+                           "bound to loopback"))
     for line in cloud.trust_lines():
-        print(line)
-    print(f"cloud: {len(all_labels())} stations known, "
-          f"{cloud.store.coverage()[0]} already measured")
+        log.cloud(line)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
     # The console owns the main thread. The HTTP server and the MQTT client

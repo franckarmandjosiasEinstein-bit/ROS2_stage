@@ -2314,7 +2314,7 @@ def check_visual_docking() -> None:
           "it used to increment visual_used -- the SAME counter as a "
           "station that converged cleanly")
     check("and it is not silent about it",
-          "giving up, NOT settled" in drv,
+          "NOT settled" in drv,
           "a station that never converged used to produce no log line "
           "at all, identical to one that did")
     check("the driver's loop and the pure classifier make the same call",
@@ -2322,7 +2322,7 @@ def check_visual_docking() -> None:
           "two copies of the same three comparisons is two places for "
           "them to drift apart")
     check("drive_to prints the achieved parking error live, per station",
-          "parked {err * 1000:.0f} mm from the mark" in drv,
+          "mm from the mark" in drv and "parked" in drv,
           "not only inside the sealed report the Cloud opens minutes "
           "later -- an evaluator watching the terminal needs the number "
           "the moment it happens")
@@ -2330,7 +2330,7 @@ def check_visual_docking() -> None:
     node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
            / "robot_node.py").read_text()
     check("an unsettled station is called out in the mission summary too",
-          "NOT SETTLED at" in node and "visual_unsettled" in node)
+          "NOT SETTLED" in node and "visual_unsettled" in node)
 
     # The geometry that makes this worth checking at all: two DIFFERENT
     # stations really do sit close enough to be co-visible.
@@ -4567,6 +4567,28 @@ def check_demo() -> None:
               named and not missing, f"named but absent: {missing}")
 
 
+def check_coloured_logs() -> None:
+    print("\ncoloured terminal output")
+    from agri import log as clog                            # noqa: PLC0415
+    check("log module exports colour helpers",
+          callable(clog.bold) and callable(clog.ok) and callable(clog.err))
+    check("banner produces output",
+          callable(clog.banner))
+    check("cloud prefix is defined", len(clog.CLOUD) > 0)
+    check("robot prefix is defined", len(clog.ROBOT) > 0)
+    srv = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    check("the Cloud uses coloured logging",
+          "log.cloud(" in srv or "log.bold(" in srv)
+    rn = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+          / "robot_node.py").read_text()
+    check("the robot node uses coloured logging",
+          "log.bold(" in rn or "log.data(" in rn or "log.ok(" in rn)
+    drv = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
+           / "driver.py").read_text()
+    check("the driver uses coloured logging",
+          "log.data(" in drv or "log.ok(" in drv)
+
+
 def check_hygiene() -> None:
     print("\nrepository hygiene")
     gitignore = (ROOT / ".gitignore").read_text()
@@ -4604,7 +4626,8 @@ def main() -> int:
                check_dashboard_auth, check_mode_buttons,
                check_active_station, check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
-               check_prediction, check_demo, check_hygiene):
+               check_prediction, check_coloured_logs, check_demo,
+               check_hygiene):
         fn()
     print()
     if FAILURES:

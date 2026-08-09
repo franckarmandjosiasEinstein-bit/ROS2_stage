@@ -61,6 +61,7 @@ from PIL import Image as PILImage
 from sensor_msgs.msg import Image, JointState, LaserScan
 from std_msgs.msg import Float64
 
+from agri import log
 from agri.aisles import brake_clearance, known_structure, route
 from agri.catalogue import SENSOR_OFFSET_X, Station
 from agri.vision import (DOCK_CAPPED, DOCK_CORRECTING, DOCK_NO_CROSS,
@@ -433,8 +434,10 @@ class GazeboDriver:
         bx, by, _ = self.pose()
         bx -= SENSOR_OFFSET_X            # sensor point -> base_link
         err = math.hypot(bx - s.cross[0], by - s.cross[1])
-        self.log(f"{s.label}: parked {err * 1000:.0f} mm from the mark "
-                 f"(visual fix: {visual})")
+        vis = log.ok(visual) if visual == DOCK_SETTLED else log.warn(visual)
+        self.log(f"{log.data(s.label)}: parked "
+                 f"{log.bold(f'{err * 1000:.0f}')} mm from the mark "
+                 f"(visual: {vis})")
         return self.pose()
 
     def _centre_on_cross(self, s: Station) -> str:
@@ -462,8 +465,8 @@ class GazeboDriver:
 
             if verdict == DOCK_NO_CROSS:
                 self.visual_missed += 1
-                self.log(f"{s.label}: no cross in the floor camera -- "
-                         "parked on odometry alone")
+                self.log(f"{log.data(s.label)}: {log.warn('no cross')} in "
+                         "the floor camera -- parked on odometry alone")
                 return DOCK_NO_CROSS
             self.last_sighting = sighting
             if verdict == DOCK_SETTLED:
@@ -473,10 +476,9 @@ class GazeboDriver:
                 # Refuse, loudly. Either the detector is wrong or the robot
                 # is not where it thinks it is; moving 20 cm on the word of
                 # a red blob is how a visit gets filed under the neighbour.
-                self.log(f"{s.label}: the floor camera says the cross is "
-                         f"{err:.3f} m away, more than the "
-                         f"{VISUAL_MAX_CORRECTION:.2f} m cap -- ignoring it "
-                         "and keeping the odometric position")
+                self.log(f"{log.data(s.label)}: {log.warn('capped')} -- "
+                         f"cross is {err:.3f} m away, beyond the "
+                         f"{VISUAL_MAX_CORRECTION:.2f} m cap")
                 self.visual_missed += 1
                 return DOCK_CAPPED
 
@@ -488,10 +490,9 @@ class GazeboDriver:
             self._drive(tx, ty, VISUAL_SETTLE,
                         f"{s.label} visual centring {attempt}/{VISUAL_TRIES}")
         self.visual_unsettled += 1
-        self.log(f"{s.label}: floor camera still says the cross is "
-                 f"{err * 1000:.0f} mm away after {VISUAL_TRIES} corrections "
-                 f"-- giving up, NOT settled (VISUAL_SETTLE is "
-                 f"{VISUAL_SETTLE * 1000:.0f} mm)")
+        self.log(f"{log.data(s.label)}: {log.err('NOT settled')} -- "
+                 f"still {err * 1000:.0f} mm away after {VISUAL_TRIES} "
+                 f"corrections (settle threshold: {VISUAL_SETTLE * 1000:.0f} mm)")
         return DOCK_UNSETTLED
 
     def look_down(self):

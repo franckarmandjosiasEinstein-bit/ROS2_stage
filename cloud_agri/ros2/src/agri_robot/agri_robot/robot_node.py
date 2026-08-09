@@ -45,7 +45,7 @@ from pathlib import Path
 import rclpy
 from rclpy.node import Node
 
-from agri import keys, trust
+from agri import keys, log, trust
 from agri.protocol import (DEFAULT_BROKER, QOS, TOPIC_REQUEST,
                            BrokerAuth, ProtocolError, mqtt_client,
                            topic_query, topic_status)
@@ -127,8 +127,9 @@ class AgriRobot(Node):
                                driver=self.driver)
 
         self.get_logger().info(
-            f"agri_robot {self.robot_id}: keys in {key_dir.resolve()}, "
-            "readings are SYNTHESISED by agri.sensors (Gazebo has no probes)")
+            f"{log.bold('agri_robot')} {log.data(self.robot_id)}: "
+            f"keys in {log.dim(str(key_dir.resolve()))}, "
+            f"readings are {log.warn('SYNTHESISED')} by agri.sensors")
 
         self.client = None
         self.link: RobotLink | None = None
@@ -234,17 +235,18 @@ class AgriRobot(Node):
             # one node, and a second robot must not answer this one's.
             cl.subscribe(topic_query(self.robot_id), qos=QOS)
             first, self._connected = not self._connected, True
+            tag = log.ok("connected") if first else log.warn("RECONNECTED")
             self.get_logger().info(
-                f"{'connected' if first else 'RECONNECTED'} to {host}:{port}, "
-                f"listening on {TOPIC_REQUEST}")
+                f"{tag} to {log.data(host)}:{log.data(str(port))}, "
+                f"listening on {log.dim(TOPIC_REQUEST)}")
             self.link.status(True, "ready")
 
         @guarded
         def on_disconnect(_cl, _u, rc, *_):
             self._connected = False
             self.get_logger().warn(
-                f"lost the broker at {host}:{port} (rc={rc}); retrying. "
-                "Requests issued meanwhile will not arrive.")
+                f"{log.err('lost the broker')} at {host}:{port} (rc={rc}); "
+                f"{log.warn('retrying')}. Requests issued meanwhile will not arrive.")
 
         @guarded
         def on_message(_cl, _u, msg):
@@ -260,7 +262,8 @@ class AgriRobot(Node):
         # a fatal error: loop_start retries the first connection too.
         self.client.connect_async(host, port, keepalive=30)
         self.client.loop_start()
-        self.get_logger().info(f"reaching for the broker at {host}:{port}")
+        self.get_logger().info(
+            f"reaching for the broker at {log.data(host)}:{log.data(str(port))}")
 
         # A WALL-CLOCK timer. use_sim_time is true for this node, so a ROS
         # timer only advances when /clock does -- and the state this watchdog
@@ -308,7 +311,8 @@ class AgriRobot(Node):
     def _run(self, mission: Mission) -> None:
         with self._busy:
             self.get_logger().info(
-                f"{mission.request_id}: {mission.total} station(s)")
+                f"{log.bold('mission')} {log.dim(mission.request_id)}: "
+                f"{log.data(str(mission.total))} station(s)")
             t0 = time.time()
             try:
                 self.driver.wait_ready()
@@ -318,18 +322,14 @@ class AgriRobot(Node):
                 self.link.ack(mission.request_id, "failed", detail=str(exc))
             finally:
                 self.driver.stop()
-            msg = (f"{mission.request_id}: done in {time.time() - t0:.0f} s, "
-                  f"floor camera used at {self.driver.visual_used} "
-                  f"station(s), unavailable at {self.driver.visual_missed}")
+            elapsed = time.time() - t0
+            msg = (f"{log.ok('done')} {log.dim(mission.request_id)} "
+                   f"in {log.data(f'{elapsed:.0f}')} s, "
+                   f"camera used at {log.data(str(self.driver.visual_used))}, "
+                   f"unavailable at {self.driver.visual_missed}")
             if self.driver.visual_unsettled:
-                # Loud on purpose. This used to be counted as "used" --
-                # a station where the fine correction ran every try and
-                # never got under tolerance looked, in this summary,
-                # identical to a clean fix.
-                msg += (f", NOT SETTLED at {self.driver.visual_unsettled} "
-                       "(camera saw a cross and kept correcting toward it "
-                       "without ever converging -- check VISUAL_SETTLE "
-                       "against this run's per-visit log lines)")
+                msg += (f", {log.warn('NOT SETTLED')} at "
+                        f"{self.driver.visual_unsettled}")
             self.get_logger().info(msg)
 
     def _minutes(self) -> float:
@@ -341,8 +341,8 @@ class AgriRobot(Node):
     def run_standalone(self) -> None:
         """Drive a list of stations with no Cloud. Diagnostic only."""
         self.get_logger().warn(
-            "standalone_targets is set: driving without a Cloud. Reports are "
-            "built and DISCARDED -- nothing is transmitted.")
+            f"{log.warn('standalone mode')}: driving without a Cloud. "
+            f"Reports are built and {log.warn('DISCARDED')}.")
         self.driver.wait_ready()
         for label in self.standalone:
             try:
