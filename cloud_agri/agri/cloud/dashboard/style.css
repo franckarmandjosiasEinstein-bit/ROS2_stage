@@ -388,34 +388,22 @@ table.grid tbody tr:hover td { background: var(--bg-raise); }
 .predict-result th { color: var(--ink-dim); border-bottom: 1px solid var(--line); }
 .predict-result .pred { color: var(--accent); font-weight: 600; }
 
-/* ------------------------------------------------ simulated failure */
-.predict-row button.fault-btn { border-color: var(--alert); color: var(--alert); }
-.predict-row button.fault-btn:hover { background: var(--alert); color: var(--bg); }
-.predict-row button.fault-btn.active { background: var(--alert); color: var(--bg); }
-.predict-row button.fault-btn:disabled {
-  cursor: default; opacity: 0.85;
-  background: var(--alert); color: var(--bg);
-}
-.fault-banner {
-  margin: 8px 0; padding: 6px 10px; border-radius: 3px;
-  font: 600 12px/1.4 var(--mono, monospace);
-  border: 1px solid var(--alert); color: var(--alert);
-  background: color-mix(in srgb, var(--alert) 10%, transparent);
-}
-.fault-banner.working { opacity: 0.8; }
-.fault-banner.err { border-color: var(--ink-dim); color: var(--ink-dim); background: transparent; }
+/* ------------------------------------------------ robot-predicted values
+   The sign the ROBOT sent, not a Cloud-side toggle -- see
+   agri.measurement.Measurement.predicted. Every value here came straight
+   off the wire; nothing on this page decides what counts as predicted. */
 .reading.predicted .val { font-style: italic; }
 .reading.predicted .n { opacity: 0.75; }
 .reading.predicted .tag {
   color: var(--alert); font-style: normal; text-transform: uppercase;
   letter-spacing: 0.04em; margin-left: 4px;
 }
+.chip.predicted { stroke: var(--alert); stroke-width: 0.025; stroke-dasharray: 0.04 0.02; }
 
-/* the map marker for a fault -- dashed for a demo, SOLID for a real one the
-   robot reported, so severity reads at a glance without opening the panel */
-.faulted .fault-ring { fill: none; stroke: var(--alert); stroke-width: 0.02;
+/* the map marker for a station whose latest report includes a predicted
+   value */
+.predicted-station .fault-ring { fill: none; stroke: var(--alert); stroke-width: 0.02;
   stroke-dasharray: 0.03 0.02; animation: fault-pulse 1.2s ease-in-out infinite; }
-.faulted.real .fault-ring { stroke-width: 0.03; stroke-dasharray: none; }
-.faulted .fault-mark { font-size: 0.11px; font-weight: 700; fill: var(--alert); text-anchor: middle; }
+.predicted-station .fault-mark { font-size: 0.11px; font-weight: 700; fill: var(--alert); text-anchor: middle; }
 @keyframes fault-pulse { 50% { opacity: 0.4; } }
 .predict-result .warn { color: var(--alert); font-weight: 600; }

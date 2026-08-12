@@ -329,12 +329,18 @@ def generate_launch_description() -> LaunchDescription:
                         'built and discarded.'),
         DeclareLaunchArgument(
             "fail_rate", default_value="0.0",
-            description="Probability that a visit's sensor read genuinely "
-                        "fails, live -- 0.0 is off. Not the dashboard's "
-                        "'simulate a failure' button, which only changes a "
-                        "display: this makes the read itself fail, so the "
-                        "Cloud's automatic LSTM fallback can be shown "
-                        "against a real gap, e.g. fail_rate:=0.15"),
+            description="Probability that a visit's sensor read fails "
+                        "OUTRIGHT, live -- 0.0 is off. The robot notices "
+                        "and predicts its way past it locally, before the "
+                        "report ever reaches the Cloud, e.g. "
+                        "fail_rate:=0.15"),
+        DeclareLaunchArgument(
+            "aberration_rate", default_value="0.0",
+            description="Probability that ONE quantity on a visit comes "
+                        "back stuck/implausible while the rest read fine "
+                        "-- 0.0 is off. Same local recovery as fail_rate, "
+                        "one channel instead of the whole board, e.g. "
+                        "aberration_rate:=0.2"),
 
         gz, gz_headless,
 
@@ -386,7 +392,9 @@ def generate_launch_description() -> LaunchDescription:
                           "keys": LaunchConfiguration("keys"),
                           "standalone_targets": LaunchConfiguration("targets"),
                           "fail_rate": ParameterValue(
-                              LaunchConfiguration("fail_rate"), value_type=float)},
+                              LaunchConfiguration("fail_rate"), value_type=float),
+                          "aberration_rate": ParameterValue(
+                              LaunchConfiguration("aberration_rate"), value_type=float)},
                          sim_time]),
     ]
 

@@ -78,6 +78,12 @@ ANOMALIES: dict[str, tuple[str, float]] = {
 NOISE = {"temperature": 0.18, "humidity": 0.9, "luminosity": 260.0,
          "co2": 9.0, "ph": 0.03}
 
+#: What a railed ADC or a "no data" firmware convention looks like: a fixed
+#: constant below every quantity's lo bound (0, 0, 0, 250, 3), chosen once
+#: so a single sentinel works uniformly across all five instead of a
+#: different magic number per unit.
+SENSOR_STUCK_VALUE = -999.0
+
 
 def _unit(v: float, lo: float, hi: float) -> float:
     """Map v in [lo, hi] onto [0, 1], clamped."""
@@ -95,17 +101,24 @@ class GreenhouseField:
     """
 
     seed: int = 20260804
-    #: Probability that a single visit's read fails OUTRIGHT -- a dead
-    #: sensor board, not a bad number. 0.0 by default, so nothing about the
-    #: existing pipeline changes unless a demonstration turns it on; every
-    #: check in the suite runs at the default and stays deterministic. When
-    #: it fires, read() raises MeasurementError BEFORE a Measurement is
-    #: built, exactly as a real hardware fault would -- run_mission's
-    #: existing exception handler marks the station FAILED and the Cloud's
-    #: on_ack sees a real gap it did not manufacture, which is what lets the
-    #: LSTM fallback be demonstrated against an actual failure rather than
-    #: only a button that fakes the display.
+    #: Probability that a single visit's read fails OUTRIGHT -- the whole
+    #: board is dead, not one bad number. 0.0 by default, so nothing about
+    #: the existing pipeline changes unless a demonstration turns it on;
+    #: every check in the suite runs at the default and stays deterministic.
+    #: When it fires, read() raises MeasurementError(missing=ALL 5 names)
+    #: BEFORE a Measurement exists -- exactly as unplugged hardware would.
+    #: It is the ROBOT that decides what to do about a raise like this
+    #: (agri.robot.Visitor), not this class: a sensor field's job is to
+    #: simulate what the hardware would say, never to cover for it.
     fail_rate: float = 0.0
+    #: Probability that exactly ONE quantity comes back as a stuck-at
+    #: reading -- SENSOR_STUCK_VALUE, chosen because it sits below every
+    #: quantity's plausible range (Measurement.out_of_range() catches it
+    #: for free) -- while the other four are genuine. This is the more
+    #: common real-world fault: one channel of a multi-sensor board drifts
+    #: or rails, the rest keep working. 0.0 by default, same determinism
+    #: guarantee as fail_rate.
+    aberration_rate: float = 0.0
 
     # -------------------------------------------------------------- truth
     def truth(self, label: str, minutes: float = 0.0) -> dict[str, float]:
@@ -159,17 +172,21 @@ class GreenhouseField:
         rng = random.Random(f"{self.seed}:{label}:{int(minutes * 60) // 5}")
         # `if self.fail_rate` short-circuits at the default 0.0, so this
         # draws NOTHING from rng in that case -- the noise below is drawn
-        # from the exact same untouched stream as before this existed, and
-        # every check that assumed a particular sequence still passes.
+        # from the exact same untouched stream as before either fault mode
+        # existed, and every check that assumed a particular sequence
+        # still passes.
         if self.fail_rate and rng.random() < self.fail_rate:
             raise MeasurementError(
                 f"{label}: sensor read failed "
-                f"(live fault, rate {self.fail_rate:.0%})")
+                f"(live fault, rate {self.fail_rate:.0%})",
+                missing=tuple(BY_NAME))
         values = self.truth(label, minutes)
         out = {}
         for name, v in values.items():
             q = BY_NAME[name]
             out[name] = round(q.clamp(rng.gauss(v, NOISE[name])), q.decimals)
+        if self.aberration_rate and rng.random() < self.aberration_rate:
+            out[rng.choice(list(out))] = SENSOR_STUCK_VALUE
         return Measurement(label=label, values=out, pose=pose)
 
 

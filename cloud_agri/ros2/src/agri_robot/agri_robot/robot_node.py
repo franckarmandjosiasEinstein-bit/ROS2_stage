@@ -90,14 +90,15 @@ class AgriRobot(Node):
         # simulator up and watching the robot find its crosses before any
         # broker exists -- the reports are built and thrown away.
         self.declare_parameter("standalone_targets", "")
-        # A LIVE, real sensor failure rate -- 0.0 (off) unless a
-        # demonstration asks for it. This is not the dashboard's "simulate a
-        # failure" button, which only changes what is DISPLAYED for a
-        # station that measured fine; this makes the read itself genuinely
-        # fail sometimes, the same way a dead sensor board would, so the
-        # Cloud's automatic LSTM fallback (agri.cloud.server.Cloud.on_ack)
-        # can be demonstrated against a real gap in the data.
+        # LIVE fault rates -- both 0.0 (off) unless a demonstration asks
+        # for them. fail_rate: the whole board goes dead for one visit.
+        # aberration_rate: one channel comes back stuck/implausible while
+        # the rest read fine. Either way the ROBOT notices and predicts
+        # its way past it, locally, before the report ever reaches the
+        # Cloud -- see agri.robot.Visitor and agri.prediction.
+        # LocalPredictor. Nothing here is the Cloud's business.
         self.declare_parameter("fail_rate", 0.0)
+        self.declare_parameter("aberration_rate", 0.0)
 
         def p(name):
             return self.get_parameter(name).value
@@ -125,11 +126,14 @@ class AgriRobot(Node):
             if warn:
                 self.get_logger().warning(warn)
 
-        field = GreenhouseField(fail_rate=float(p("fail_rate")))
-        if field.fail_rate:
+        field = GreenhouseField(fail_rate=float(p("fail_rate")),
+                                aberration_rate=float(p("aberration_rate")))
+        if field.fail_rate or field.aberration_rate:
             self.get_logger().warning(
                 f"{log.warn('live fault injection is ON')}: "
-                f"{field.fail_rate:.0%} of visits will genuinely fail")
+                f"{field.fail_rate:.0%} full failures, "
+                f"{field.aberration_rate:.0%} single-channel aberrations -- "
+                "the robot will predict its way past what it can")
         self.driver = GazeboDriver(self, sensors=field.read,
                                    log=self.get_logger().info)
         self.visitor = Visitor(robot_id=self.robot_id,
@@ -342,6 +346,10 @@ class AgriRobot(Node):
             if self.driver.visual_unsettled:
                 msg += (f", {log.warn('NOT SETTLED')} at "
                         f"{self.driver.visual_unsettled}")
+            if self.visitor.predicted_visits:
+                msg += (f", {log.warn('PREDICTED')} at "
+                        f"{self.visitor.predicted_visits} station(s) "
+                        "(sensor gap filled locally)")
             self.get_logger().info(msg)
 
     def _minutes(self) -> float:

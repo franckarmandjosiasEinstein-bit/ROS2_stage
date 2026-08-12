@@ -4526,164 +4526,258 @@ def check_prediction() -> None:
           "/floor_cam/image" in rviz and "floor camera" in rviz)
 
 
-def check_fault_toggle() -> None:
-    """The live 'simulate a failure' button: the operator's counterpart to
-    the FailureSimulator that only ran offline, during LSTM training."""
-    print("\nsimulated sensor failure (the live LSTM demo)")
-    import urllib.error                                   # noqa: PLC0415
-    import urllib.request                                 # noqa: PLC0415
-    from functools import partial                         # noqa: PLC0415
-    from http.server import ThreadingHTTPServer           # noqa: PLC0415
+def check_measurement_predicted_flag() -> None:
+    """Measurement.predicted: the sign. Round-trips through the QR text
+    (the tamper-evident channel) and the JSON dict (the wire report), or a
+    predicted value could silently stop saying what it is on one of the
+    two paths a reading actually travels."""
+    print("\nthe predicted-value sign, on the wire and in the QR")
+    from agri.measurement import BY_NAME, Measurement, QUANTITIES  # noqa: PLC0415
 
-    from agri import keys                                 # noqa: PLC0415
-    from agri.cloud.server import Cloud, Handler          # noqa: PLC0415
-    from agri.cloud.store import Store                    # noqa: PLC0415
+    plain = Measurement(label="P1,1R",
+                        values={q.name: (q.lo + q.hi) / 2 for q in QUANTITIES})
+    check("an ordinary reading predicts nothing", plain.predicted == [])
+    check("and the QR carries no pred= token", "pred=" not in plain.to_qr_text())
 
-    def post(url, payload):
-        req = urllib.request.Request(
-            url, data=json.dumps(payload).encode(), method="POST",
-            headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=5) as r:
-                return r.status, json.loads(r.read() or b"{}")
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read() or b"{}")
+    flagged = Measurement(label="P1,1R",
+                          values={q.name: (q.lo + q.hi) / 2 for q in QUANTITIES},
+                          predicted=["ph", "temperature"])
+    qr = flagged.to_qr_text()
+    check("the QR names which quantities are predicted, by their short key",
+          f"pred={BY_NAME['ph'].key},{BY_NAME['temperature'].key}" in qr, qr)
+    back = Measurement.from_qr_text(qr)
+    check("and reading it back recovers the same list",
+          back.predicted == ["ph", "temperature"], back.predicted)
+    check("without disturbing the values themselves",
+          back.values == flagged.values)
 
-    with tempfile.TemporaryDirectory() as d:
-        d = Path(d)
-        keys.bootstrap(d / "keys")
-        cloud = Cloud(Store(d / "store"), d / "keys")
-        token = "s3cret-token"
-        httpd = ThreadingHTTPServer(
-            ("127.0.0.1", 0),
-            partial(Handler, cloud, lambda *a: None, token, None))
-        base = f"http://127.0.0.1:{httpd.server_address[1]}"
-        threading.Thread(target=httpd.serve_forever, daemon=True).start()
-        try:
-            check("no station starts faulted",
-                  cloud.state()["simulated_faults"] == [])
-
-            code, body = post(f"{base}/api/fault?token={token}",
-                              {"label": "P1,3R", "active": True})
-            check("marking a station faulted succeeds",
-                  code == 200 and body.get("active") is True, f"{code} {body}")
-            check("the Cloud now lists it as faulted",
-                  "P1,3R" in cloud.simulated_faults)
-            st = cloud.state()
-            row = next(s for s in st["stations"] if s["label"] == "P1,3R")
-            check("the station's own record says so, for the map to draw",
-                  row["faulted"] is True)
-            check("the state's top-level list agrees",
-                  st["simulated_faults"] == ["P1,3R"])
-            check("the operator's dialogue records the toggle",
-                  any("simulated a failure" in e["text"]
-                      for e in cloud.dialogue),
-                  str([e["text"] for e in cloud.dialogue][-3:]))
-
-            code, body = post(f"{base}/api/fault?token={token}",
-                              {"label": "P1,3R", "active": False})
-            check("clearing it succeeds",
-                  code == 200 and body.get("active") is False, f"{code} {body}")
-            check("and it is gone from both places",
-                  "P1,3R" not in cloud.simulated_faults
-                  and cloud.state()["stations"][0].get("faulted") in (False, None))
-
-            code, body = post(f"{base}/api/fault?token={token}",
-                              {"label": "P9,9R", "active": True})
-            check("a station that does not exist is refused, not accepted",
-                  code == 400, f"{code} {body}")
-            check("no station was faulted by the invalid request",
-                  cloud.simulated_faults == set())
-
-            code, body = post(f"{base}/api/fault?token={token}", {})
-            check("a missing label is refused",
-                  code == 400, f"{code} {body}")
-
-            code, _ = post(f"{base}/api/fault", {"label": "P1,3R"})
-            check("the endpoint is behind the token like every other",
-                  code == 401 and cloud.simulated_faults == set())
-        finally:
-            httpd.shutdown()
-
-    # And the dashboard actually offers the button and reacts to the state.
-    js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
-    html = (ROOT / "agri" / "cloud" / "dashboard" / "index.html").read_text()
-    css = (ROOT / "agri" / "cloud" / "dashboard" / "style.css").read_text()
-    check("the detail panel has a fault button",
-          'id="detail-fault"' in html and "onclick=\"toggleFault()\"" in html)
-    check("app.js implements the toggle and reads it back from the state",
-          "function toggleFault(" in js and "simulated_faults" in js
-          and "/api/fault" in js)
-    check("a faulted station's measured value is hidden on the map, not "
-          "just annotated -- the whole point is that the sensor is down",
-          "s.measured && !s.faulted" in js)
-    check("the detail panel shows the LSTM prediction in place of the "
-          "hidden measurement", "fetchFaultPrediction(" in js
-          and "predicted" in js)
-    check("the map marks a faulted station so it does not just go quiet",
-          "function faultLayer(" in js and "fault-ring" in css)
-    check("a predicted value is visually distinguished from a measured one",
-          ".reading.predicted" in css)
+    d = flagged.to_dict()
+    check("to_dict carries the sign too", d["predicted"] == ["ph", "temperature"])
+    back2 = Measurement.from_dict(d)
+    check("and from_dict recovers it",
+          back2.predicted == ["ph", "temperature"])
+    old_style = dict(d)
+    del old_style["predicted"]
+    check("a dict with no predicted key is read as an ordinary reading",
+          Measurement.from_dict(old_style).predicted == [])
 
 
-def check_live_fault_injection() -> None:
-    """A REAL failure, not a button: GreenhouseField can genuinely fail a
-    read, run_mission's own exception handler catches it as it already did
-    for any other error, and the Cloud notices from the failed ack alone --
-    no operator action anywhere in the chain."""
-    print("\nlive fault injection: a real failure, not just a demo button")
-    from agri.measurement import MeasurementError            # noqa: PLC0415
-    from agri.sensors import GreenhouseField                 # noqa: PLC0415
+def check_sensor_fault_injection() -> None:
+    """GreenhouseField can genuinely fail a read (fail_rate, the whole
+    board) or corrupt exactly one channel (aberration_rate) -- both real
+    data-pipeline events, not a display trick. What the robot does about
+    either is agri.robot.Visitor's job, checked separately."""
+    print("\nlive fault injection at the sensor")
+    from agri.measurement import BY_NAME, MeasurementError  # noqa: PLC0415
+    from agri.sensors import SENSOR_STUCK_VALUE, GreenhouseField  # noqa: PLC0415
 
     off = GreenhouseField()
-    check("fail_rate defaults to 0.0", off.fail_rate == 0.0)
-    baseline = GreenhouseField(fail_rate=0.0)
+    check("fail_rate and aberration_rate default to 0.0",
+          off.fail_rate == 0.0 and off.aberration_rate == 0.0)
+    baseline = GreenhouseField(fail_rate=0.0, aberration_rate=0.0)
     for m in range(0, 200, 10):
-        baseline.read("P1,1R", float(m))   # must never raise
-    check("fail_rate 0.0 never raises across many reads", True)
+        v = baseline.read("P1,1R", float(m))
+        assert v.out_of_range() == []
+    check("both rates at 0.0 never raise or corrupt, across many reads", True)
 
     on = GreenhouseField(fail_rate=1.0)
-    raised = False
+    raised = None
     try:
         on.read("P1,1R", 0.0)
-    except MeasurementError:
-        raised = True
+    except MeasurementError as exc:
+        raised = exc
     check("fail_rate 1.0 always fails the read",
-          raised, "a certain failure did not raise")
+          raised is not None, "a certain failure did not raise")
+    check("and names EVERY quantity as missing -- the whole board is down",
+          raised is not None and set(raised.missing) == set(BY_NAME))
+
+    ab = GreenhouseField(aberration_rate=1.0)
+    m = ab.read("P1,1R", 0.0)
+    check("aberration_rate 1.0 does not raise -- the report still arrives",
+          True)
+    bad = m.out_of_range()
+    check("exactly one quantity is outside its physical band",
+          len(bad) == 1, f"out_of_range: {bad}")
+    check("stuck at the documented sentinel, not an arbitrary number",
+          m.values[bad[0]] == SENSOR_STUCK_VALUE)
+    check("the other four are genuine readings, not also corrupted",
+          all(BY_NAME[q].lo <= m.values[q] <= BY_NAME[q].hi
+              for q in m.values if q != bad[0]))
 
     partial = GreenhouseField(fail_rate=0.5)
-    outcomes = []
-    for m in range(0, 600, 10):
-        try:
-            partial.read("P1,1R", float(m))
-            outcomes.append("ok")
-        except MeasurementError:
-            outcomes.append("fail")
-    check("a mid-range rate produces BOTH outcomes, not just one",
+    outcomes = ["fail" if _field_raises(partial, "P1,1R", float(m)) else "ok"
+                for m in range(0, 600, 10)]
+    check("a mid-range fail_rate produces BOTH outcomes",
           "ok" in outcomes and "fail" in outcomes, str(outcomes))
-    again = []
-    for m in range(0, 600, 10):
-        try:
-            GreenhouseField(fail_rate=0.5).read("P1,1R", float(m))
-            again.append("ok")
-        except MeasurementError:
-            again.append("fail")
+    again = ["fail" if _field_raises(GreenhouseField(fail_rate=0.5), "P1,1R", float(m))
+             else "ok" for m in range(0, 600, 10)]
     check("the same seed reproduces the same failure pattern",
           outcomes == again)
 
     # A disabled field's noise sequence must be BYTE IDENTICAL to before
-    # this existed -- the `if self.fail_rate` guard must truly draw
-    # nothing from rng when it is falsy, or every existing check that
-    # assumed a particular noise value would be quietly wrong.
+    # either fault mode existed -- both `if self.xxx_rate` guards must
+    # truly draw nothing from rng when they are falsy, or every existing
+    # check that assumed a particular noise value would be quietly wrong.
     plain = GreenhouseField().read("P1,1R", 30.0).values
-    guarded = GreenhouseField(fail_rate=0.0).read("P1,1R", 30.0).values
-    check("a 0.0 rate changes NOTHING about the noise already relied on",
+    guarded = GreenhouseField(fail_rate=0.0, aberration_rate=0.0).read(
+        "P1,1R", 30.0).values
+    check("0.0 rates change NOTHING about the noise already relied on",
           plain == guarded, f"{plain} != {guarded}")
 
-    # The Cloud side: a failed ack is enough, no /api/fault call involved.
+
+def _field_raises(field, label, minutes) -> bool:
+    from agri.measurement import MeasurementError            # noqa: PLC0415
+    try:
+        field.read(label, minutes)
+        return False
+    except MeasurementError:
+        return True
+
+
+def check_local_predictor() -> None:
+    """agri.prediction.LocalPredictor: the robot's own rolling model,
+    trained on nothing but what it has read itself."""
+    print("\nthe robot's own local predictor")
+    from agri.prediction import HAS_TORCH, LocalPredictor    # noqa: PLC0415
+
+    if not HAS_TORCH:
+        check("PyTorch is available for the local predictor", False,
+              "torch not installed")
+        return
+
+    lp = LocalPredictor(seq_len=4, epochs=20, retrain_every=2)
+    check("a predictor with no history predicts nothing",
+          lp.predict("P1,1R", 0.0, ["temperature"]) is None)
+
+    from agri.sensors import GreenhouseField                 # noqa: PLC0415
+    field = GreenhouseField()
+    for m in range(0, 90, 10):
+        v = field.read("P1,1R", float(m))
+        lp.remember("P1,1R", v.timestamp, v.values)
+    got = lp.predict("P1,1R", 90.0, ["temperature", "ph"])
+    check("with enough history it predicts exactly the quantities asked",
+          got is not None and set(got) == {"temperature", "ph"}, got)
+    truth = field.truth("P1,1R", 90.0)
+    check("and the guess is in the right neighbourhood",
+          abs(got["temperature"] - truth["temperature"]) < 10.0, got)
+    check("asking for nothing returns nothing, not an error",
+          lp.predict("P1,1R", 90.0, []) is None)
+
+
+def check_visitor_predicts_locally() -> None:
+    """The centrepiece: Visitor.visit() recovers a bad or missing reading
+    ITSELF, using its own LocalPredictor, before build_report ever runs.
+    The Cloud is not involved in this test at all -- that is the point."""
+    print("\nthe robot resolves its own sensor gaps before reporting")
+    from agri import keys                                     # noqa: PLC0415
+    from agri.envelope import open_envelope                  # noqa: PLC0415
+    from agri.measurement import (BY_NAME, Measurement,       # noqa: PLC0415
+                                  MeasurementError, QUANTITIES)
+    from agri.prediction import HAS_TORCH                     # noqa: PLC0415
+    from agri.robot import SimulatedDriver, Visitor           # noqa: PLC0415
+    from agri.sensors import SENSOR_STUCK_VALUE               # noqa: PLC0415
+
+    if not HAS_TORCH:
+        check("PyTorch is available for Visitor's local recovery", False,
+              "torch not installed")
+        return
+
+    with tempfile.TemporaryDirectory() as d:
+        keydir = Path(d) / "keys"
+        keys.bootstrap(keydir)
+        cloud_pub = keys.public_of("cloud", keydir, generate=False)
+        robot_priv = keys.ensure("robot", keydir, generate=False).private_pem
+
+        def mid(q):
+            return (q.lo + q.hi) / 2
+
+        # --- a bad label with no history at all: nothing to predict from
+        def always_fails(label, minutes, pose):
+            raise MeasurementError(f"{label}: dead board",
+                                   missing=tuple(BY_NAME))
+
+        v0 = Visitor(robot_id="youbot-01", cloud_public_pem=cloud_pub,
+                    robot_private_pem=robot_priv, read_sensors=always_fails,
+                    driver=SimulatedDriver(seed=1))
+        threw = None
+        try:
+            v0.visit("P1,1R", 0.0)
+        except MeasurementError as exc:
+            threw = exc
+        check("a first-ever visit that fails outright still fails -- there "
+              "is no history yet to predict from", threw is not None)
+        check("and says so, not just that it failed", "history" in str(threw))
+
+        # --- partial aberration, WITH history: one quantity recovered, the
+        #     other four left exactly as the sensor reported them
+        calls = {"n": 0}
+
+        def sensors_then_aberrant(label, minutes, pose):
+            calls["n"] += 1
+            vals = {q.name: mid(q) for q in QUANTITIES}
+            if calls["n"] == 9:
+                vals["ph"] = SENSOR_STUCK_VALUE
+            return Measurement(label=label, values=vals, pose=pose)
+
+        v1 = Visitor(robot_id="youbot-01", cloud_public_pem=cloud_pub,
+                    robot_private_pem=robot_priv,
+                    read_sensors=sensors_then_aberrant,
+                    driver=SimulatedDriver(seed=2))
+        envelope = None
+        for i in range(9):
+            envelope, _note = v1.visit("P1,1R", float(i * 10))
+        report = open_envelope(envelope, keys.ensure(
+            "cloud", keydir, generate=False).private_pem,
+            keys.public_of("robot", keydir, generate=False))
+        check("the 9th visit's report says ph was predicted",
+              report["measurement"]["predicted"] == ["ph"],
+              report["measurement"]["predicted"])
+        others = {k: v for k, v in report["measurement"]["values"].items()
+                 if k != "ph"}
+        check("the other four values are untouched",
+              all(v == mid(BY_NAME[k]) for k, v in others.items()), others)
+        check("the recovered ph is back inside the physical band",
+              BY_NAME["ph"].lo <= report["measurement"]["values"]["ph"]
+              <= BY_NAME["ph"].hi)
+        check("Visitor counts the station as a predicted visit",
+              v1.predicted_visits == 1, v1.predicted_visits)
+
+        # --- a full board failure, WITH history: everything predicted
+        calls2 = {"n": 0}
+
+        def sensors_then_dead(label, minutes, pose):
+            calls2["n"] += 1
+            if calls2["n"] == 9:
+                raise MeasurementError(f"{label}: dead board",
+                                       missing=tuple(BY_NAME))
+            return Measurement(label=label, values={q.name: mid(q)
+                                                     for q in QUANTITIES}, pose=pose)
+
+        v2 = Visitor(robot_id="youbot-01", cloud_public_pem=cloud_pub,
+                    robot_private_pem=robot_priv,
+                    read_sensors=sensors_then_dead,
+                    driver=SimulatedDriver(seed=3))
+        for i in range(9):
+            envelope, note = v2.visit("P1,2R", float(i * 10))
+        check("a full failure, with history, still produces a report",
+              "predicted:" in note, note)
+        report2 = open_envelope(envelope, keys.ensure(
+            "cloud", keydir, generate=False).private_pem,
+            keys.public_of("robot", keydir, generate=False))
+        check("every quantity is marked predicted",
+              set(report2["measurement"]["predicted"]) == set(BY_NAME),
+              report2["measurement"]["predicted"])
+
+
+def check_store_carries_predicted() -> None:
+    """The Cloud does not decide `predicted` -- it only carries it through,
+    from the report to StoredVisit to the dashboard and the CSVs."""
+    print("\nthe store and the CSVs carry the sign through unchanged")
     from agri import keys                                    # noqa: PLC0415
     from agri.cloud.server import Cloud                       # noqa: PLC0415
     from agri.cloud.store import Store                        # noqa: PLC0415
+    from agri.envelope import build_report, seal_report        # noqa: PLC0415
+    from agri.measurement import Measurement, QUANTITIES, utc_now  # noqa: PLC0415
 
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
@@ -4691,55 +4785,89 @@ def check_live_fault_injection() -> None:
         cloud = Cloud(Store(d / "store"), d / "keys")
         rid, _signed = cloud.build_request(["P1,3R"])
 
-        check("no station starts as a detected (real) fault",
-              cloud.detected_faults == set())
-        cloud.on_ack(json.dumps({
-            "request_id": rid, "state": "failed", "label": "P1,3R",
-            "detail": "P1,3R: sensor read failed (live fault, rate 50%)",
-        }).encode())
-        check("a failed ack, on its own, marks the station faulted",
-              "P1,3R" in cloud.detected_faults)
-        st = cloud.state()
-        row = next(s for s in st["stations"] if s["label"] == "P1,3R")
-        check("the station record says it is a REAL fault, not a demo one",
-              row["faulted"] is True and row["fault_detected"] is True)
-        check("the top-level state carries the detected list too",
-              st["detected_faults"] == ["P1,3R"])
-        check("the operator's dialogue names the station and why",
-              any("P1,3R failed to report" in e["text"]
-                  for e in cloud.dialogue),
-              str([e["text"] for e in cloud.dialogue][-3:]))
-
-        # Recovery: a GENUINE report for the same station clears it, with
-        # nobody pressing anything -- the evidence that fixed it IS the fix.
-        from agri.envelope import build_report, seal_report    # noqa: PLC0415
-        from agri.measurement import (Measurement, QUANTITIES,  # noqa: PLC0415
-                                      utc_now)
-
         m = Measurement(label="P1,3R", timestamp=utc_now(),
-                        values={q.name: (q.lo + q.hi) / 2 for q in QUANTITIES})
+                        values={q.name: (q.lo + q.hi) / 2 for q in QUANTITIES},
+                        predicted=["humidity"])
         report = build_report(m, b"\xff\xd8\xff\xd9", (10, 10),
                               "youbot-01", rid)
         envelope = seal_report(report, cloud.cloud_keys.public_pem,
                                keys.ensure("robot", d / "keys",
                                           generate=False).private_pem)
         verdict = cloud.on_report(json.dumps(envelope).encode())
-        check("the report is accepted", "filed" in verdict, verdict)
-        check("filing a fresh report clears the REAL fault automatically",
-              "P1,3R" not in cloud.detected_faults, str(cloud.detected_faults))
+        check("the report is accepted and says what was predicted",
+              "PREDICTED humidity" in verdict, verdict)
 
-    # The launch surface: the rate has to actually reach the node.
+        st = cloud.state()
+        row = next(s for s in st["stations"] if s["label"] == "P1,3R")
+        check("the station's own record carries the sign, for the "
+              "dashboard to draw", row["predicted"] == ["humidity"], row)
+
+        v = cloud.store.latest_by_label()["P1,3R"]
+        check("StoredVisit carries it too", v.predicted == ["humidity"])
+
+        csv_path = cloud.store.export_csv()
+        header = csv_path.read_text().splitlines()[0]
+        check("measurements.csv names a predicted column",
+              "predicted" in header.split(","), header)
+        row_line = csv_path.read_text().splitlines()[1]
+        check("and the row actually carries it",
+              "humidity" in row_line, row_line)
+
+        plants_path = cloud.store.export_plants_csv()
+        p_header = plants_path.read_text().splitlines()[0]
+        check("plants.csv names a predicted column per side",
+              "R_predicted" in p_header and "L_predicted" in p_header,
+              p_header)
+
+
+def check_dashboard_shows_real_predictions() -> None:
+    """The dashboard shows exactly what the robot sent -- no toggle, no
+    Cloud-side override. The old 'simulate a failure' button is gone."""
+    print("\nthe dashboard reflects the robot's own sign, not a toggle")
+    js = (ROOT / "agri" / "cloud" / "dashboard" / "app.js").read_text()
+    html = (ROOT / "agri" / "cloud" / "dashboard" / "index.html").read_text()
+    css = (ROOT / "agri" / "cloud" / "dashboard" / "style.css").read_text()
+
+    check("the old demo fault button is gone",
+          "toggleFault" not in js and "detail-fault" not in html
+          and "/api/fault" not in js)
+    check("so is the Cloud-side fault-detection state",
+          "simulated_faults" not in js and "detected_faults" not in js)
+    check("renderDetail reads the station's own `predicted` list",
+          "s.predicted" in js)
+    check("a predicted value is visually distinguished from a measured one",
+          ".reading.predicted" in css)
+    check("the map marks a station whose latest report has a prediction",
+          "function predictedLayer(" in js and "fault-ring" in css)
+    check("the LSTM audit tool survives, decoupled from any toggle",
+          "function predictStation(" in js and "/api/predict" in js)
+
+    server = (ROOT / "agri" / "cloud" / "server.py").read_text()
+    check("the Cloud no longer exposes /api/fault",
+          '"/api/fault"' not in server and "def _fault(" not in server)
+    check("nor does it keep a simulated/detected fault set",
+          "simulated_faults" not in server and "detected_faults" not in server)
+
+
+def check_robot_side_fault_launch_surface() -> None:
+    """Both live fault rates have to actually reach the robot node."""
+    print("\nthe launch surface for both fault rates")
     launch = (ROOT / "ros2" / "src" / "agri_robot" / "launch"
              / "agri.launch.py").read_text()
     check("the launch file exposes fail_rate as an argument",
           '"fail_rate"' in launch and 'default_value="0.0"' in launch)
-    check("and passes it to the robot node as a parameter",
-          "fail_rate" in launch and "ParameterValue" in launch)
+    check("and aberration_rate too",
+          '"aberration_rate"' in launch)
+    check("both are passed to the robot node as parameters",
+          "ParameterValue" in launch
+          and launch.count("value_type=float") >= 2)
     node = (ROOT / "ros2" / "src" / "agri_robot" / "agri_robot"
            / "robot_node.py").read_text()
-    check("the robot node declares the parameter and wires it through",
+    check("the robot node declares both parameters and wires them through",
           'declare_parameter("fail_rate"' in node
-          and "GreenhouseField(fail_rate=" in node)
+          and 'declare_parameter("aberration_rate"' in node
+          and "GreenhouseField(fail_rate=" in node
+          and "aberration_rate=" in node)
 
 
 def check_demo() -> None:
@@ -4842,7 +4970,11 @@ def main() -> int:
                check_dashboard_auth, check_mode_buttons,
                check_active_station, check_session_buttons, check_multinode,
                check_end_to_end, check_timing, check_modes, check_route, check_launch_scripts,
-               check_prediction, check_fault_toggle, check_live_fault_injection,
+               check_prediction, check_measurement_predicted_flag,
+               check_sensor_fault_injection, check_local_predictor,
+               check_visitor_predicts_locally, check_store_carries_predicted,
+               check_dashboard_shows_real_predictions,
+               check_robot_side_fault_launch_surface,
                check_coloured_logs, check_demo, check_hygiene):
         fn()
     print()

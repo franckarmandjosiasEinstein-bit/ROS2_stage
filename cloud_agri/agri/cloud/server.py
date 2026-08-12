@@ -91,21 +91,6 @@ class Cloud:
         self.progress: dict[str, Any] = {}
         self._train_result: TrainResult | None = None
         self._train_n: int = 0
-        #: Stations the operator has marked as a simulated sensor failure.
-        #: The dashboard hides their measured values and shows the LSTM's
-        #: prediction instead -- this is the live counterpart of the
-        #: FailureSimulator that drops readings during training, so the
-        #: same gap that TRAINS the model can be demonstrated live.
-        self.simulated_faults: set[str] = set()
-        #: Stations a REAL failed visit named, with no operator involved.
-        #: Populated from the robot's own "failed" ack (agri.robot.Visitor
-        #: raised -- e.g. GreenhouseField's live fail_rate fired) and
-        #: cleared the moment a fresh report for that station is filed, so
-        #: a station that recovers on its own stops being shown as faulted
-        #: without anyone having to notice and press a button. Kept apart
-        #: from simulated_faults so the dashboard can say which is which;
-        #: state() reports a station as faulted if it is in EITHER set.
-        self.detected_faults: set[str] = set()
         self.rejected: deque[dict[str, Any]] = deque(maxlen=50)
         self.accepted = 0
         self.started = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -220,12 +205,6 @@ class Cloud:
         visit = self.store.add_report(
             report, request_issued_at=p["issued_at"] if p else None)
         self.accepted += 1
-        # A fresh, genuine report is the strongest possible evidence that a
-        # station has recovered -- clear any REAL failure noted for it so
-        # the dashboard stops showing a prediction for data it now has.
-        # (A DEMO fault stays until the operator lifts it: that one was
-        # never about the data being missing.)
-        self.detected_faults.discard(visit.label)
         if p is not None:
             p["done"] = min(p["total"], p["done"] + 1)
             p["label"] = visit.label
@@ -244,10 +223,11 @@ class Cloud:
         self.say("cloud", f"received {visit.label}, opened, verified, "
                  "filed", STEP_FILED)
         flag = f"  FLAGGED {','.join(visit.flags)}" if visit.flags else ""
+        pred = f"  PREDICTED {','.join(visit.predicted)}" if visit.predicted else ""
         took = f"  [+{visit.latency_s:.0f}s]" if visit.latency_s is not None else ""
         return (f"{visit.label:7s} filed  "
                 + "  ".join(f"{q.name[:4]}={visit.values[q.name]}"
-                            for q in QUANTITIES) + flag + took)
+                            for q in QUANTITIES) + flag + pred + took)
 
     def _reject(self, robot: str, reason: str) -> str:
         self.rejected.append({"robot": robot, "reason": reason,
@@ -276,21 +256,22 @@ class Cloud:
         for f in ("metres", "planned_m"):
             if d.get(f) is not None:
                 p[f] = d[f]
-        # A REAL failure, named by the robot itself -- not the operator's
-        # demo button. The same "faulted" flag the dashboard already knows
-        # how to show a prediction for, but nobody had to press anything.
+        # A station the robot could not report AT ALL -- it already tried
+        # its own local prediction model (agri.robot.Visitor) and that
+        # failed too, most likely a brand-new station with no history yet.
+        # There is nothing for the Cloud to do about a gap it was not
+        # given the chance to fill; this is a record of the fact, not a
+        # second attempt at fixing it.
         if d.get("state") == "failed" and d.get("label"):
             try:
                 failed_label = normalise(d["label"])
             except ValueError:
                 failed_label = None
             if failed_label:
-                self.detected_faults.add(failed_label)
                 self.say("cloud", f"{failed_label} failed to report"
-                         + (f" ({d['detail']})" if d.get("detail") else "")
-                         + " -- LSTM fallback available", "fault")
-                log.cloud(log.err("detected failure") +
-                          f" at {log.data(failed_label)}"
+                         + (f" ({d['detail']})" if d.get("detail") else ""),
+                         "fault")
+                log.cloud(log.err("failed") + f" {log.data(failed_label)}"
                           + (f": {d['detail']}" if d.get("detail") else ""))
         # A mission that ENDS without filing every report still ends, and the
         # record has to close or the dashboard shows it running for ever and
@@ -442,13 +423,15 @@ class Cloud:
                 "latency_s": v.latency_s if v else None,
                 "values": v.values if v else None,
                 "flags": v.flags if v else [],
+                #: Quantities on THIS reading that the robot itself
+                #: predicted rather than measured -- see
+                #: agri.measurement.Measurement.predicted. Real, not a
+                #: demo: the sign the robot sent, unchanged.
+                "predicted": v.predicted if v else [],
                 "velocity": v.velocity if v else None,
                 "photo": v.photo_path if v else None,
                 "qr": v.qr_path if v else None,
                 "parking_error_m": v.parking_error_m if v else None,
-                "faulted": s.label in self.simulated_faults
-                          or s.label in self.detected_faults,
-                "fault_detected": s.label in self.detected_faults,
             })
         measured, total = self.store.coverage()
         active = self._active_station()
@@ -462,8 +445,6 @@ class Cloud:
                         "accepted": self.accepted,
                         "rejected": len(self.rejected)},
             "active_station": active,
-            "simulated_faults": sorted(self.simulated_faults),
-            "detected_faults": sorted(self.detected_faults),
             "nodes": dict(self.nodes),
             # How the Cloud is driving the fleet, and whether it is taking
             # readings. Both are switchable from the dashboard, because a
@@ -710,7 +691,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:                       # noqa: N802
         path = self.path.split("?")[0]
         if path not in ("/api/request", "/api/export", "/api/quit",
-                        "/api/mode", "/api/predict", "/api/fault"):
+                        "/api/mode", "/api/predict"):
             return self._json({"error": "not found"}, 404)
         if not self._check_auth():
             return
@@ -722,8 +703,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._mode()
         if path == "/api/predict":
             return self._predict()
-        if path == "/api/fault":
-            return self._fault()
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -774,51 +753,20 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"mode": self.cloud.mode,
                            "receiving": self.cloud.receiving})
 
-    def _fault(self) -> None:
-        """Toggle a simulated sensor failure at one station.
-
-        This is the LIVE counterpart of the FailureSimulator that drops
-        readings during LSTM training: the operator marks a station's
-        sensor as down, the dashboard stops trusting its measured value
-        and shows the LSTM's prediction instead, clearly labelled as such.
-        Reversible for the same reason pause/resume is a toggle and not a
-        one-way switch -- the demonstration is showing a gap and a fix,
-        not breaking the station for good.
-        """
-        try:
-            n = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(n) or b"{}")
-        except ValueError as exc:
-            return self._json({"error": str(exc)}, 400)
-
-        label = body.get("label")
-        if not label:
-            return self._json({"error": "label is required"}, 400)
-        try:
-            label = normalise(label)
-        except ValueError as exc:
-            return self._json({"error": str(exc)}, 400)
-        if label not in all_labels():
-            return self._json({"error": f"no such station: {label}"}, 400)
-
-        active = bool(body.get("active", True))
-        if active:
-            self.cloud.simulated_faults.add(label)
-            self.cloud.say("cloud", f"operator simulated a failure at {label}",
-                           "fault")
-            log.cloud(log.warn("simulated failure") + f" at {log.data(label)}")
-        else:
-            self.cloud.simulated_faults.discard(label)
-            self.cloud.say("cloud", f"operator cleared the simulated "
-                           f"failure at {label}", "fault")
-            log.cloud(log.ok("cleared") + f" the simulated failure at "
-                      f"{log.data(label)}")
-
-        return self._json({"label": label, "active": active,
-                           "faults": sorted(self.cloud.simulated_faults)})
-
     def _predict(self) -> None:
-        """Train (or reuse) the LSTM and return predictions for a station."""
+        """Train (or reuse) the CLOUD's own LSTM, from the CLOUD's own copy
+        of the history, and say what it would predict for a station.
+
+        This is an AUDIT tool, not the recovery mechanism: the robot
+        already predicts and flags its own gaps locally, before a report
+        ever reaches here (agri.robot.Visitor, agri.prediction.
+        LocalPredictor). What this endpoint answers is a different
+        question -- "does an independently-trained model, watching the
+        same greenhouse from the Cloud's side, agree with what the robot
+        sent?" -- which is exactly the kind of cross-check a value that
+        arrived already labelled `predicted` deserves, rather than being
+        taken on the robot's word alone.
+        """
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")

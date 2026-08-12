@@ -200,6 +200,10 @@ class StoredVisit:
     photo_path: str | None
     qr_path: str | None
     flags: list[str] = field(default_factory=list)
+    #: Quantities the ROBOT itself predicted rather than measured -- see
+    #: agri.measurement.Measurement.predicted. Carried through unchanged
+    #: from the report; the Cloud does not decide this, it only shows it.
+    predicted: list[str] = field(default_factory=list)
     #: THE OTHER TWO CLOCKS. A reading has three interesting moments and the
     #: store used to keep one of them, so "how long did that take" could not
     #: be answered from the file at all:
@@ -227,7 +231,7 @@ class StoredVisit:
             "velocity": self.velocity,
             "parking_error_m": self.parking_error_m,
             "photo": self.photo_path, "qr": self.qr_path,
-            "flags": self.flags,
+            "flags": self.flags, "predicted": self.predicted,
             "request_issued_at": self.request_issued_at,
             "received_at": self.received_at,
         }
@@ -240,7 +244,7 @@ class StoredVisit:
                    velocity=d.get("velocity"),
                    parking_error_m=d.get("parking_error_m"),
                    photo_path=d.get("photo"), qr_path=d.get("qr"),
-                   flags=d.get("flags", []),
+                   flags=d.get("flags", []), predicted=d.get("predicted", []),
                    request_issued_at=d.get("request_issued_at"),
                    received_at=d.get("received_at"))
 
@@ -337,6 +341,7 @@ class Store:
             parking_error_m=report.get("parking_error_m"),
             photo_path=photo_path, qr_path=qr_path,
             flags=[f"out_of_range:{q}" for q in m.out_of_range()],
+            predicted=list(m.predicted),
             request_issued_at=request_issued_at, received_at=utc_now())
 
         with self._lock:
@@ -384,7 +389,8 @@ class Store:
                     "request_id", "request_issued_at", "measured_at",
                     "received_at", "latency_s", "robot"]
                    + [q.name for q in QUANTITIES]
-                   + ["pose_x", "pose_y", "parking_error_m", "flags"])
+                   + ["pose_x", "pose_y", "parking_error_m", "flags",
+                      "predicted"])
 
     def export_csv(self, path: Path | None = None) -> Path:
         path = Path(path or self.root / "measurements.csv")
@@ -403,7 +409,7 @@ class Store:
                            + [v.values.get(q.name, "") for q in QUANTITIES]
                            + [pose.get("x", ""), pose.get("y", ""),
                               v.parking_error_m if v.parking_error_m is not None else "",
-                              ";".join(v.flags)])
+                              ";".join(v.flags), ";".join(v.predicted)])
         return path
 
     # ------------------------------------------------- per-plant export
@@ -426,11 +432,11 @@ class Store:
                      + [f"R_{c}" for c in
                         ["measured_at", "received_at"]
                         + [q.name for q in QUANTITIES]
-                        + ["parking_error_m", "flags", "photo", "qr"]]
+                        + ["parking_error_m", "flags", "predicted", "photo", "qr"]]
                      + [f"L_{c}" for c in
                         ["measured_at", "received_at"]
                         + [q.name for q in QUANTITIES]
-                        + ["parking_error_m", "flags", "photo", "qr"]])
+                        + ["parking_error_m", "flags", "predicted", "photo", "qr"]])
 
     def export_plants_csv(self, path: Path | None = None) -> Path:
         path = Path(path or self.root / "plants.csv")
@@ -442,12 +448,13 @@ class Store:
                 # Empty, not zero: a plant that was never visited on this
                 # side has no reading, which is a different fact from a
                 # reading of 0.0 and must not export as one.
-                return [""] * (4 + len(QUANTITIES) + 2)
+                return [""] * (5 + len(QUANTITIES) + 2)
             return ([v.timestamp, v.received_at or ""]
                     + [v.values.get(q.name, "") for q in QUANTITIES]
                     + [v.parking_error_m if v.parking_error_m is not None
                        else "",
-                       ";".join(v.flags), v.photo_path or "", v.qr_path or ""])
+                       ";".join(v.flags), ";".join(v.predicted),
+                       v.photo_path or "", v.qr_path or ""])
 
         with path.open("w", newline="") as fh:
             w = csv.writer(fh)

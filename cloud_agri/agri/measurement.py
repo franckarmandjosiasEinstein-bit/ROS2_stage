@@ -75,7 +75,19 @@ BY_NAME = {q.name: q for q in QUANTITIES}
 
 
 class MeasurementError(ValueError):
-    pass
+    """Raised when a station cannot be read as asked.
+
+    `missing` names the quantities a sensor could not produce -- empty for
+    everything that is not a sensor gap (a bad label, a QR that will not
+    parse), non-empty for a dead board or a corrupted channel. That is the
+    one bit of information the ROBOT needs to decide whether to try its own
+    prediction model before giving up on the visit; a caller with no
+    `missing` has nothing to predict its way out of.
+    """
+
+    def __init__(self, message: str, missing: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.missing = missing
 
 
 def utc_now() -> str:
@@ -105,6 +117,14 @@ class Measurement:
     #: a reading taken somewhere between two places, and without this field
     #: nothing downstream could ever tell.
     velocity: tuple[float, float, float] | None = None
+    #: Names of the quantities in `values` that came from the ROBOT's own
+    #: prediction model, not its sensors -- because a read failed outright
+    #: or came back outside the physically possible range. Empty for an
+    #: ordinary reading. This is the one field that turns "a number that
+    #: looks like a measurement" into "a number that says what it is":
+    #: nothing downstream (the QR, the dict, the dashboard) may show a
+    #: predicted value without this list saying so.
+    predicted: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.label = normalise(self.label)
@@ -133,6 +153,14 @@ class Measurement:
         parts = [QR_MAGIC, self.label, self.timestamp]
         parts += [f"{q.key}={q.format(self.values[q.name])}"
                   for q in QUANTITIES]
+        # THE SIGN. A predicted value is written in the QR exactly like any
+        # other -- same key, same format -- because hiding it in a separate
+        # channel is how a number that looks like a measurement stops being
+        # one. This token is what says it is not: the keys of every
+        # quantity above that came from the robot's model, not its sensor.
+        if self.predicted:
+            parts.append("pred=" + ",".join(
+                BY_NAME[n].key for n in self.predicted if n in BY_NAME))
         if self.pose is not None:
             parts += [f"x={self.pose[0]:.3f}", f"y={self.pose[1]:.3f}",
                       f"yaw={math.degrees(self.pose[2]):.1f}"]
@@ -158,7 +186,16 @@ class Measurement:
         label, ts = parts[1], parts[2]
         values: dict[str, float] = {}
         extra: dict[str, float] = {}
+        predicted: list[str] = []
         for token in parts[3:]:
+            if token.startswith("pred="):
+                keys = token[len("pred="):]
+                try:
+                    predicted = [BY_KEY[k].name for k in keys.split(",") if k]
+                except KeyError as exc:
+                    raise MeasurementError(
+                        f"cannot read field {token!r}") from exc
+                continue
             m = re.match(r"^([a-z0-9]+)=(-?[\d.]+)$", token)
             if not m:
                 raise MeasurementError(f"cannot read field {token!r}")
@@ -174,7 +211,7 @@ class Measurement:
         velocity = ((extra["vx"], extra["vy"], extra["w"])
                     if {"vx", "vy", "w"} <= extra.keys() else None)
         return cls(label=label, timestamp=ts, values=values,
-                   pose=pose, velocity=velocity)
+                   pose=pose, velocity=velocity, predicted=predicted)
 
     # --------------------------------------------------------------- JSON
     def to_dict(self) -> dict[str, Any]:
@@ -183,6 +220,7 @@ class Measurement:
             "timestamp": self.timestamp,
             "values": {q.name: self.values[q.name] for q in QUANTITIES},
             "units": {q.name: q.unit for q in QUANTITIES},
+            "predicted": list(self.predicted),
         }
         if self.pose is not None:
             d["pose"] = {"x": round(self.pose[0], 3),
@@ -208,7 +246,8 @@ class Measurement:
             velocity = (float(v["vx"]), float(v["vy"]), float(v["wz"]))
         return cls(label=d["label"], timestamp=d["timestamp"],
                    values={k: float(v) for k, v in d["values"].items()},
-                   pose=pose, velocity=velocity)
+                   pose=pose, velocity=velocity,
+                   predicted=list(d.get("predicted") or []))
 
     # -------------------------------------------------------------- checks
     def out_of_range(self) -> list[str]:

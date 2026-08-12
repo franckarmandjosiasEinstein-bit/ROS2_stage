@@ -241,15 +241,11 @@ function renderMap() {
   });
 
   st.filter(visible).forEach(s => {
-    /* A simulated failure hides the reading here too -- the chip below is
-       what says "this value is trustworthy", and a station standing in
-       for a dead sensor must not draw one, or the map contradicts the
-       banner the detail panel shows for the same station. */
-    const v = (s.measured && !s.faulted) ? s.values[S.quantity] : null;
+    const isPred = s.measured && (s.predicted || []).includes(S.quantity);
+    const v = s.measured ? s.values[S.quantity] : null;
     const t = norm(v);
-    const colour = s.measured && !s.faulted ? ramp(S.quantity, t) : "none";
-    const stroke = s.faulted ? "var(--alert)"
-      : s.measured ? colour : "var(--ink-dim)";
+    const colour = s.measured ? ramp(S.quantity, t) : "none";
+    const stroke = s.measured ? colour : "var(--ink-dim)";
     /* Half the arm of the drawn cross, in metres. Bounded above by the
        0.10 m between the two stations of an inner aisle: at 0.055 the two
        crosses run into each other and read as one X, which is the same
@@ -276,16 +272,16 @@ function renderMap() {
     const label = v == null ? "" : fmt(v);
     const ink = v == null ? "" : (norm(v) > 0.55 ? "#0b1416" : "#f2fbfa");
     const chip = v == null ? "" : `
-      <rect class="chip" x="${s.x - 0.30}" y="${cy - 0.11}" width="0.60"
+      <rect class="chip${isPred ? " predicted" : ""}" x="${s.x - 0.30}" y="${cy - 0.11}" width="0.60"
             height="0.22" rx="0.05" fill="${colour}"/>
       <line class="stem" x1="${s.x}" y1="${s.y}" x2="${s.x}" y2="${cy}"
             stroke="${colour}"/>
       <text class="val" x="${s.x}" y="${cy - 0.06}" fill="${ink}"
-            ${upright(cy - 0.06)}>${label}</text>`;
+            ${upright(cy - 0.06)}>${label}${isPred ? " ⚠" : ""}</text>`;
     svg += `<g class="station${sel}" data-label="${s.label}">
-      <title>${s.label}${s.faulted ? " — simulated failure" :
+      <title>${s.label}${
         v == null ? " — not measured" :
-        ` — ${S.quantity} ${v} ${Q ? Q.unit : ""}`}</title>
+        ` — ${S.quantity} ${v} ${Q ? Q.unit : ""}${isPred ? " (predicted by the robot)" : ""}`}</title>
       ${s.flags && s.flags.length ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.13"/>` : ""}
       ${S.selected === s.label ? `<circle class="halo" cx="${s.x}" cy="${s.y}" r="0.16"/>` : ""}
       <line class="cross" x1="${s.x - a}" y1="${s.y}" x2="${s.x + a}" y2="${s.y}" stroke="${stroke}"/>
@@ -309,7 +305,7 @@ function renderMap() {
   const BOOM = 0.50;
   svg += robotLayer(st);
   svg += activeStationLayer(st);
-  svg += faultLayer(st);
+  svg += predictedLayer(st);
 
   const map = document.getElementById("map");
   /* SVG y grows downward; the greenhouse's +y is north. Flip so the map
@@ -461,24 +457,19 @@ function activeStationLayer(stations) {
   return g;
 }
 
-/* A station that is faulted -- simulated by the operator, or REAL and
-   reported by the robot itself. Either way its measured chip is not drawn
-   in the per-station loop above, so this ring and glyph are the ONLY thing
-   that says the station exists and is being watched, rather than the
-   cross just going quiet with no explanation. Driven off each station's
-   own `faulted` flag rather than the two fault lists directly, so a
-   station is marked exactly once even if it is somehow in both. */
-function faultLayer(stations) {
-  const faulted = stations.filter(s => s.faulted);
-  if (!faulted.length) return "";
+/* A station whose LATEST report contains at least one value the robot
+   predicted rather than measured -- real, from the wire, never a demo
+   toggle (see renderDetail). Marked on the map so a reading recovered
+   from a sensor gap is visible without opening the panel. */
+function predictedLayer(stations) {
+  const flagged = stations.filter(s => s.predicted && s.predicted.length);
+  if (!flagged.length) return "";
   let g = "";
-  faulted.forEach(s => {
+  flagged.forEach(s => {
     const ty = s.y + 0.30;
-    const real = s.fault_detected;
-    g += `<g class="faulted${real ? " real" : ""}">
+    g += `<g class="predicted-station">
       <circle class="fault-ring" cx="${s.x}" cy="${s.y}" r="0.18"/>
-      <text class="fault-mark" x="${s.x}" y="${ty}" ${upright(ty)}>${
-        real ? "⚠ PANNE RÉELLE" : "⚠ PANNE"}</text>
+      <text class="fault-mark" x="${s.x}" y="${ty}" ${upright(ty)}>⚠ PRÉDIT</text>
     </g>`;
   });
   return g;
@@ -568,111 +559,27 @@ async function select(label) {
                                                      block: "nearest" });
 }
 
-/* One cached prediction per label, plus a guard against firing a second
-   /api/predict while the first is still training -- renderDetail is
-   called every 2 s by poll() as long as a station is selected, and an
-   LSTM that trains for 40 epochs takes far longer than that. */
-S.predictionCache = S.predictionCache || {};
-S._predicting = S._predicting || new Set();
-
-async function fetchFaultPrediction(label) {
-  S._predicting.add(label);
-  try {
-    const r = await fetch(apiUrl("/api/predict"), {
-      method: "POST", ...CRED,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label })
-    });
-    const d = await r.json();
-    S.predictionCache[label] = r.ok ? d.predicted : null;
-  } catch (e) {
-    S.predictionCache[label] = null;
-  }
-  S._predicting.delete(label);
-  if (S.selected === label) renderDetail(label);
-}
-
-async function toggleFault() {
-  if (!S.selected) return;
-  const label = S.selected;
-  const active = !(S.state.simulated_faults || []).includes(label);
-  const btn = document.getElementById("detail-fault");
-  btn.disabled = true;
-  try {
-    const r = await fetch(apiUrl("/api/fault"), {
-      method: "POST", ...CRED,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label, active })
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || r.statusText);
-    S.state.simulated_faults = d.faults;
-    delete S.predictionCache[label];
-    renderDetail(label);
-    renderMap();
-  } catch (e) {
-    const hint = document.getElementById("predict-status");
-    hint.textContent = e.message;
-    hint.className = "hint err";
-  } finally {
-    btn.disabled = false;
-  }
-}
-
 function renderDetail(label) {
   const s = (S.state.stations || []).find(x => x.label === label);
   if (!s) return;
   document.getElementById("detail-label").textContent =
     `${label}  //  row ${s.row} plant ${s.plant} ${s.side === "R" ? "right" : "left"}`;
 
-  const simulated = (S.state.simulated_faults || []).includes(label);
-  const detected = (S.state.detected_faults || []).includes(label);
-  const faulted = simulated || detected;
-  const faultBtn = document.getElementById("detail-fault");
-  if (detected && !simulated) {
-    // A REAL failure the robot itself reported -- there is nothing here
-    // for the operator to demo-toggle, and clearing simulated_faults would
-    // not make the underlying gap go away, so the button steps aside
-    // rather than implying a control that does not do what it says.
-    faultBtn.textContent = "⚠ panne réelle en cours";
-    faultBtn.disabled = true;
-    faultBtn.classList.add("active");
-  } else {
-    faultBtn.disabled = false;
-    faultBtn.textContent = simulated ? "✓ lever la panne" : "⚠ simuler une panne";
-    faultBtn.classList.toggle("active", simulated);
-  }
-
-  const banner = document.getElementById("fault-banner");
-  const label_word = detected ? "PANNE DÉTECTÉE (réelle)" : "PANNE SIMULÉE";
-  let predicted = null;
-  if (!faulted) {
-    banner.hidden = true;
-  } else if (!(label in S.predictionCache)) {
-    banner.hidden = false;
-    banner.className = "fault-banner working";
-    banner.textContent = `⚠ ${label_word} — entraînement du modèle LSTM et calcul de la prédiction…`;
-    if (!S._predicting.has(label)) fetchFaultPrediction(label);
-  } else if (S.predictionCache[label] == null) {
-    banner.hidden = false;
-    banner.className = "fault-banner err";
-    banner.textContent = `⚠ ${label_word} — historique insuffisant pour prédire cette station`;
-  } else {
-    predicted = S.predictionCache[label];
-    banner.hidden = false;
-    banner.className = "fault-banner";
-    banner.textContent = detected
-      ? "⚠ PANNE DÉTECTÉE — le capteur n'a pas répondu ; valeurs prédites par le LSTM ci-dessous"
-      : "⚠ PANNE SIMULÉE — capteur indisponible ; valeurs prédites par le LSTM ci-dessous";
-  }
-
+  /* THE SIGN. Every value below is exactly what the robot sent -- no
+     toggle, no Cloud-side override. `predicted` names the quantities
+     the robot's OWN local model filled in because its sensor could not;
+     everything else on the row is a real reading. See
+     agri.measurement.Measurement.predicted and agri.prediction.
+     LocalPredictor -- the recovery happens on the robot, before the
+     report ever reaches here. */
+  const predicted = new Set(s.predicted || []);
   const rows = (S.state.quantities || []).map(Q => {
-    const measured = s.values ? s.values[Q.name] : null;
-    const v = faulted ? (predicted ? predicted[Q.name] : null) : measured;
+    const v = s.values ? s.values[Q.name] : null;
+    const isPred = predicted.has(Q.name);
     const t = v == null ? 0 : Math.max(0, Math.min(1, (v - Q.lo) / (Q.hi - Q.lo)));
     const flagged = (s.flags || []).some(f => f.endsWith(":" + Q.name));
-    const tag = faulted && v != null ? ` <small class="tag">prédit</small>` : "";
-    return `<div class="reading${flagged ? " flagged" : ""}${faulted ? " predicted" : ""}">
+    const tag = isPred ? ` <small class="tag">prédit par le robot</small>` : "";
+    return `<div class="reading${flagged ? " flagged" : ""}${isPred ? " predicted" : ""}">
       <span class="n">${Q.name}</span>
       <span class="bar-t"><i style="width:${(t * 100).toFixed(1)}%;
         background:${ramp(Q.name, t)}"></i></span>

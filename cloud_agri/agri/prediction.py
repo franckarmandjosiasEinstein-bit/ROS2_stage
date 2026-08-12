@@ -345,5 +345,84 @@ def predict(result: TrainResult, visits: list[Any],
         pred_s = model(X_t).numpy()[0]
 
     pred = result.scaler.inverse_y(pred_s)
-    return {q: round(float(pred[i]), QUANTITIES[i].decimals)
+    # Clamped to the quantity's own physical band: an LSTM output is a
+    # regression, not a certainty, and an unclamped prediction can land a
+    # hair outside [lo, hi] on a station with little history. A predicted
+    # value already says what it is; it should not ALSO look broken.
+    return {q: round(QUANTITIES[i].clamp(float(pred[i])), QUANTITIES[i].decimals)
             for i, q in enumerate(QUANTITY_NAMES)}
+
+
+# ------------------------------------------------------ the robot's own copy
+@dataclass
+class _Visit:
+    """The little a station's history needs to remember. Not StoredVisit --
+    that lives in agri.cloud.store and carries hash-chains, photo paths and
+    everything else the CLOUD keeps. The robot does not need any of that to
+    predict; importing the Cloud's own record type here would mean the
+    robot depends on the Cloud's package to run its own fallback, which is
+    backwards for a fault that may be happening because the Cloud is not
+    reachable at all."""
+
+    label: str
+    timestamp: str
+    values: dict[str, float]
+
+
+class LocalPredictor:
+    """The robot's own rolling model, trained on what IT has read so far.
+
+    This is what agri.robot.Visitor calls when a sensor comes back missing
+    or aberrant, BEFORE the report ever leaves the robot. It is deliberately
+    not the Cloud's job: a robot that can only recover from a bad reading by
+    asking a server it might not be able to reach has not recovered from
+    anything. The Cloud still keeps its own /api/predict for inspecting and
+    auditing what the model would say from ITS copy of the history -- a
+    cross-check, not the mechanism.
+
+    Retrains every `retrain_every` new visits rather than on every one,
+    for the same reason the Cloud used to: an LSTM that trains for `epochs`
+    steps takes far longer than the robot has between two stations.
+    """
+
+    def __init__(self, seq_len: int = 4, epochs: int = 40,
+                retrain_every: int = 4) -> None:
+        self.seq_len = seq_len
+        self.epochs = epochs
+        self.retrain_every = retrain_every
+        self._visits: list[_Visit] = []
+        self._result: TrainResult | None = None
+        self._trained_n = 0
+
+    def remember(self, label: str, timestamp: str,
+                values: dict[str, float]) -> None:
+        """File one more reading -- measured or already-predicted, it does
+        not matter: a predicted value that later turns out wrong is no
+        worse a training signal than sensor noise, and refusing to learn
+        from it would mean a station that fails twice in a row can never
+        be predicted the second time."""
+        self._visits.append(_Visit(label, timestamp, dict(values)))
+
+    def predict(self, label: str, minutes: float,
+               names: list[str]) -> dict[str, float] | None:
+        """Predict just the requested quantities, or None if the local
+        history is not yet enough to try -- the caller decides what a
+        model with nothing to say about a brand new station means for the
+        visit; this class only ever says "I don't know" instead of
+        guessing wildly on two data points."""
+        if not HAS_TORCH or not names:
+            return None
+        labels = sorted({v.label for v in self._visits})
+        need_train = (self._result is None
+                     or len(self._visits) >= self._trained_n + self.retrain_every)
+        if need_train:
+            self._result = train(self._visits, labels,
+                                 seq_len=self.seq_len, epochs=self.epochs)
+            self._trained_n = len(self._visits)
+        if self._result is None or self._result.model_state is None:
+            return None
+        full = predict(self._result, self._visits, label, minutes,
+                       self.seq_len)
+        if full is None:
+            return None
+        return {n: full[n] for n in names if n in full}

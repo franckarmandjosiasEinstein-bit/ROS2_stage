@@ -41,7 +41,8 @@ from agri.aisles import HEADLAND_WEST
 from agri.catalogue import Station, nearest_station, station
 from agri.crypto_ecc import CryptoError, sign_json, verify_json
 from agri.envelope import PARK_TOLERANCE, build_report, seal_report, synthetic_photo
-from agri.measurement import Measurement
+from agri.measurement import Measurement, MeasurementError
+from agri.prediction import LocalPredictor
 from agri.protocol import (MODE_COLLECTOR, MODE_COMMAND, QOS, STEP_FILED,
                            STEP_HOLD, STEP_IDLE, STEP_IDLE_ASK, STEP_OFFER,
                            STEP_SEND, ProtocolError,
@@ -115,16 +116,57 @@ class Visitor:
     #: aisle are 0.10 m apart, so this must stay well under half of that or
     #: a visit gets filed under its neighbour's label.
     park_tolerance: float = PARK_TOLERANCE
+    #: The robot's OWN model, trained on what it alone has read. A failed
+    #: or aberrant sensor is recovered HERE, before build_report ever runs
+    #: -- the Cloud receives an ordinary, complete report with `predicted`
+    #: naming whichever quantities did not come from the sensor. Not the
+    #: Cloud's business: see agri.prediction.LocalPredictor.
+    predictor: LocalPredictor = field(default_factory=LocalPredictor)
+    #: How many visits this session needed a predicted value at all, for
+    #: the mission summary -- the same reason visual_used/visual_missed
+    #: are counted on the driver instead of only logged per station.
+    predicted_visits: int = 0
 
     def visit(self, label: str, minutes: float,
               request_id: str | None = None) -> tuple[dict, str]:
-        """(sealed envelope, one-line note). Raises nothing the caller must
-        handle: a bad park is reported, not hidden, and the Cloud decides."""
+        """(sealed envelope, one-line note). Raises only when the station
+        truly cannot be reported: a sensor gap the local model also could
+        not fill. A bad park is reported, not hidden, and the Cloud
+        decides; a bad or missing reading is repaired here if it can be,
+        because a robot that can only recover by asking a Cloud it might
+        not be able to reach has not recovered from anything."""
         s = station(label)
         pose = self.driver.drive_to(s)
         err = math.hypot(pose[0] - s.x, pose[1] - s.y)
 
-        m = self.read_sensors(label, minutes, pose)
+        gaps: list[str] = []
+        try:
+            m = self.read_sensors(label, minutes, pose)
+            # Not every out-of-range value is a fault -- ANOMALIES in
+            # agri.sensors are real greenhouse conditions and land well
+            # inside each quantity's physical band. Only a reading outside
+            # that band (a railed sensor, SENSOR_STUCK_VALUE) counts as a
+            # gap worth predicting over.
+            gaps = m.out_of_range()
+        except MeasurementError as exc:
+            if not exc.missing:
+                raise           # not a sensor gap -- nothing to predict
+            gaps, m = list(exc.missing), None
+
+        if gaps:
+            filled = self.predictor.predict(label, minutes, gaps)
+            if filled is None:
+                raise MeasurementError(
+                    f"{label}: {len(gaps)} quantity(ies) unavailable "
+                    f"({', '.join(gaps)}) and the local model has not "
+                    "seen enough history yet to predict them")
+            values = dict(m.values) if m is not None else {}
+            values.update(filled)
+            m = Measurement(label=label, values=values, pose=pose,
+                            predicted=sorted(gaps))
+            self.predicted_visits += 1
+
+        self.predictor.remember(label, m.timestamp, m.values)
         # Read the speed AFTER the sensors, not before: it is the speed at
         # the moment of the reading that says whether the reading is a point
         # measurement or a smear.
@@ -135,6 +177,8 @@ class Visitor:
                                self.robot_private_pem)
 
         note = f"{label} parked {err:.3f} m from the cross"
+        if m.predicted:
+            note += f"  [predicted: {', '.join(m.predicted)}]"
         if err > self.park_tolerance:
             near, d = nearest_station(pose[0], pose[1])
             note += (f" -- OUTSIDE tolerance {self.park_tolerance:.2f} m"
