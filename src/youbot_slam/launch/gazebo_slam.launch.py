@@ -219,6 +219,9 @@ def generate_launch_description() -> LaunchDescription:
                               description="Path to a YOLOv8 .pt weights file. "
                                           "Used when detector:=yolo."),
 
+        ExecuteProcess(cmd=["bash", KILL_SIM, "--now", "--quiet"],
+                       output="screen"),
+
         gz_sim,
         gz_sim_headless,
 
@@ -226,10 +229,12 @@ def generate_launch_description() -> LaunchDescription:
              name="robot_state_publisher", output="screen",
              parameters=[{"robot_description": robot_desc}, sim_time]),
 
-        Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
-             output="screen",
-             arguments=["-topic", "robot_description", "-name", "youbot",
-                        "-x", "-4.40", "-y", "1.85", "-z", "0.0"]),
+        TimerAction(period=8.0, actions=[
+            Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
+                 output="screen",
+                 arguments=["-topic", "robot_description", "-name", "youbot",
+                            "-x", "-4.40", "-y", "1.85", "-z", "0.0"]),
+        ]),
 
         Node(package="ros_gz_bridge", executable="parameter_bridge", name="gz_bridge",
              output="screen",

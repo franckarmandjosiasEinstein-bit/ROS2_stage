@@ -183,6 +183,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("gui", default_value="true",
                               description="Launch the Gazebo GUI (gui:=false runs a headless server)."),
 
+        ExecuteProcess(cmd=["bash", KILL_SIM, "--now", "--quiet"],
+                       output="screen"),
+
         gz_sim,
         gz_sim_headless,
 
@@ -195,10 +198,12 @@ def generate_launch_description() -> LaunchDescription:
         # Spawn INSIDE safety_node's fence (|x| < 4.60, |y| < 2.15). The old
         # -4.6 sat exactly on it, so the guard opened every run by shoving the
         # robot back in before the mission had said anything.
-        Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
-             output="screen",
-             arguments=["-topic", "robot_description", "-name", "youbot",
-                        "-x", "-4.40", "-y", "1.85", "-z", "0.0"]),
+        TimerAction(period=8.0, actions=[
+            Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
+                 output="screen",
+                 arguments=["-topic", "robot_description", "-name", "youbot",
+                            "-x", "-4.40", "-y", "1.85", "-z", "0.0"]),
+        ]),
 
         # Gazebo <-> ROS bridge.
         Node(package="ros_gz_bridge", executable="parameter_bridge", name="gz_bridge",
