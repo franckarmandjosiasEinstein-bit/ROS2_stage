@@ -183,9 +183,6 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("gui", default_value="true",
                               description="Launch the Gazebo GUI (gui:=false runs a headless server)."),
 
-        ExecuteProcess(cmd=["bash", KILL_SIM, "--now", "--quiet"],
-                       output="screen"),
-
         gz_sim,
         gz_sim_headless,
 

@@ -219,9 +219,6 @@ def generate_launch_description() -> LaunchDescription:
                               description="Path to a YOLOv8 .pt weights file. "
                                           "Used when detector:=yolo."),
 
-        ExecuteProcess(cmd=["bash", KILL_SIM, "--now", "--quiet"],
-                       output="screen"),
-
         gz_sim,
         gz_sim_headless,
 
