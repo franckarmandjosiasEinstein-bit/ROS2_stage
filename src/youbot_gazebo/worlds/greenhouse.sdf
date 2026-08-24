@@ -703,7 +703,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier1.glb</uri>
@@ -868,7 +868,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier2.glb</uri>
@@ -1033,7 +1033,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier3.glb</uri>
@@ -1198,7 +1198,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier4.glb</uri>
@@ -1363,7 +1363,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier1.glb</uri>
@@ -1528,7 +1528,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier2.glb</uri>
@@ -1693,7 +1693,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier3.glb</uri>
@@ -1833,7 +1833,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier4.glb</uri>
@@ -1986,7 +1986,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier1.glb</uri>
@@ -2101,7 +2101,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier2.glb</uri>
@@ -2266,7 +2266,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier3.glb</uri>
@@ -2406,7 +2406,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier4.glb</uri>
@@ -2571,7 +2571,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier1.glb</uri>
@@ -2711,7 +2711,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier2.glb</uri>
@@ -2826,7 +2826,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier3.glb</uri>
@@ -2991,7 +2991,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier4.glb</uri>
@@ -3194,7 +3194,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier1.glb</uri>
@@ -3334,7 +3334,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier2.glb</uri>
@@ -3474,7 +3474,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier3.glb</uri>
@@ -3589,7 +3589,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier4.glb</uri>
@@ -3704,7 +3704,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier1.glb</uri>
@@ -3869,7 +3869,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier2.glb</uri>
@@ -4009,7 +4009,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier3.glb</uri>
@@ -4149,7 +4149,7 @@
           </material>
         </visual>
         <visual name="plant_mesh">
-          <pose>0 0 0.960 -1.5708 0 0</pose>
+          <pose>0 0 0.960 1.5708 0 0</pose>
           <geometry>
             <mesh>
               <uri>model://youbot_gazebo/meshes/fraisier4.glb</uri>

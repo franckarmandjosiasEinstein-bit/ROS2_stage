@@ -226,12 +226,10 @@ def generate_launch_description() -> LaunchDescription:
              name="robot_state_publisher", output="screen",
              parameters=[{"robot_description": robot_desc}, sim_time]),
 
-        TimerAction(period=8.0, actions=[
-            Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
-                 output="screen",
-                 arguments=["-topic", "robot_description", "-name", "youbot",
-                            "-x", "-4.40", "-y", "1.85", "-z", "0.0"]),
-        ]),
+        Node(package="ros_gz_sim", executable="create", name="spawn_youbot",
+             output="screen",
+             arguments=["-topic", "robot_description", "-name", "youbot",
+                        "-x", "-4.40", "-y", "1.85", "-z", "0.0"]),
 
         Node(package="ros_gz_bridge", executable="parameter_bridge", name="gz_bridge",
              output="screen",
