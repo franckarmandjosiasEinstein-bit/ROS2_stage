@@ -1,29 +1,67 @@
-# Industrial-comparison configuration: slam_toolbox on the YouBot.
-# Install (on the robot PC):  sudo apt install ros-jazzy-slam-toolbox
-# Run alongside the stack:    ros2 launch youbot_slam slam_toolbox.launch.py
+# slam_toolbox configuration for the YouBot greenhouse (9.9 x 4.9 m).
+#
+# This is the recommended SLAM backend for real-robot deployment.
+# The custom slam_node is kept as an educational/comparison tool.
+#
+# Install:  sudo apt install ros-${ROS_DISTRO}-slam-toolbox
+# Run:      ros2 launch youbot_slam gazebo_slam.launch.py slam_backend:=toolbox
 slam_toolbox:
   ros__parameters:
     use_sim_time: true
 
-    # --- frames / topics: match the youbot_slam wiring ----------------------
-    odom_frame: odom            # drifting frame maintained by noisy_odom
+    # --- frames / topics -----------------------------------------------
+    odom_frame: odom
     map_frame: map
     base_frame: base_link
     scan_topic: /scan
-    mode: mapping               # online SLAM (localise while building)
+    mode: mapping
 
-    # --- solver -------------------------------------------------------------
+    # --- solver ---------------------------------------------------------
     solver_plugin: solver_plugins::CeresSolver
     ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
     ceres_preconditioner: SCHUR_JACOBI
 
-    # --- tuned for a small 10 x 5 m indoor arena ----------------------------
+    # --- tuned for the 9.9 x 4.9 m greenhouse --------------------------
     resolution: 0.05
-    max_laser_range: 12.0
-    map_update_interval: 2.0
+    max_laser_range: 5.5
+    minimum_time_interval: 0.5
+    map_update_interval: 1.0
     transform_publish_period: 0.05
-    minimum_travel_distance: 0.2
-    minimum_travel_heading: 0.2
-    scan_buffer_size: 10
-    loop_search_maximum_distance: 4.0
+
+    # Motion gate: update every 0.10 m or 0.15 rad (~8.6 deg).
+    # Tighter than the default to capture the short plant-row crossings.
+    minimum_travel_distance: 0.10
+    minimum_travel_heading: 0.15
+
+    scan_buffer_size: 8
+    scan_buffer_maximum_scan_distance: 5.0
+
+    # Loop closure: the greenhouse is small, so loop closure distances
+    # are short. The robot revisits the same aisles multiple times.
+    loop_search_maximum_distance: 3.0
     do_loop_closing: true
+    loop_match_minimum_chain_size: 3
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # Correlation search parameters for the small arena
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # Fine-grained matching
+    fine_search_space_dimension: 0.5
+    fine_search_space_resolution: 0.01
+    fine_search_space_smear_deviation: 0.01
+
+    # Distance penalty: slight preference for nearby matches
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+
+    stack_size_to_use: 40000000
