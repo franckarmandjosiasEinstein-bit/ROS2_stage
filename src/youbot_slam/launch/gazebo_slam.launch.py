@@ -18,10 +18,15 @@ drifting odometry:
         /odom -> noisy_odom -> /odom_noisy -> odom_calibrator -> /odom_calibrated
         Stack runs on calibrated odometry alone.
 
+Detection backend (default: colour threshold, optional: YOLOv8):
+    detector:=colour    colour-threshold (default, no extra deps)
+    detector:=yolo      YOLOv8 model (requires ultralytics + weights)
+
 Usage:
-    ros2 launch youbot_slam gazebo_slam.launch.py                       # slam_toolbox
+    ros2 launch youbot_slam gazebo_slam.launch.py                       # slam_toolbox + colour
     ros2 launch youbot_slam gazebo_slam.launch.py slam_backend:=custom  # custom SLAM
     ros2 launch youbot_slam gazebo_slam.launch.py slam_backend:=none pose_topic:=odom_calibrated
+    ros2 launch youbot_slam gazebo_slam.launch.py detector:=yolo yolo_weights:=/path/to/best.pt
 """
 
 import os
@@ -107,12 +112,18 @@ def generate_launch_description() -> LaunchDescription:
     slam_backend = LaunchConfiguration("slam_backend")
     pose_topic = LaunchConfiguration("pose_topic")
     calib_mode = LaunchConfiguration("calib")
+    detector_backend = LaunchConfiguration("detector")
+    yolo_weights = LaunchConfiguration("yolo_weights")
     sim_time = {"use_sim_time": True}
 
-    # Conditions for the three modes
+    # Conditions for SLAM backends
     use_toolbox = IfCondition(PythonExpression(["'", slam_backend, "' == 'toolbox'"]))
     use_custom = IfCondition(PythonExpression(["'", slam_backend, "' == 'custom'"]))
     use_none = IfCondition(PythonExpression(["'", slam_backend, "' == 'none'"]))
+
+    # Conditions for detector backends
+    use_yolo = IfCondition(PythonExpression(["'", detector_backend, "' == 'yolo'"]))
+    use_colour = IfCondition(PythonExpression(["'", detector_backend, "' == 'colour'"]))
 
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(ros_gz_share / "launch" / "gz_sim.launch.py")),
@@ -201,6 +212,12 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("calib", default_value="auto",
                               description="Odometry calibration mode for custom/none "
                                           "backends. Ignored for slam_toolbox."),
+        DeclareLaunchArgument("detector", default_value="colour",
+                              description="Detection backend: 'colour' (threshold, "
+                                          "default) or 'yolo' (YOLOv8 model)."),
+        DeclareLaunchArgument("yolo_weights", default_value="",
+                              description="Path to a YOLOv8 .pt weights file. "
+                                          "Used when detector:=yolo."),
 
         gz_sim,
         gz_sim_headless,
@@ -249,7 +266,16 @@ def generate_launch_description() -> LaunchDescription:
         control("navigation_node", localized=True),
         control("mission_node", localized=True),
         control("camera_pan_node"),
-        control("strawberry_detector", localized=True),
+        Node(package="youbot_control", executable="strawberry_detector",
+             name="strawberry_detector", output="screen",
+             parameters=[params, sim_time],
+             remappings=[("odom", pose_topic)],
+             condition=use_colour),
+        Node(package="youbot_control", executable="yolo_detector",
+             name="strawberry_detector", output="screen",
+             parameters=[params, {"weights": yolo_weights}, sim_time],
+             remappings=[("odom", pose_topic)],
+             condition=use_yolo),
         control("arm_node", localized=True),
 
         TimerAction(period=6.0, actions=[ExecuteProcess(
