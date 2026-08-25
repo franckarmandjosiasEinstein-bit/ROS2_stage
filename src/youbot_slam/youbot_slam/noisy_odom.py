@@ -69,6 +69,9 @@ class NoisyOdom(Node):
 
         self.pub = self.create_publisher(Odometry, "odom_noisy", 20)
         self.create_subscription(Odometry, "odom", self._on_odom, 20)
+        self._odom_count = 0
+        self._tf_count = 0
+        self.create_timer(5.0, self._diag)
         self.get_logger().info(
             "noisy_odom up: /odom -> /odom_noisy "
             f"(bias x/y/yaw = {self._bx:.0%}/{self._by:.0%}/{self._bw:.0%})")
@@ -117,6 +120,7 @@ class NoisyOdom(Node):
         out.pose.pose.orientation.z = math.sin(half)
         out.pose.pose.orientation.w = math.cos(half)
         out.twist = msg.twist                 # body-frame twist is unaffected
+        self._odom_count += 1
         self.pub.publish(out)
 
         if self._tf is not None:
@@ -128,6 +132,13 @@ class NoisyOdom(Node):
             t.transform.translation.y = out.pose.pose.position.y
             t.transform.rotation = out.pose.pose.orientation
             self._tf.sendTransform(t)
+            self._tf_count += 1
+
+    def _diag(self) -> None:
+        self.get_logger().info(
+            f"noisy_odom diag: /odom received={self._odom_count}, "
+            f"TF odom->base_link published={self._tf_count}, "
+            f"publish_tf={'YES' if self._tf else 'NO'}")
 
 
 def main(args=None) -> None:

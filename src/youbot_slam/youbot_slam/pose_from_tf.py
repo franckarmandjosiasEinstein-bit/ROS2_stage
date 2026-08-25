@@ -28,13 +28,30 @@ class PoseFromTf(Node):
         self._listener = TransformListener(self._buf, self)
         self.pub = self.create_publisher(Odometry, "pose_slam", 20)
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._tick)
+        self._diag_timer = self.create_timer(5.0, self._diag)
+        self._ok_count = 0
         self.get_logger().info("pose_from_tf up: TF map->base_link -> /pose_slam")
+
+    def _diag(self) -> None:
+        pairs = [("odom", "base_link"), ("base_link", "lidar"),
+                 ("map", "odom"), ("map", "base_link")]
+        avail = []
+        for p, c in pairs:
+            if self._buf.can_transform(p, c, rclpy.time.Time()):
+                avail.append(f"{p}->{c}")
+        missing = [f"{p}->{c}" for p, c in pairs
+                   if f"{p}->{c}" not in avail]
+        frames = self._buf.all_frames_as_string()
+        self.get_logger().info(
+            f"TF diag: OK={avail or 'none'} MISSING={missing or 'none'} "
+            f"published={self._ok_count} | frames: {frames[:300]}")
 
     def _tick(self) -> None:
         try:
             t = self._buf.lookup_transform("map", "base_link", rclpy.time.Time())
         except Exception:
             return                       # TF not available yet
+        self._ok_count += 1
         out = Odometry()
         out.header.stamp = t.header.stamp
         out.header.frame_id = "map"

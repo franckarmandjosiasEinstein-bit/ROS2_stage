@@ -27,7 +27,7 @@ slam_toolbox:
     minimum_time_interval: 0.5
     map_update_interval: 1.0
     transform_publish_period: 0.05
-    transform_timeout: 0.2
+    transform_timeout: 5.0
 
     # Motion gate: update every 0.10 m or 0.15 rad (~8.6 deg).
     # Tighter than the default to capture the short plant-row crossings.

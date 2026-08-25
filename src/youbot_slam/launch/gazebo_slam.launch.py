@@ -151,11 +151,12 @@ def generate_launch_description() -> LaunchDescription:
         package="youbot_slam", executable="noisy_odom", name="noisy_odom",
         output="screen", parameters=[{"publish_tf": True}, sim_time],
         condition=use_toolbox)
-    toolbox_slam = Node(
+    toolbox_slam_node = Node(
         package="slam_toolbox", executable="async_slam_toolbox_node",
         name="slam_toolbox", output="screen",
         parameters=[toolbox_cfg, sim_time],
         condition=use_toolbox)
+    toolbox_slam = TimerAction(period=10.0, actions=[toolbox_slam_node])
     toolbox_pose = Node(
         package="youbot_slam", executable="pose_from_tf", name="pose_from_tf",
         output="screen", parameters=[sim_time],
