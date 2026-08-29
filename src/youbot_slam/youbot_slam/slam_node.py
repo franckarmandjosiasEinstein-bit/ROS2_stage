@@ -31,6 +31,7 @@ from collections import deque
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
@@ -90,7 +91,8 @@ class SlamNode(Node):
         self.map_pub = self.create_publisher(OccupancyGridMsg, "map_slam", 1)
         self.create_timer(2.0, self._publish_map)
         self.create_subscription(Odometry, "odom_noisy", self._on_noisy, 20)
-        self.create_subscription(LaserScan, "scan", self._on_scan, 10)
+        self.create_subscription(LaserScan, "scan", self._on_scan,
+                                 qos_profile_sensor_data)
         self.create_subscription(Odometry, "odom", self._on_truth, 20)
         self.create_timer(float(self.get_parameter("metrics_period").value),
                           self._report)

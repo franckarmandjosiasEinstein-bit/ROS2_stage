@@ -55,6 +55,7 @@ import math
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -143,7 +144,8 @@ class SafetyNode(Node):
         self._pinned_since = None
 
         self.create_subscription(Twist, "cmd_vel_raw", self._on_cmd, 10)
-        self.create_subscription(LaserScan, "scan", self._on_scan, 5)
+        self.create_subscription(LaserScan, "scan", self._on_scan,
+                                 qos_profile_sensor_data)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.override_pub = self.create_publisher(Bool, "safety_override", 5)

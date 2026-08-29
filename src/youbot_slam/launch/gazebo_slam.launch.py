@@ -205,10 +205,10 @@ def generate_launch_description() -> LaunchDescription:
             description="true = give the base a real drivetrain."),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("gui", default_value="true"),
-        DeclareLaunchArgument("slam_backend", default_value="toolbox",
-                              description="SLAM backend: 'toolbox' (recommended, "
-                                          "graph-based with loop closure), "
-                                          "'custom' (correlative scan matcher), "
+        DeclareLaunchArgument("slam_backend", default_value="custom",
+                              description="SLAM backend: 'custom' (correlative scan "
+                                          "matcher, default), 'toolbox' (graph-based "
+                                          "with loop closure, requires slam_toolbox), "
                                           "'none' (no SLAM, calibrated odometry only)."),
         DeclareLaunchArgument("pose_topic", default_value="pose_slam",
                               description="Pose source for the control stack. Both "

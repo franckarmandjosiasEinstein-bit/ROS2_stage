@@ -28,6 +28,7 @@ import math
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from nav_msgs.msg import OccupancyGrid as OccupancyGridMsg
 from sensor_msgs.msg import LaserScan
@@ -59,7 +60,8 @@ class MappingNode(Node):
 
         self._pose = (0.0, 0.0, 0.0)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
-        self.create_subscription(LaserScan, "scan", self._on_scan, 10)
+        self.create_subscription(LaserScan, "scan", self._on_scan,
+                                 qos_profile_sensor_data)
         self.map_pub = self.create_publisher(OccupancyGridMsg, "map", 1)
         self.raw_pub = self.create_publisher(OccupancyGridMsg, "map_raw", 1)
         self.create_timer(self.get_parameter("publish_period").value, self._publish_map)

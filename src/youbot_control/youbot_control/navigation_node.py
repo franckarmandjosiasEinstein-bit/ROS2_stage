@@ -28,6 +28,7 @@ import math
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry, Path
@@ -132,7 +133,8 @@ class NavigationNode(Node):
         self.create_subscription(Path, "plan", self._on_plan, 1)
         self.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.create_subscription(Bool, "pick_hold", self._on_hold, 5)
-        self.create_subscription(LaserScan, "scan", self._on_scan, 5)
+        self.create_subscription(LaserScan, "scan", self._on_scan,
+                                 qos_profile_sensor_data)
         self.cmd_pub = self.create_publisher(Twist, "cmd_vel", 10)
         # "This goal is not reachable from here." mission_node abandons on it
         # immediately instead of burning its 60 s timeout twice over, which is
