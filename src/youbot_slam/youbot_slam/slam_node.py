@@ -16,6 +16,13 @@ The loop, at every lidar scan:
                  but ONLY when the match quality is high;
     4. every N scans, rebuild the matcher from the evolving map.
 
+    ODOMETRY FALLBACK: if the matcher is unreliable (too many rejections,
+    low quality), the node automatically disables corrections and uses
+    pure odometry. The map is cleared and rebuilt from scratch once the
+    matcher is re-enabled. This prevents the catastrophic positive-feedback
+    loop where wrong corrections smear the map, which then reinforces
+    the wrong pose.
+
 Subscribes:  /odom_noisy (nav_msgs/Odometry)  drifting prior
              /scan       (sensor_msgs/LaserScan)
              /odom       (nav_msgs/Odometry)  ground truth, METRICS ONLY
@@ -62,6 +69,9 @@ class SlamNode(Node):
         self.declare_parameter("correction_gain", 1.0)
         self.declare_parameter("metrics_period", 5.0)
         self.declare_parameter("mature_log_odds", 2.0)
+        self.declare_parameter("fallback_reject_ratio", 0.6)
+        self.declare_parameter("fallback_min_scans", 15)
+        self.declare_parameter("warmup_scans", 40)
 
         res = float(self.get_parameter("resolution").value)
         size = float(self.get_parameter("arena_size").value)
@@ -79,6 +89,20 @@ class SlamNode(Node):
         self._turned = 0.0
         self._accepted = 0
         self._rejected = 0
+
+        self._fallback_reject_ratio = float(
+            self.get_parameter("fallback_reject_ratio").value)
+        self._fallback_min_scans = int(
+            self.get_parameter("fallback_min_scans").value)
+        self._warmup_scans = int(self.get_parameter("warmup_scans").value)
+        self._total_scans = 0
+        self._window_accepted = 0
+        self._window_rejected = 0
+        self._window_quality_sum = 0.0
+        self._window_quality_n = 0
+        self._odom_fallback = False
+        self._fallback_count = 0
+        self._consecutive_odom_wins = 0
 
         self._odom = None
         self._odom_hist = deque(maxlen=200)
@@ -119,6 +143,31 @@ class SlamNode(Node):
         p = msg.pose.pose
         self._gt = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
 
+    def _enter_fallback(self, reason: str) -> None:
+        self._odom_fallback = True
+        self._fallback_count += 1
+        self._matcher = None
+        self._scans_since_rebuild = 0
+        self.grid.log_odds[:] = 0.0
+        self._window_accepted = 0
+        self._window_rejected = 0
+        self._window_quality_sum = 0.0
+        self._window_quality_n = 0
+        self.get_logger().warn(
+            f"FALLBACK #{self._fallback_count}: matcher disabled, map cleared "
+            f"({reason}). Using pure odometry until map rebuilds.")
+
+    def _exit_fallback(self) -> None:
+        self._odom_fallback = False
+        self._window_accepted = 0
+        self._window_rejected = 0
+        self._window_quality_sum = 0.0
+        self._window_quality_n = 0
+        self.get_logger().info(
+            f"FALLBACK ended: matcher re-enabled with fresh map "
+            f"({int(self.grid.log_odds[self.grid.log_odds > L_OCC_THRESHOLD].size)} "
+            f"occupied cells).")
+
     def _on_scan(self, msg: LaserScan) -> None:
         if self._odom is None or self._pose is None:
             return
@@ -126,6 +175,8 @@ class SlamNode(Node):
         t_scan = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if self._odom_hist and self._odom_hist[-1][0] - t_scan > 0.4:
             return
+
+        self._total_scans += 1
 
         # 1. PREDICT
         ox, oy, oth = self._odom_at_scan
@@ -154,7 +205,7 @@ class SlamNode(Node):
 
         # 2. CORRECT
         ranges = list(msg.ranges)
-        if self._matcher is not None:
+        if self._matcher is not None and not self._odom_fallback:
             est, quality, axis_gains = self._matcher.correct_online(
                 prior, ranges, msg.range_max)
             g = self._gain
@@ -166,14 +217,34 @@ class SlamNode(Node):
                 self._pose = prior
                 quality = 0.0
                 self._rejected += 1
+                self._window_rejected += 1
             else:
-                dth_c = math.atan2(math.sin(est[2] - prior[2]),
-                                   math.cos(est[2] - prior[2]))
-                self._pose = (prior[0] + g * dx,
-                              prior[1] + g * dy,
-                              math.atan2(math.sin(prior[2] + g * dth_c),
-                                         math.cos(prior[2] + g * dth_c)))
-                self._accepted += 1
+                self._window_quality_sum += quality
+                self._window_quality_n += 1
+                if quality < self._quality_gate:
+                    self._pose = prior
+                    self._rejected += 1
+                    self._window_rejected += 1
+                else:
+                    dth_c = math.atan2(math.sin(est[2] - prior[2]),
+                                       math.cos(est[2] - prior[2]))
+                    self._pose = (prior[0] + g * dx,
+                                  prior[1] + g * dy,
+                                  math.atan2(math.sin(prior[2] + g * dth_c),
+                                             math.cos(prior[2] + g * dth_c)))
+                    self._accepted += 1
+                    self._window_accepted += 1
+
+            # Check for fallback trigger
+            window = self._window_accepted + self._window_rejected
+            if window >= self._fallback_min_scans:
+                reject_ratio = self._window_rejected / window
+                avg_quality = (self._window_quality_sum / self._window_quality_n
+                               if self._window_quality_n > 0 else 0.0)
+                if reject_ratio >= self._fallback_reject_ratio:
+                    self._enter_fallback(
+                        f"reject ratio {reject_ratio:.0%} over {window} scans, "
+                        f"avg quality {avg_quality:.2f}")
         else:
             self._pose, quality = prior, 1.0
 
@@ -187,13 +258,16 @@ class SlamNode(Node):
         self._scans_since_rebuild += 1
         if self._matcher is None or self._scans_since_rebuild >= self._rebuild_every:
             occupied = (self.grid.log_odds > L_OCC_THRESHOLD)
-            if int(occupied.sum()) >= self._min_surface:
+            n_occupied = int(occupied.sum())
+            if n_occupied >= self._min_surface:
                 known = np.abs(self.grid.log_odds) > self._mature
                 self._matcher = OnlineScanMatcher(
                     occupied.astype(np.uint8), known,
                     self.grid.resolution, self.grid.arena_size,
                     msg.angle_min, msg.angle_increment)
                 self._scans_since_rebuild = 0
+                if self._odom_fallback and n_occupied >= self._min_surface * 3:
+                    self._exit_fallback()
 
         self._publish(msg.header.stamp)
 
@@ -252,17 +326,39 @@ class SlamNode(Node):
         inst_err = math.hypot(self._pose[0] - self._gt[0],
                               self._pose[1] - self._gt[1])
         self._err_sum, self._err_n = 0.0, 0
+
         winner = "SLAM" if slam_err < odom_err else "odometry"
+        if winner == "odometry":
+            self._consecutive_odom_wins += 1
+        else:
+            self._consecutive_odom_wins = 0
+
+        mode = "FALLBACK" if self._odom_fallback else "ACTIVE"
         gains = "(no matcher)"
-        if self._matcher is not None:
+        if self._matcher is not None and not self._odom_fallback:
             gx, gy, gth = self._matcher.last_axis_gains
             gains = f"gains X={gx:.2f} Y={gy:.2f} th={gth:.2f}"
         acc, rej = self._accepted, self._rejected
         self._accepted, self._rejected = 0, 0
+
+        # Trigger fallback on persistent odometry superiority
+        if (self._consecutive_odom_wins >= 3
+                and not self._odom_fallback
+                and self._matcher is not None
+                and self._total_scans > self._warmup_scans
+                and inst_err > 0.5):
+            self._enter_fallback(
+                f"odometry won {self._consecutive_odom_wins} consecutive "
+                f"periods, SLAM err {inst_err:.2f} m")
+            self._consecutive_odom_wins = 0
+
         self.get_logger().info(
-            f"err SLAM {slam_err:.02f} m (now {inst_err:.02f}) | "
-            f"odom {odom_err:.02f} m ({winner} wins) | "
-            f"{gains} | corr {acc} ok {rej} rejected")
+            f"[{mode}] err SLAM {slam_err:.02f} m (now {inst_err:.02f}) | "
+            f"odom {odom_err:.02f} m ({winner} wins"
+            f"{', streak ' + str(self._consecutive_odom_wins) if self._consecutive_odom_wins > 1 else ''}) | "
+            f"{gains} | corr {acc} ok {rej} rej | "
+            f"map {int((self.grid.log_odds > L_OCC_THRESHOLD).sum())} cells | "
+            f"fallbacks {self._fallback_count}")
 
 
 def main(args=None) -> None:

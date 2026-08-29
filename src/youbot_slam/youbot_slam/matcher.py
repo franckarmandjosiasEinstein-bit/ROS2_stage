@@ -27,6 +27,10 @@ search, trust gate) with adaptations for online SLAM:
    problem = gain near zero, so noise on that axis is suppressed without
    blocking real corrections on the other axes. This is the same principle
    as an EKF's innovation gain, without the full covariance machinery.
+
+6. TIGHT SEARCH WINDOWS. The coarse search is kept small (±0.08m, ±0.04rad)
+   because the self-built map is noisier than a ground-truth reference;
+   large windows can latch onto phantom features.
 """
 
 from __future__ import annotations
@@ -45,10 +49,10 @@ class OnlineScanMatcher(ScanMatcher):
                  resolution: float, arena_size: float,
                  angle_min: float, angle_inc: float,
                  beam_stride: int = 3, sigma_m: float = 0.12,
-                 min_valid_range: float = 0.35, min_beams: int = 10,
-                 min_gain: float = 0.05,
-                 max_lin: float = 0.04,
-                 max_ang: float = 0.03) -> None:
+                 min_valid_range: float = 0.35, min_beams: int = 15,
+                 min_gain: float = 0.08,
+                 max_lin: float = 0.03,
+                 max_ang: float = 0.02) -> None:
         super().__init__(ref_grid, resolution, arena_size, beam_stride, sigma_m)
         self.min_beams = min_beams
         self.min_gain = min_gain
@@ -116,21 +120,7 @@ class OnlineScanMatcher(ScanMatcher):
     def _axis_gains(self, prior, ranges, max_range,
                     lin_probe=0.06, ang_probe=0.03,
                     curvature_ref=20.0):
-        """Per-axis confidence from the score-surface curvature at the prior.
-
-        For each axis (X, Y, heading), measure how sharply the score drops
-        when the pose is displaced by +/-probe. High curvature means the
-        scan constrains that axis (cross-aisle, heading); low curvature
-        means it does not (along-aisle aperture problem).
-
-        Returns (gx, gy, gth) in [0, 1], suitable as per-axis multipliers
-        on the matcher's correction.
-
-        curvature_ref normalises the raw curvature into a gain: an axis
-        whose curvature equals curvature_ref gets gain 1.0. Bench data:
-        cross-aisle curvature ~0.09 / 0.06^2 = 25, along-aisle ~0.003 /
-        0.06^2 = 0.8, so 20 separates them well.
-        """
+        """Per-axis confidence from the score-surface curvature at the prior."""
         base = self._score(*prior, ranges, 0.0, max_range)
         if self.last_known < self.min_beams:
             return (0.0, 0.0, 0.0)
@@ -159,15 +149,13 @@ class OnlineScanMatcher(ScanMatcher):
         """Coarse+fine search with curvature-adaptive per-axis gains.
 
         Returns ((x, y, th), quality, (gx, gy, gth)).
-        The per-axis gains tell slam_node how much to trust each component
-        of the correction: 1.0 = fully constrained, 0.0 = unobservable.
         """
         prior_score = self._score(*prior, ranges, 0.0, max_range)
         coarse, _ = self._search(prior, ranges, 0.0, max_range,
-                                 lin_win=0.15, lin_step=0.05,
-                                 ang_win=0.06, ang_step=0.02)
+                                 lin_win=0.08, lin_step=0.04,
+                                 ang_win=0.04, ang_step=0.02)
         fine, score = self._search(coarse, ranges, 0.0, max_range,
-                                   lin_win=0.04, lin_step=0.01,
+                                   lin_win=0.03, lin_step=0.01,
                                    ang_win=0.02, ang_step=0.005)
 
         if score > prior_score + self.min_gain:
