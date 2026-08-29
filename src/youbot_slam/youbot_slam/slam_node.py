@@ -59,7 +59,7 @@ class SlamNode(Node):
         self.declare_parameter("quality_gate", 0.55)
         self.declare_parameter("min_travel", 0.08)
         self.declare_parameter("min_turn", 0.06)
-        self.declare_parameter("correction_gain", 0.40)
+        self.declare_parameter("correction_gain", 1.0)
         self.declare_parameter("metrics_period", 5.0)
         self.declare_parameter("mature_log_odds", 2.0)
 

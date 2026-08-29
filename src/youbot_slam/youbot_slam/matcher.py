@@ -160,11 +160,11 @@ class OnlineScanMatcher(ScanMatcher):
         """
         prior_score = self._score(*prior, ranges, 0.0, max_range)
         coarse, _ = self._search(prior, ranges, 0.0, max_range,
-                                 lin_win=0.08, lin_step=0.04,
-                                 ang_win=0.04, ang_step=0.02)
+                                 lin_win=0.15, lin_step=0.05,
+                                 ang_win=0.06, ang_step=0.02)
         fine, score = self._search(coarse, ranges, 0.0, max_range,
-                                   lin_win=0.03, lin_step=0.01,
-                                   ang_win=0.015, ang_step=0.005)
+                                   lin_win=0.04, lin_step=0.01,
+                                   ang_win=0.02, ang_step=0.005)
 
         if score > prior_score + self.min_gain:
             gx, gy, gth = self._axis_gains(prior, ranges, max_range)
