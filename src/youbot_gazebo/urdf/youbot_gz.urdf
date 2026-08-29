@@ -32,7 +32,12 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
       <geometry><mesh filename="package://youbot_gazebo/meshes/base.stl" scale="0.001 0.001 0.001"/></geometry>
-      <material name="kuka_orange"/>
+      <material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.12"/>
+      <geometry><box size="0.58 0.37 0.12"/></geometry>
+      <material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material>
     </visual>
   </link>
 
@@ -45,15 +50,15 @@
        the chassis, or the chassis becomes the map. -->
   <link name="basket">
     <inertial><mass value="0.2"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0 0 0.005"/><geometry><box size="0.22 0.28 0.01"/></geometry><material name="basket"/></visual>
-    <visual><origin xyz="0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"/></visual>
-    <visual><origin xyz="-0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"/></visual>
-    <visual><origin xyz="0 0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
-    <visual><origin xyz="0 -0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"/></visual>
-    <visual><origin xyz="0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
-    <visual><origin xyz="0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
-    <visual><origin xyz="-0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
-    <visual><origin xyz="-0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0 0.005"/><geometry><box size="0.22 0.28 0.01"/></geometry><material name="basket"><color rgba="0.62 0.44 0.24 1"/></material></visual>
+    <visual><origin xyz="0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"><color rgba="0.62 0.44 0.24 1"/></material></visual>
+    <visual><origin xyz="-0.105 0 0.06"/><geometry><box size="0.01 0.28 0.12"/></geometry><material name="basket"><color rgba="0.62 0.44 0.24 1"/></material></visual>
+    <visual><origin xyz="0 0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"><color rgba="0.62 0.44 0.24 1"/></material></visual>
+    <visual><origin xyz="0 -0.14 0.06"/><geometry><box size="0.22 0.01 0.12"/></geometry><material name="basket"><color rgba="0.62 0.44 0.24 1"/></material></visual>
+    <visual><origin xyz="0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
+    <visual><origin xyz="0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
+    <visual><origin xyz="-0.095 0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
+    <visual><origin xyz="-0.095 -0.125 -0.035"/><geometry><cylinder radius="0.008" length="0.07"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="j_basket" type="fixed"><parent link="base_link"/><child link="basket"/><origin xyz="-0.13 0 0.26"/></joint>
 
@@ -62,25 +67,25 @@
        Handedness: A on the FL/RR diagonal, B (mirror) on FR/RL. r = 0.054. -->
   <link name="wheel_fl">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="j_fl" type="fixed"><parent link="base_link"/><child link="wheel_fl"/><origin xyz="0.225 0.19 0.054"/></joint>
 
   <link name="wheel_fr">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="j_fr" type="fixed"><parent link="base_link"/><child link="wheel_fr"/><origin xyz="0.225 -0.19 0.054"/></joint>
 
   <link name="wheel_rl">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_B.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="j_rl" type="fixed"><parent link="base_link"/><child link="wheel_rl"/><origin xyz="-0.225 0.19 0.054"/></joint>
 
   <link name="wheel_rr">
     <inertial><mass value="0.5"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0.025 0" rpy="1.5708 0 0"/><geometry><mesh filename="package://youbot_gazebo/meshes/wheel_A.stl" scale="0.001 0.001 0.001"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="j_rr" type="fixed"><parent link="base_link"/><child link="wheel_rr"/><origin xyz="-0.225 -0.19 0.054"/></joint>
 
@@ -102,8 +107,8 @@
        cut away around a scanner) drops the blind sector to +/-6 deg. -->
   <link name="pedestal">
     <inertial><mass value="1.5"/><inertia ixx="3e-3" ixy="0" ixz="0" iyy="3e-3" iyz="0" izz="2e-3"/></inertial>
-    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.012" length="0.10"/></geometry><material name="dark"/></visual>
-    <visual><origin xyz="0 0 0.245"/><geometry><cylinder radius="0.05" length="0.29"/></geometry><material name="dark"/></visual>
+    <visual><origin xyz="0 0 0.05"/><geometry><cylinder radius="0.012" length="0.10"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
+    <visual><origin xyz="0 0 0.245"/><geometry><cylinder radius="0.05" length="0.29"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="j_pedestal" type="fixed">
     <parent link="base_link"/><child link="pedestal"/><origin xyz="0.12 0 0.16"/>
@@ -111,7 +116,7 @@
 
   <link name="arm_link_1">
     <inertial><mass value="1.0"/><inertia ixx="2e-3" ixy="0" ixz="0" iyy="2e-3" iyz="0" izz="2e-3"/></inertial>
-    <visual><origin xyz="0 0 0.0375"/><geometry><cylinder radius="0.045" length="0.075"/></geometry><material name="kuka_orange"/></visual>
+    <visual><origin xyz="0 0 0.0375"/><geometry><cylinder radius="0.045" length="0.075"/></geometry><material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material></visual>
   </link>
   <joint name="arm_joint_1" type="revolute">
     <parent link="base_link"/><child link="arm_link_1"/>
@@ -121,7 +126,7 @@
 
   <link name="arm_link_2">
     <inertial><mass value="0.8"/><inertia ixx="2e-3" ixy="0" ixz="0" iyy="2e-3" iyz="0" izz="1e-3"/></inertial>
-    <visual><origin xyz="0 0 0.0775"/><geometry><cylinder radius="0.035" length="0.155"/></geometry><material name="grey"/></visual>
+    <visual><origin xyz="0 0 0.0775"/><geometry><cylinder radius="0.035" length="0.155"/></geometry><material name="grey"><color rgba="0.42 0.42 0.45 1"/></material></visual>
   </link>
   <joint name="arm_joint_2" type="revolute">
     <parent link="arm_link_1"/><child link="arm_link_2"/>
@@ -131,7 +136,7 @@
 
   <link name="arm_link_3">
     <inertial><mass value="0.6"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="8e-4"/></inertial>
-    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.030" length="0.135"/></geometry><material name="kuka_orange"/></visual>
+    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.030" length="0.135"/></geometry><material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material></visual>
   </link>
   <joint name="arm_joint_3" type="revolute">
     <parent link="arm_link_2"/><child link="arm_link_3"/>
@@ -141,7 +146,7 @@
 
   <link name="arm_link_4">
     <inertial><mass value="0.4"/><inertia ixx="8e-4" ixy="0" ixz="0" iyy="8e-4" iyz="0" izz="6e-4"/></inertial>
-    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.028" length="0.135"/></geometry><material name="grey"/></visual>
+    <visual><origin xyz="0 0 0.0675"/><geometry><cylinder radius="0.028" length="0.135"/></geometry><material name="grey"><color rgba="0.42 0.42 0.45 1"/></material></visual>
   </link>
   <joint name="arm_joint_4" type="revolute">
     <parent link="arm_link_3"/><child link="arm_link_4"/>
@@ -151,7 +156,7 @@
 
   <link name="arm_link_5">
     <inertial><mass value="0.3"/><inertia ixx="5e-4" ixy="0" ixz="0" iyy="5e-4" iyz="0" izz="4e-4"/></inertial>
-    <visual><origin xyz="0 0 0.065"/><geometry><cylinder radius="0.025" length="0.130"/></geometry><material name="kuka_orange"/></visual>
+    <visual><origin xyz="0 0 0.065"/><geometry><cylinder radius="0.025" length="0.130"/></geometry><material name="kuka_orange"><color rgba="0.95 0.50 0.10 1"/></material></visual>
   </link>
   <joint name="arm_joint_5" type="revolute">
     <parent link="arm_link_4"/><child link="arm_link_5"/>
@@ -162,7 +167,7 @@
   <!-- Gripper: a wrist plate + two parallel fingers (prismatic, symmetric) -->
   <link name="gripper_base">
     <inertial><mass value="0.15"/><inertia ixx="2e-4" ixy="0" ixz="0" iyy="2e-4" iyz="0" izz="2e-4"/></inertial>
-    <visual><geometry><box size="0.05 0.08 0.03"/></geometry><material name="dark"/></visual>
+    <visual><geometry><box size="0.05 0.08 0.03"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="gripper_mount" type="fixed">
     <parent link="arm_link_5"/><child link="gripper_base"/><origin xyz="0 0 0.130"/>
@@ -170,7 +175,7 @@
 
   <link name="finger_left">
     <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
-    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"/></visual>
+    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"><color rgba="0.42 0.42 0.45 1"/></material></visual>
   </link>
   <joint name="gripper_left" type="prismatic">
     <parent link="gripper_base"/><child link="finger_left"/>
@@ -180,7 +185,7 @@
 
   <link name="finger_right">
     <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
-    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"/></visual>
+    <visual><origin xyz="0 0 0.025"/><geometry><box size="0.02 0.012 0.05"/></geometry><material name="grey"><color rgba="0.42 0.42 0.45 1"/></material></visual>
   </link>
   <joint name="gripper_right" type="prismatic">
     <parent link="gripper_base"/><child link="finger_right"/>
@@ -191,7 +196,7 @@
   <!-- Lidar sensor mount, centred on the base, 0.20 m up -->
   <link name="lidar">
     <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
-    <visual><geometry><cylinder radius="0.035" length="0.05"/></geometry><material name="dark"/></visual>
+    <visual><geometry><cylinder radius="0.035" length="0.05"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <joint name="j_lidar" type="fixed"><parent link="base_link"/><child link="lidar"/><origin xyz="0 0 0.20"/></joint>
 
@@ -199,7 +204,7 @@
        harvests) so it watches the arm reach the fruit -->
   <link name="mast">
     <inertial><mass value="0.1"/><inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/></inertial>
-    <visual><origin xyz="0 0 0.31"/><geometry><cylinder radius="0.015" length="0.62"/></geometry><material name="grey"/></visual>
+    <visual><origin xyz="0 0 0.31"/><geometry><cylinder radius="0.015" length="0.62"/></geometry><material name="grey"><color rgba="0.42 0.42 0.45 1"/></material></visual>
   </link>
   <joint name="j_mast" type="fixed"><parent link="base_link"/><child link="mast"/><origin xyz="0.22 0 0.16"/></joint>
 
@@ -221,7 +226,7 @@
            which is the entire reason for having it. -->
   <link name="camera_pan">
     <inertial><mass value="0.08"/><inertia ixx="2e-5" ixy="0" ixz="0" iyy="2e-5" iyz="0" izz="2e-5"/></inertial>
-    <visual><geometry><cylinder radius="0.022" length="0.03"/></geometry><material name="grey"/></visual>
+    <visual><geometry><cylinder radius="0.022" length="0.03"/></geometry><material name="grey"><color rgba="0.42 0.42 0.45 1"/></material></visual>
   </link>
   <!-- Revolute, so sdformat keeps camera_pan as a REAL link instead of
        lumping it into base_link the way it does with fixed joints. That is
@@ -241,7 +246,7 @@
 
   <link name="camera">
     <inertial><mass value="0.05"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
-    <visual><geometry><box size="0.03 0.09 0.03"/></geometry><material name="dark"/></visual>
+    <visual><geometry><box size="0.03 0.09 0.03"/></geometry><material name="dark"><color rgba="0.14 0.14 0.16 1"/></material></visual>
   </link>
   <!-- Pitched up 0.28 rad so the view clears the 0.8 m gutter edge and sees
        the fruit on top; a level view only shows the brown gutter wall. The

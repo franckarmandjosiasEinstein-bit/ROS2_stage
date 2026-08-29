@@ -77,6 +77,8 @@ class SlamNode(Node):
         self._mature = float(self.get_parameter("mature_log_odds").value)
         self._moved = 0.0
         self._turned = 0.0
+        self._accepted = 0
+        self._rejected = 0
 
         self._odom = None
         self._odom_hist = deque(maxlen=200)
@@ -158,12 +160,20 @@ class SlamNode(Node):
             g = self._gain
             dx = est[0] - prior[0]
             dy = est[1] - prior[1]
-            dth_c = math.atan2(math.sin(est[2] - prior[2]),
-                               math.cos(est[2] - prior[2]))
-            self._pose = (prior[0] + g * dx,
-                          prior[1] + g * dy,
-                          math.atan2(math.sin(prior[2] + g * dth_c),
-                                     math.cos(prior[2] + g * dth_c)))
+            corr_mag = math.hypot(dx, dy)
+            odom_step = math.hypot(dxb, dyb)
+            if corr_mag > max(0.03, odom_step * 3.0):
+                self._pose = prior
+                quality = 0.0
+                self._rejected += 1
+            else:
+                dth_c = math.atan2(math.sin(est[2] - prior[2]),
+                                   math.cos(est[2] - prior[2]))
+                self._pose = (prior[0] + g * dx,
+                              prior[1] + g * dy,
+                              math.atan2(math.sin(prior[2] + g * dth_c),
+                                         math.cos(prior[2] + g * dth_c)))
+                self._accepted += 1
         else:
             self._pose, quality = prior, 1.0
 
@@ -239,15 +249,20 @@ class SlamNode(Node):
         slam_err = self._err_sum / self._err_n
         odom_err = math.hypot(self._odom[0] - self._gt[0],
                               self._odom[1] - self._gt[1])
+        inst_err = math.hypot(self._pose[0] - self._gt[0],
+                              self._pose[1] - self._gt[1])
         self._err_sum, self._err_n = 0.0, 0
         winner = "SLAM" if slam_err < odom_err else "odometry"
         gains = "(no matcher)"
         if self._matcher is not None:
             gx, gy, gth = self._matcher.last_axis_gains
-            gains = f"axis gains X={gx:.2f} Y={gy:.2f} th={gth:.2f}"
+            gains = f"gains X={gx:.2f} Y={gy:.2f} th={gth:.2f}"
+        acc, rej = self._accepted, self._rejected
+        self._accepted, self._rejected = 0, 0
         self.get_logger().info(
-            f"pose error: SLAM {slam_err:.02f} m | prior {odom_err:.02f} m "
-            f"({winner} wins) | {gains}")
+            f"err SLAM {slam_err:.02f} m (now {inst_err:.02f}) | "
+            f"odom {odom_err:.02f} m ({winner} wins) | "
+            f"{gains} | corr {acc} ok {rej} rejected")
 
 
 def main(args=None) -> None:

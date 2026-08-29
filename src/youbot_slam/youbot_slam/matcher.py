@@ -46,10 +46,14 @@ class OnlineScanMatcher(ScanMatcher):
                  angle_min: float, angle_inc: float,
                  beam_stride: int = 3, sigma_m: float = 0.12,
                  min_valid_range: float = 0.35, min_beams: int = 10,
-                 min_gain: float = 0.01) -> None:
+                 min_gain: float = 0.05,
+                 max_lin: float = 0.04,
+                 max_ang: float = 0.03) -> None:
         super().__init__(ref_grid, resolution, arena_size, beam_stride, sigma_m)
         self.min_beams = min_beams
         self.min_gain = min_gain
+        self.max_lin = max_lin
+        self.max_ang = max_ang
         self.known = known
         self.angle_min = angle_min
         self.angle_inc = angle_inc
@@ -168,15 +172,17 @@ class OnlineScanMatcher(ScanMatcher):
 
         if score > prior_score + self.min_gain:
             gx, gy, gth = self._axis_gains(prior, ranges, max_range)
-            pose = (prior[0] + gx * (fine[0] - prior[0]),
-                    prior[1] + gy * (fine[1] - prior[1]),
-                    math.atan2(
-                        math.sin(prior[2] + gth * math.atan2(
-                            math.sin(fine[2] - prior[2]),
-                            math.cos(fine[2] - prior[2]))),
-                        math.cos(prior[2] + gth * math.atan2(
-                            math.sin(fine[2] - prior[2]),
-                            math.cos(fine[2] - prior[2])))))
+            dx = fine[0] - prior[0]
+            dy = fine[1] - prior[1]
+            dth = math.atan2(math.sin(fine[2] - prior[2]),
+                             math.cos(fine[2] - prior[2]))
+            dx = max(-self.max_lin, min(self.max_lin, dx))
+            dy = max(-self.max_lin, min(self.max_lin, dy))
+            dth = max(-self.max_ang, min(self.max_ang, dth))
+            pose = (prior[0] + gx * dx,
+                    prior[1] + gy * dy,
+                    math.atan2(math.sin(prior[2] + gth * dth),
+                               math.cos(prior[2] + gth * dth)))
         else:
             pose = prior
             gx, gy, gth = 0.0, 0.0, 0.0
