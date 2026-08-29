@@ -151,6 +151,10 @@ def generate_launch_description() -> LaunchDescription:
         package="youbot_slam", executable="noisy_odom", name="noisy_odom",
         output="screen", parameters=[{"publish_tf": True}, sim_time],
         condition=use_toolbox)
+    toolbox_scan_relay = Node(
+        package="youbot_slam", executable="scan_relay", name="scan_relay",
+        output="screen", parameters=[sim_time],
+        condition=use_toolbox)
     toolbox_slam_node = Node(
         package="slam_toolbox", executable="async_slam_toolbox_node",
         name="slam_toolbox", output="screen",
@@ -237,7 +241,7 @@ def generate_launch_description() -> LaunchDescription:
              parameters=[{"config_file": bridge_cfg}, sim_time]),
 
         # --- SLAM backends (only one set is active) -----------------------
-        toolbox_noisy_odom, toolbox_slam, toolbox_pose,
+        toolbox_noisy_odom, toolbox_scan_relay, toolbox_slam, toolbox_pose,
         custom_noisy_odom, custom_calibrator, slam_node,
         none_noisy_odom, none_calibrator, none_tf,
 
